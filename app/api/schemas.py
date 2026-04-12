@@ -1,0 +1,388 @@
+import json
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, field_validator
+
+
+# ---------------------------------------------------------------------------
+# Shared
+# ---------------------------------------------------------------------------
+
+class PaginatedResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    items: list[Any]
+    total: int
+    skip: int
+    limit: int
+
+
+# ---------------------------------------------------------------------------
+# Source
+# ---------------------------------------------------------------------------
+
+class SourceStats(BaseModel):
+    pending_records: int = 0
+    approved_records: int = 0
+    rejected_records: int = 0
+    high_confidence: int = 0
+    medium_confidence: int = 0
+    low_confidence: int = 0
+
+
+class SourceCreate(BaseModel):
+    url: str
+    name: str | None = None
+
+
+class SourceUpdate(BaseModel):
+    name: str | None = None
+    status: str | None = None
+
+
+class SourceResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    url: str
+    name: str | None
+    status: str
+    total_pages: int
+    total_records: int
+    last_crawled_at: datetime | None
+    created_at: datetime
+    stats: SourceStats | None = None
+
+
+class SourceDetailResponse(SourceResponse):
+    site_map: str | None = None
+    error_message: str | None = None
+    updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Mining
+# ---------------------------------------------------------------------------
+
+class MineStartRequest(BaseModel):
+    max_depth: int | None = None
+    max_pages: int | None = None
+    sections: list[str] | None = None
+
+
+class MineStartResponse(BaseModel):
+    job_id: str
+    source_id: str
+    status: str
+    message: str
+
+
+class MineStatusProgress(BaseModel):
+    pages_crawled: int
+    pages_total_estimated: int
+    records_extracted: int
+    percent_complete: int
+
+
+class JobSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    job_type: str
+    status: str
+    started_at: datetime | None = None
+
+
+class MineStatusResponse(BaseModel):
+    source_id: str
+    status: str
+    current_job: JobSummary | None = None
+    progress: MineStatusProgress | None = None
+
+
+# ---------------------------------------------------------------------------
+# Page
+# ---------------------------------------------------------------------------
+
+class PageResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    source_id: str
+    url: str
+    page_type: str
+    status: str
+    title: str | None
+    depth: int
+    fetch_method: str | None
+    crawled_at: datetime | None
+    record_count: int = 0
+
+
+class PageDetailResponse(PageResponse):
+    html: str | None
+    original_url: str
+    error_message: str | None
+    created_at: datetime
+    extracted_at: datetime | None
+
+
+# ---------------------------------------------------------------------------
+# Record
+# ---------------------------------------------------------------------------
+
+class RecordListItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    source_id: str
+    record_type: str
+    status: str
+    title: str | None
+    description: str | None
+    confidence_score: int
+    confidence_band: str
+    confidence_reasons: list[str] = []
+    source_url: str | None
+    image_count: int = 0
+    primary_image_url: str | None = None
+    created_at: datetime
+
+    @field_validator("confidence_reasons", mode="before")
+    @classmethod
+    def parse_confidence_reasons(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except Exception:
+                return []
+        return v or []
+
+
+class ImageResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    url: str
+    image_type: str
+    alt_text: str | None
+    confidence: int
+    is_valid: bool
+    mime_type: str | None = None
+    width: int | None = None
+    height: int | None = None
+
+
+class RecordDetailResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    source_id: str
+    record_type: str
+    status: str
+    title: str | None
+    description: str | None
+    source_url: str | None
+
+    # Event/Exhibition
+    start_date: str | None = None
+    end_date: str | None = None
+    venue_name: str | None = None
+    venue_address: str | None = None
+    artist_names: list[str] = []
+    ticket_url: str | None = None
+    is_free: bool | None = None
+    price_text: str | None = None
+    curator: str | None = None
+
+    # Artist
+    bio: str | None = None
+    nationality: str | None = None
+    birth_year: int | None = None
+    mediums: list[str] = []
+    collections: list[str] = []
+    website_url: str | None = None
+    instagram_url: str | None = None
+    email: str | None = None
+    avatar_url: str | None = None
+
+    # Venue
+    address: str | None = None
+    city: str | None = None
+    country: str | None = None
+    phone: str | None = None
+    opening_hours: str | None = None
+
+    # Artwork
+    medium: str | None = None
+    year: int | None = None
+    dimensions: str | None = None
+    price: str | None = None
+
+    confidence_score: int
+    confidence_band: str
+    confidence_reasons: list[str] = []
+    admin_notes: str | None = None
+    primary_image_id: str | None = None
+    images: list[ImageResponse] = []
+    created_at: datetime
+    updated_at: datetime
+    exported_at: datetime | None = None
+
+    @field_validator("artist_names", "mediums", "collections", "confidence_reasons", mode="before")
+    @classmethod
+    def parse_json_array(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except Exception:
+                return []
+        return v or []
+
+
+class RecordUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    venue_name: str | None = None
+    venue_address: str | None = None
+    artist_names: list[str] | None = None
+    ticket_url: str | None = None
+    is_free: bool | None = None
+    price_text: str | None = None
+    curator: str | None = None
+    bio: str | None = None
+    nationality: str | None = None
+    birth_year: int | None = None
+    mediums: list[str] | None = None
+    collections: list[str] | None = None
+    website_url: str | None = None
+    instagram_url: str | None = None
+    email: str | None = None
+    avatar_url: str | None = None
+    address: str | None = None
+    city: str | None = None
+    country: str | None = None
+    phone: str | None = None
+    opening_hours: str | None = None
+    medium: str | None = None
+    year: int | None = None
+    dimensions: str | None = None
+    price: str | None = None
+    admin_notes: str | None = None
+
+
+class ApproveResponse(BaseModel):
+    id: str
+    status: str
+
+
+class RejectRequest(BaseModel):
+    reason: str | None = None
+
+
+class BulkApproveRequest(BaseModel):
+    source_id: str
+    min_confidence: int = 70
+    record_type: str | None = None
+
+
+class BulkApproveResponse(BaseModel):
+    approved_count: int
+
+
+class SetPrimaryImageRequest(BaseModel):
+    image_id: str
+
+
+# ---------------------------------------------------------------------------
+# Images
+# ---------------------------------------------------------------------------
+
+class ValidateImagesRequest(BaseModel):
+    urls: list[str]
+
+
+class ImageValidationResult(BaseModel):
+    url: str
+    is_valid: bool
+    mime_type: str | None = None
+    status_code: int | None = None
+    error: str | None = None
+
+
+class ValidateImagesResponse(BaseModel):
+    results: list[ImageValidationResult]
+
+
+# ---------------------------------------------------------------------------
+# Export
+# ---------------------------------------------------------------------------
+
+class ExportPreviewByType(BaseModel):
+    artist: int = 0
+    event: int = 0
+    exhibition: int = 0
+    venue: int = 0
+    artwork: int = 0
+
+
+class ExportPreviewResponse(BaseModel):
+    record_count: int
+    by_type: ExportPreviewByType
+    artio_configured: bool
+
+
+class ExportPushRequest(BaseModel):
+    source_id: str | None = None
+    record_ids: list[str] = []
+
+
+class ExportPushResponse(BaseModel):
+    exported_count: int
+    failed_count: int
+    errors: list[str] = []
+
+
+# ---------------------------------------------------------------------------
+# Stats
+# ---------------------------------------------------------------------------
+
+class SourceStats2(BaseModel):
+    total: int
+    active: int
+    done: int
+
+
+class RecordStats(BaseModel):
+    total: int
+    pending: int
+    approved: int
+    rejected: int
+    exported: int
+    by_type: dict[str, int]
+    by_confidence: dict[str, int]
+
+
+class PageStats(BaseModel):
+    total: int
+    crawled: int
+    error: int
+
+
+class GlobalStats(BaseModel):
+    sources: SourceStats2
+    records: RecordStats
+    pages: PageStats
+
+
+# ---------------------------------------------------------------------------
+# Job
+# ---------------------------------------------------------------------------
+
+class JobResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    source_id: str
+    job_type: str
+    status: str
+    error_message: str | None
+    attempts: int
+    started_at: datetime | None
+    completed_at: datetime | None
+    created_at: datetime

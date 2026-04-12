@@ -1,0 +1,67 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_db
+from app.api.schemas import (
+    SourceCreate,
+    SourceDetailResponse,
+    SourceResponse,
+    SourceStats,
+    SourceUpdate,
+)
+from app.db import crud
+
+router = APIRouter(prefix="/sources", tags=["sources"])
+
+
+@router.get("", response_model=dict)
+async def list_sources(skip: int = 0, limit: int = 50, db: AsyncSession = Depends(get_db)):
+    sources = await crud.list_sources(db, skip=skip, limit=limit)
+    total = len(sources)  # Simple count for now
+
+    items = []
+    for source in sources:
+        stats_data = await crud.get_source_stats(db, source.id)
+        source_dict = SourceResponse.model_validate(source).model_dump()
+        source_dict["stats"] = SourceStats(**stats_data).model_dump()
+        items.append(source_dict)
+
+    return {"items": items, "total": total, "skip": skip, "limit": limit}
+
+
+@router.post("", response_model=SourceResponse, status_code=201)
+async def create_source(body: SourceCreate, db: AsyncSession = Depends(get_db)):
+    existing = await crud.get_source_by_url(db, body.url)
+    if existing:
+        raise HTTPException(status_code=409, detail="Source with this URL already exists")
+    source = await crud.create_source(db, url=body.url, name=body.name)
+    return source
+
+
+@router.get("/{source_id}", response_model=SourceDetailResponse)
+async def get_source(source_id: str, db: AsyncSession = Depends(get_db)):
+    source = await crud.get_source(db, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return source
+
+
+@router.patch("/{source_id}", response_model=SourceResponse)
+async def update_source(
+    source_id: str, body: SourceUpdate, db: AsyncSession = Depends(get_db)
+):
+    source = await crud.get_source(db, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    kwargs = {k: v for k, v in body.model_dump().items() if v is not None}
+    if kwargs:
+        source = await crud.update_source(db, source_id, **kwargs)
+    return source
+
+
+@router.delete("/{source_id}", status_code=204)
+async def delete_source(source_id: str, db: AsyncSession = Depends(get_db)):
+    source = await crud.get_source(db, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    await crud.delete_source(db, source_id)
