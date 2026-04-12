@@ -1,7 +1,9 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     openai_api_key: str = "sk-placeholder"
     openai_model: str = "gpt-4o"
     database_url: str = "sqlite+aiosqlite:///./data/miner.db"
@@ -12,9 +14,6 @@ class Settings(BaseSettings):
     crawl_delay_ms: int = 1000
     playwright_enabled: bool = True
     cors_origins: list[str] = ["http://localhost:5173"]
-
-    class Config:
-        env_file = ".env"
 
 
 settings = Settings()
