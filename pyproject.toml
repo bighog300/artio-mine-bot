@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "artio-miner"
+version = "1.0.0"
+description = "Artio web mining and data extraction tool"
+requires-python = ">=3.11"
+
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.30.0",
+  "sqlalchemy>=2.0.0",
+  "aiosqlite>=0.20.0",
+  "alembic>=1.13.0",
+  "httpx>=0.27.0",
+  "playwright>=1.44.0",
+  "beautifulsoup4>=4.12.0",
+  "lxml>=5.2.0",
+  "openai>=1.30.0",
+  "tiktoken>=0.7.0",
+  "pydantic>=2.7.0",
+  "pydantic-settings>=2.3.0",
+  "python-dotenv>=1.0.0",
+  "structlog>=24.1.0",
+  "tenacity>=8.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2.0",
+  "pytest-asyncio>=0.23.0",
+  "pytest-mock>=3.14.0",
+  "respx>=0.21.0",
+  "ruff>=0.4.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
