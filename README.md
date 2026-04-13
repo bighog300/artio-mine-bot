@@ -42,6 +42,25 @@ npm run dev
 
 Open http://localhost:5173 in your browser.
 
+## Quick Start (Vercel)
+
+Deploy the API as a serverless function and the frontend as a static site — no
+server required.
+
+1. Install the [Vercel CLI](https://vercel.com/docs/cli): `npm i -g vercel`
+2. Set the following environment variables in your Vercel project settings:
+   - `OPENAI_API_KEY` — required
+   - `DATABASE_URL` — PostgreSQL connection string (e.g. Neon serverless)
+   - `ARTIO_API_URL` / `ARTIO_API_KEY` — optional, for export
+   - `CORS_ORIGINS` — your Vercel frontend URL (e.g. `https://artio-miner.vercel.app`)
+   - `ENVIRONMENT=production` — disables Playwright (not available serverless)
+3. Deploy: `vercel --prod`
+
+> **Note:** Playwright-based JS rendering is automatically disabled in
+> production (`ENVIRONMENT=production`).  Crawls fall back to plain HTTP
+> fetching.  Run database migrations via `alembic upgrade head` against your
+> production `DATABASE_URL` before deploying.
+
 ## Quick Start (Docker)
 
 ```bash
@@ -71,6 +90,7 @@ Open http://localhost:5173 in your browser.
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `OPENAI_API_KEY` | ✅ | — | OpenAI API key |
+| `ENVIRONMENT` | | `development` | Set to `production` to disable Playwright |
 | `OPENAI_MODEL` | | `gpt-4o` | Model to use |
 | `DATABASE_URL` | | `sqlite+aiosqlite:///./data/miner.db` | Database URL |
 | `ARTIO_API_URL` | | — | Artio platform API URL |
