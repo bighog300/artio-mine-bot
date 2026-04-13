@@ -2,15 +2,12 @@ import httpx
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.config import BASE_DIR, settings
+from app.config import settings
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
-_ENV_FILE = BASE_DIR / ".env"
-
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
-
 
 class SettingsResponse(BaseModel):
     artio_api_url: str | None
@@ -19,6 +16,7 @@ class SettingsResponse(BaseModel):
     max_pages_per_source: int
     crawl_delay_ms: int
     artio_configured: bool
+    readonly: bool  # True on Vercel — settings managed via env vars
 
 
 class SaveSettingsRequest(BaseModel):
@@ -36,28 +34,18 @@ class TestConnectionResponse(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-
 def _mask_key(key: str | None) -> str | None:
-    """Return a display-safe masked version of an API key."""
     if not key:
         return None
     return f"***...{key[-4:]}" if len(key) > 4 else "****"
 
 
-def _set_env(key: str, value: str) -> None:
-    from dotenv import set_key
-    _ENV_FILE.touch(exist_ok=True)
-    set_key(str(_ENV_FILE), key, value)
-
-
-def _unset_env(key: str) -> None:
-    from dotenv import unset_key
-    if _ENV_FILE.exists():
-        unset_key(str(_ENV_FILE), key)
+def _is_readonly() -> bool:
+    """Vercel filesystem is read-only — detect via ENVIRONMENT=production."""
+    return settings.environment == "production"
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
-
 
 @router.get("", response_model=SettingsResponse)
 async def get_settings() -> SettingsResponse:
@@ -68,51 +56,63 @@ async def get_settings() -> SettingsResponse:
         max_pages_per_source=settings.max_pages_per_source,
         crawl_delay_ms=settings.crawl_delay_ms,
         artio_configured=bool(settings.artio_api_url and settings.artio_api_key),
+        readonly=_is_readonly(),
     )
 
 
 @router.post("", response_model=SettingsResponse)
 async def save_settings(body: SaveSettingsRequest) -> SettingsResponse:
     """
-    Persist changed settings to .env and update the live settings object.
-
-    Uses model_fields_set to distinguish "explicitly sent as null/empty" from
-    "not included in the request body".
-    API key: if submitted value starts with "***" it is the masked display value
-    and is silently ignored (no update).
+    Persist settings. On Vercel (readonly filesystem), only updates the
+    in-memory settings object — changes won't survive a cold start.
+    Configure permanent values via Vercel Environment Variables dashboard.
     """
     sent = body.model_fields_set
+    readonly = _is_readonly()
 
+    if not readonly:
+        # Only write to .env file when running locally / on Docker
+        from app.config import BASE_DIR
+        from dotenv import set_key, unset_key
+        env_file = BASE_DIR / ".env"
+
+        if "artio_api_url" in sent:
+            url = (body.artio_api_url or "").strip()
+            if url:
+                set_key(str(env_file), "ARTIO_API_URL", url)
+            else:
+                unset_key(str(env_file), "ARTIO_API_URL")
+
+        if "artio_api_key" in sent and body.artio_api_key:
+            key = body.artio_api_key.strip()
+            if not key.startswith("***") and key:
+                set_key(str(env_file), "ARTIO_API_KEY", key)
+
+        if "max_crawl_depth" in sent and body.max_crawl_depth is not None:
+            set_key(str(env_file), "MAX_CRAWL_DEPTH", str(body.max_crawl_depth))
+
+        if "max_pages_per_source" in sent and body.max_pages_per_source is not None:
+            set_key(str(env_file), "MAX_PAGES_PER_SOURCE", str(body.max_pages_per_source))
+
+        if "crawl_delay_ms" in sent and body.crawl_delay_ms is not None:
+            set_key(str(env_file), "CRAWL_DELAY_MS", str(body.crawl_delay_ms))
+
+    # Always update in-memory settings
     if "artio_api_url" in sent:
-        url = (body.artio_api_url or "").strip()
-        if url:
-            _set_env("ARTIO_API_URL", url)
-            settings.artio_api_url = url
-        else:
-            _unset_env("ARTIO_API_URL")
-            settings.artio_api_url = None
+        settings.artio_api_url = (body.artio_api_url or "").strip() or None
 
     if "artio_api_key" in sent and body.artio_api_key:
         key = body.artio_api_key.strip()
-        if key.startswith("***"):
-            pass  # masked display value — leave unchanged
-        elif key:
-            _set_env("ARTIO_API_KEY", key)
-            settings.artio_api_key = key
-        else:
-            _unset_env("ARTIO_API_KEY")
-            settings.artio_api_key = None
+        if not key.startswith("***"):
+            settings.artio_api_key = key or None
 
     if "max_crawl_depth" in sent and body.max_crawl_depth is not None:
-        _set_env("MAX_CRAWL_DEPTH", str(body.max_crawl_depth))
         settings.max_crawl_depth = body.max_crawl_depth
 
     if "max_pages_per_source" in sent and body.max_pages_per_source is not None:
-        _set_env("MAX_PAGES_PER_SOURCE", str(body.max_pages_per_source))
         settings.max_pages_per_source = body.max_pages_per_source
 
     if "crawl_delay_ms" in sent and body.crawl_delay_ms is not None:
-        _set_env("CRAWL_DELAY_MS", str(body.crawl_delay_ms))
         settings.crawl_delay_ms = body.crawl_delay_ms
 
     return await get_settings()
@@ -120,7 +120,6 @@ async def save_settings(body: SaveSettingsRequest) -> SettingsResponse:
 
 @router.post("/test-artio", response_model=TestConnectionResponse)
 async def test_artio_connection() -> TestConnectionResponse:
-    """Probe the configured Artio API endpoint and report reachability."""
     if not settings.artio_api_url or not settings.artio_api_key:
         return TestConnectionResponse(
             success=False,
@@ -141,9 +140,7 @@ async def test_artio_connection() -> TestConnectionResponse:
             success=False, message=f"Server returned HTTP {resp.status_code}"
         )
     except httpx.ConnectError:
-        return TestConnectionResponse(
-            success=False, message="Connection refused — check the URL"
-        )
+        return TestConnectionResponse(success=False, message="Connection refused — check the URL")
     except httpx.TimeoutException:
         return TestConnectionResponse(success=False, message="Request timed out")
     except Exception as exc:

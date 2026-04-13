@@ -7,18 +7,7 @@ from sqlalchemy.pool import NullPool
 from app.config import ensure_data_dir, settings
 
 _is_sqlite = settings.database_url.startswith("sqlite")
-_is_production = settings.environment == "production"
 
-# Engine kwargs per environment:
-# - SQLite (local dev / tests): check_same_thread, pre-ping
-# - Production Postgres (Neon serverless): NullPool — never hold idle connections
-#   across invocations; Neon closes them anyway.
-# - Dev/staging Postgres: standard pool with pre-ping
-_engine_kwargs: dict = {"echo": False}
-if _is_sqlite:
-    _engine_kwargs["connect_args"] = {"check_same_thread": False}
-    _engine_kwargs["pool_pre_ping"] = True
-elif _is_production:
     _engine_kwargs["poolclass"] = NullPool
 else:
     _engine_kwargs["pool_size"] = 5
