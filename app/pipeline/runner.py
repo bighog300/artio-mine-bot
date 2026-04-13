@@ -24,9 +24,11 @@ from app.crawler.site_mapper import SiteMap, Section, map_site
 from app.config import settings
 from app.db import crud
 from app.db.database import AsyncSessionLocal
+from app.db.log_writer import configure_structlog_for_service
 from app.db.models import Page, Record
 from app.pipeline.image_collector import collect_images
 
+worker_log_processor = configure_structlog_for_service("worker")
 logger = structlog.get_logger()
 
 # Map page_type to record_type for detail pages
@@ -307,53 +309,57 @@ async def _run_pipeline_job_async(
     payload: dict[str, Any],
 ) -> None:
     del payload  # reserved for future task-specific options
+    await worker_log_processor.start()
 
-    async with AsyncSessionLocal() as db:
-        ai_client = OpenAIClient()
-        runner = PipelineRunner(db=db, ai_client=ai_client)
-        await crud.update_job_status(
-            db,
-            job_id,
-            "running",
-            started_at=datetime.now(UTC),
-        )
-
-        try:
-            if job_type == "run_full_pipeline":
-                await runner.run_full_pipeline(source_id)
-                result = {"status": "done"}
-            elif job_type == "map_site":
-                site_map = await runner.run_map_site(source_id)
-                result = {"sections": len(site_map.sections)}
-            elif job_type == "crawl_section":
-                result = await runner.run_crawl(source_id)
-            elif job_type == "extract_page":
-                stats = await runner.run_extract(source_id)
-                result = {
-                    "records_created": stats.records_created,
-                    "records_failed": stats.records_failed,
-                    "pages_processed": stats.pages_processed,
-                }
-            else:
-                raise ValueError(f"Unsupported job type: {job_type}")
-
+    try:
+        async with AsyncSessionLocal() as db:
+            ai_client = OpenAIClient()
+            runner = PipelineRunner(db=db, ai_client=ai_client)
             await crud.update_job_status(
                 db,
                 job_id,
-                "done",
-                result=result,
-                completed_at=datetime.now(UTC),
+                "running",
+                started_at=datetime.now(UTC),
             )
-        except Exception as exc:
-            logger.exception("pipeline_job_failed", job_id=job_id, error=str(exc))
-            await crud.update_job_status(
-                db,
-                job_id,
-                "failed",
-                error_message=str(exc),
-                completed_at=datetime.now(UTC),
-            )
-            raise
+
+            try:
+                if job_type == "run_full_pipeline":
+                    await runner.run_full_pipeline(source_id)
+                    result = {"status": "done"}
+                elif job_type == "map_site":
+                    site_map = await runner.run_map_site(source_id)
+                    result = {"sections": len(site_map.sections)}
+                elif job_type == "crawl_section":
+                    result = await runner.run_crawl(source_id)
+                elif job_type == "extract_page":
+                    stats = await runner.run_extract(source_id)
+                    result = {
+                        "records_created": stats.records_created,
+                        "records_failed": stats.records_failed,
+                        "pages_processed": stats.pages_processed,
+                    }
+                else:
+                    raise ValueError(f"Unsupported job type: {job_type}")
+
+                await crud.update_job_status(
+                    db,
+                    job_id,
+                    "done",
+                    result=result,
+                    completed_at=datetime.now(UTC),
+                )
+            except Exception as exc:
+                logger.exception("pipeline_job_failed", job_id=job_id, error=str(exc))
+                await crud.update_job_status(
+                    db,
+                    job_id,
+                    "failed",
+                    error_message=str(exc),
+                    completed_at=datetime.now(UTC),
+                )
+                raise
+    finally:
+        await worker_log_processor.stop()
 
 
 def process_pipeline_job(

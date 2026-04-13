@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Globe, Database, Image, Upload, FileText, Settings } from "lucide-react";
+import { LayoutDashboard, Globe, Database, Image, Upload, FileText, Settings, TerminalSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -9,6 +9,7 @@ const navItems = [
   { to: "/records", label: "Records", icon: Database },
   { to: "/images", label: "Images", icon: Image },
   { to: "/export", label: "Export", icon: Upload },
+  { to: "/logs", label: "Logs", icon: TerminalSquare },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
