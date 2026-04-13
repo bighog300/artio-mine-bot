@@ -1,10 +1,11 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Globe, Database, Image, Upload } from "lucide-react";
+import { LayoutDashboard, Globe, Database, Image, Upload, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/sources", label: "Sources", icon: Globe },
+  { to: "/pages", label: "Pages", icon: FileText },
   { to: "/records", label: "Records", icon: Database },
   { to: "/images", label: "Images", icon: Image },
   { to: "/export", label: "Export", icon: Upload },
