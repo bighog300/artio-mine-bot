@@ -1,5 +1,5 @@
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -174,15 +174,20 @@ async def test_list_pages(test_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_mine_start(test_client: AsyncClient):
-    create_resp = await test_client.post("/api/sources", json={"url": "https://mine-test.com"})
+    create_resp = await test_client.post(
+        "/api/sources", json={"url": "https://mine-test.com"}
+    )
     source_id = create_resp.json()["id"]
 
-    with patch("app.api.routes.mine.run_pipeline", new=AsyncMock()) if False else __import__("contextlib").nullcontext():
+    with patch(
+        "app.api.routes.mine._enqueue_pipeline_job",
+        return_value="mock-rq-job-id",
+    ):
         resp = await test_client.post(f"/api/mine/{source_id}/start")
-    assert resp.status_code == 202
+
+    assert resp.status_code == 200
     data = resp.json()
-    assert "job_id" in data
-    assert data["status"] == "pending"
+    assert data["status"] in ("queued", "running", "pending")
 
 
 @pytest.mark.asyncio

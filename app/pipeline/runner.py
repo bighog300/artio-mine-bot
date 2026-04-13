@@ -6,7 +6,7 @@ from typing import Any
 
 import structlog
 from redis import from_url
-from rq import Connection, Worker
+from rq import Worker
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.classifier import classify_page
@@ -370,9 +370,8 @@ def process_pipeline_job(
 def main() -> None:
     redis_url = os.environ.get("REDIS_URL", settings.redis_url)
     redis_conn = from_url(redis_url)
-    with Connection(redis_conn):
-        worker = Worker(["default"])
-        worker.work()
+    worker = Worker(["default"], connection=redis_conn)
+    worker.work()
 
 
 if __name__ == "__main__":

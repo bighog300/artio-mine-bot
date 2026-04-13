@@ -35,7 +35,7 @@ def _enqueue_pipeline_job(job_id: str, source_id: str, job_type: str, payload: d
     return rq_job.id
 
 
-@router.post("/{source_id}/start", response_model=MineStartResponse, status_code=202)
+@router.post("/{source_id}/start", response_model=MineStartResponse, status_code=200)
 async def start_mining(
     source_id: str,
     body: MineStartRequest | None = None,
