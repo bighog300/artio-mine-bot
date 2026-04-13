@@ -12,8 +12,12 @@ import app.db.models  # noqa: F401
 from app.config import settings
 
 config = context.config
-# Always use the computed absolute URL from settings (respects DATABASE_URL env var)
+# Always use the computed URL from settings (respects DATABASE_URL env var)
 config.set_main_option("sqlalchemy.url", settings.database_url)
+
+# render_as_batch is required for SQLite (no native ALTER TABLE).
+# PostgreSQL supports ALTER TABLE natively so it is unnecessary there.
+_render_as_batch = settings.database_url.startswith("sqlite")
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -28,7 +32,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        render_as_batch=True,
+        render_as_batch=_render_as_batch,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -38,7 +42,7 @@ def do_run_migrations(connection):
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
-        render_as_batch=True,
+        render_as_batch=_render_as_batch,
     )
     with context.begin_transaction():
         context.run_migrations()
