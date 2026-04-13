@@ -28,8 +28,9 @@ data/
 # Tests — not needed at runtime
 tests/
 
-# Frontend source — built separately via Dockerfile.frontend
-frontend/
+# ✅ FIX: allow frontend, only ignore heavy parts
+frontend/node_modules
+frontend/dist
 
 # Documentation
 docs/
