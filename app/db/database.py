@@ -10,8 +10,6 @@ from app.config import ensure_data_dir, settings, validate_async_driver
 
 logger = structlog.get_logger()
 
-validate_async_driver(settings.database_url)
-
 _is_sqlite = settings.database_url.startswith("sqlite")
 _is_serverless = settings.environment == "production" and not _is_sqlite
 
@@ -58,6 +56,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
+    validate_async_driver(settings.database_url)
     # data/ directory only makes sense for SQLite; PostgreSQL manages its own storage
     if _is_sqlite:
         ensure_data_dir()

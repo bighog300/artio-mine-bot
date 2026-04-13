@@ -92,6 +92,11 @@ class Settings(BaseSettings):
             self.playwright_enabled = self.environment != "production"
         return self
 
+    @model_validator(mode="after")
+    def _normalize_db_url(self) -> "Settings":
+        self.database_url = normalize_database_url(self.database_url)
+        return self
+
 
 settings = Settings()
 
