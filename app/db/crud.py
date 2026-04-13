@@ -18,7 +18,7 @@ logger = structlog.get_logger()
 async def create_source(db: AsyncSession, url: str, name: str | None = None) -> Source:
     source = Source(url=url, name=name)
     db.add(source)
-    await db.flush()
+    await db.commit()
     await db.refresh(source)
     return source
 
@@ -45,7 +45,7 @@ async def update_source(db: AsyncSession, source_id: str, **kwargs: Any) -> Sour
     for key, value in kwargs.items():
         setattr(source, key, value)
     source.updated_at = datetime.now(UTC)
-    await db.flush()
+    await db.commit()
     await db.refresh(source)
     return source
 
@@ -55,7 +55,7 @@ async def delete_source(db: AsyncSession, source_id: str) -> bool:
     if source is None:
         return False
     await db.delete(source)
-    await db.flush()
+    await db.commit()
     return True
 
 
@@ -109,7 +109,7 @@ async def create_page(db: AsyncSession, source_id: str, url: str, **kwargs: Any)
     original_url = kwargs.pop("original_url", url)
     page = Page(source_id=source_id, url=url, original_url=original_url, **kwargs)
     db.add(page)
-    await db.flush()
+    await db.commit()
     await db.refresh(page)
     return page
 
@@ -156,7 +156,7 @@ async def update_page(db: AsyncSession, page_id: str, **kwargs: Any) -> Page:
         raise ValueError(f"Page {page_id} not found")
     for key, value in kwargs.items():
         setattr(page, key, value)
-    await db.flush()
+    await db.commit()
     await db.refresh(page)
     return page
 
@@ -183,7 +183,7 @@ async def create_record(
             kwargs[field] = json.dumps(kwargs[field])
     record = Record(source_id=source_id, record_type=record_type, **kwargs)
     db.add(record)
-    await db.flush()
+    await db.commit()
     await db.refresh(record)
     return record
 
@@ -230,7 +230,7 @@ async def update_record(db: AsyncSession, record_id: str, **kwargs: Any) -> Reco
             value = json.dumps(value)
         setattr(record, key, value)
     record.updated_at = datetime.now(UTC)
-    await db.flush()
+    await db.commit()
     await db.refresh(record)
     return record
 
@@ -255,7 +255,7 @@ async def bulk_approve(db: AsyncSession, source_id: str, min_confidence: int = 7
     for record in records:
         record.status = "approved"
         record.updated_at = datetime.now(UTC)
-    await db.flush()
+    await db.commit()
     return len(records)
 
 
@@ -279,7 +279,7 @@ async def count_records(
 async def create_image(db: AsyncSession, source_id: str, url: str, **kwargs: Any) -> Image:
     image = Image(source_id=source_id, url=url, **kwargs)
     db.add(image)
-    await db.flush()
+    await db.commit()
     await db.refresh(image)
     return image
 
@@ -313,7 +313,7 @@ async def set_primary_image(db: AsyncSession, record_id: str, image_id: str) -> 
         raise ValueError(f"Record {record_id} not found")
     record.primary_image_id = image_id
     record.updated_at = datetime.now(UTC)
-    await db.flush()
+    await db.commit()
     await db.refresh(record)
     return record
 
@@ -328,7 +328,7 @@ async def create_job(
 ) -> Job:
     job = Job(source_id=source_id, job_type=job_type, payload=json.dumps(payload))
     db.add(job)
-    await db.flush()
+    await db.commit()
     await db.refresh(job)
     return job
 
@@ -352,7 +352,7 @@ async def update_job_status(
         if key == "result" and isinstance(value, dict):
             value = json.dumps(value)
         setattr(job, key, value)
-    await db.flush()
+    await db.commit()
     await db.refresh(job)
     return job
 

@@ -11,33 +11,40 @@ logger = structlog.get_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from app.db.database import init_db
+    try:
+        from app.db.database import init_db
 
-    validate_env()
+        validate_env()
 
-    logger.info(
-        "startup_database_url",
-        database_url=sanitize_database_url(settings.database_url),
-        environment=settings.environment,
-    )
-
-    if settings.environment not in {"production", "vercel"}:
-        await init_db()
-
-    if not settings.openai_api_key:
-        logger.warning(
-            "openai_not_configured",
-            message="OPENAI_API_KEY not set — AI extraction will fail",
+        logger.info(
+            "startup_database_config",
+            database_url=sanitize_database_url(settings.database_url),
+            environment=settings.environment,
+            driver=(settings.database_url.split("://", 1)[0] if "://" in settings.database_url else "unknown"),
         )
 
-    yield
+        if settings.environment not in {"production", "vercel"}:
+            await init_db()
+
+        if not settings.openai_api_key:
+            logger.warning(
+                "openai_not_configured",
+                message="OPENAI_API_KEY not set — AI extraction will fail",
+            )
+
+        yield
+    except Exception as exc:
+        logger.exception("startup_failed", error=str(exc))
+        raise
 
 
 app = FastAPI(title="Artio Miner API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.environment != "production" else [o.strip() for o in settings.cors_origins.split(",")],
+    allow_origins=["*"]
+    if settings.environment != "production"
+    else [o.strip() for o in settings.cors_origins.split(",")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -47,12 +54,14 @@ app.add_middleware(
 @app.get("/health")
 async def health():
     try:
-        from app.db.database import AsyncSessionLocal
         import sqlalchemy
+        from app.db.database import AsyncSessionLocal
+
         async with AsyncSessionLocal() as session:
             await session.execute(sqlalchemy.text("SELECT 1"))
         db_status = "ok"
-    except Exception:
+    except Exception as exc:
+        logger.warning("health_db_check_failed", error=str(exc))
         db_status = "error"
 
     return {
