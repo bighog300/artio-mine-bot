@@ -1,19 +1,54 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.config import sanitize_database_url, settings, validate_env
 
 logger = structlog.get_logger()
 
 
+async def _wait_for_database(max_attempts: int = 6, base_delay_seconds: float = 1.0) -> None:
+    """Retry database initialization/check during startup."""
+    from app.db.database import AsyncSessionLocal, init_db
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            if settings.environment not in {"production", "vercel"}:
+                await init_db()
+
+            async with AsyncSessionLocal() as session:
+                await session.execute(text("SELECT 1"))
+
+            logger.info("startup_database_ready", attempt=attempt)
+            return
+        except Exception as exc:
+            if attempt == max_attempts:
+                logger.exception(
+                    "startup_database_failed",
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    error=str(exc),
+                )
+                raise
+
+            delay_seconds = base_delay_seconds * (2 ** (attempt - 1))
+            logger.warning(
+                "startup_database_retry",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                retry_in_seconds=delay_seconds,
+                error=str(exc),
+            )
+            await asyncio.sleep(delay_seconds)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        from app.db.database import init_db
-
         validate_env()
 
         logger.info(
@@ -23,8 +58,7 @@ async def lifespan(app: FastAPI):
             driver=(settings.database_url.split("://", 1)[0] if "://" in settings.database_url else "unknown"),
         )
 
-        if settings.environment not in {"production", "vercel"}:
-            await init_db()
+        await _wait_for_database()
 
         if not settings.openai_api_key:
             logger.warning(
@@ -53,22 +87,31 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
+    db_status = "error"
+    status = "degraded"
+    detail = None
+
     try:
-        import sqlalchemy
         from app.db.database import AsyncSessionLocal
 
         async with AsyncSessionLocal() as session:
-            await session.execute(sqlalchemy.text("SELECT 1"))
+            await session.execute(text("SELECT 1"))
         db_status = "ok"
+        status = "ok"
     except Exception as exc:
         logger.warning("health_db_check_failed", error=str(exc))
-        db_status = "error"
+        detail = "Database check failed"
 
     return {
-        "status": "ok",
+        "status": status,
         "version": "1.0.0",
+        "components": {
+            "db": db_status,
+            "openai": "configured" if settings.openai_api_key else "not configured",
+        },
         "db": db_status,
         "openai": "configured" if settings.openai_api_key else "not configured",
+        "detail": detail,
     }
 
 
