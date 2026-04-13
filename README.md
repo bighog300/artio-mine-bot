@@ -49,7 +49,8 @@ server required.
 
 1. Install the [Vercel CLI](https://vercel.com/docs/cli): `npm i -g vercel`
 2. Set the following environment variables in your Vercel project settings:
-   - `DATABASE_URL` — required, PostgreSQL connection string (e.g. Neon serverless)
+   - `DATABASE_URL` — required, async PostgreSQL URL using `asyncpg`:
+     `postgresql+asyncpg://user:password@host:5432/dbname?sslmode=require`
    - `OPENAI_API_KEY` — required in production
    - `ARTIO_API_URL` / `ARTIO_API_KEY` — optional, for export
    - `CORS_ORIGINS` — your Vercel frontend URL (e.g. `https://artio-miner.vercel.app`)
@@ -90,7 +91,7 @@ Open http://localhost:5173 in your browser.
 | `OPENAI_API_KEY` | Prod | — | OpenAI API key |
 | `ENVIRONMENT` | | `development` | Set to `production` for Vercel/serverless mode |
 | `OPENAI_MODEL` | | `gpt-4o` | Model to use |
-| `DATABASE_URL` | ✅ | `sqlite+aiosqlite:///./data/miner.db` | Database URL |
+| `DATABASE_URL` | ✅ | `sqlite+aiosqlite:///./data/miner.db` | Async DB URL (`postgresql+asyncpg://...` in production) |
 | `ARTIO_API_URL` | | — | Artio platform API URL |
 | `ARTIO_API_KEY` | | — | Artio platform API key |
 | `MAX_CRAWL_DEPTH` | | `3` | Max link depth |

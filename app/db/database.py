@@ -1,10 +1,16 @@
 from collections.abc import AsyncGenerator
 
+import structlog
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
-from app.config import ensure_data_dir, settings
+from app.config import ensure_data_dir, settings, validate_async_driver
+
+logger = structlog.get_logger()
+
+validate_async_driver(settings.database_url)
 
 _is_sqlite = settings.database_url.startswith("sqlite")
 _is_serverless = settings.environment == "production" and not _is_sqlite
@@ -24,6 +30,11 @@ else:
     _engine_kwargs["max_overflow"] = 10
 
 engine = create_async_engine(settings.database_url, **_engine_kwargs)
+
+
+@event.listens_for(engine.sync_engine, "connect")
+def _on_connect(_dbapi_connection, _connection_record) -> None:
+    logger.info("db_connection_established", driver=engine.url.drivername)
 
 AsyncSessionLocal = async_sessionmaker(
     engine,
