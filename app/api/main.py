@@ -87,32 +87,7 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    db_status = "error"
-    status = "degraded"
-    detail = None
-
-    try:
-        from app.db.database import AsyncSessionLocal
-
-        async with AsyncSessionLocal() as session:
-            await session.execute(text("SELECT 1"))
-        db_status = "ok"
-        status = "ok"
-    except Exception as exc:
-        logger.warning("health_db_check_failed", error=str(exc))
-        detail = "Database check failed"
-
-    return {
-        "status": status,
-        "version": "1.0.0",
-        "components": {
-            "db": db_status,
-            "openai": "configured" if settings.openai_api_key else "not configured",
-        },
-        "db": db_status,
-        "openai": "configured" if settings.openai_api_key else "not configured",
-        "detail": detail,
-    }
+    return {"status": "ok"}
 
 
 # Include routers

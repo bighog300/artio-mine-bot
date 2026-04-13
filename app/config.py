@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
     database_url: str = get_database_url()
+    redis_url: str = os.environ.get("REDIS_URL", "redis://redis:6379/0")
     artio_api_url: str | None = None
     artio_api_key: str | None = None
     max_crawl_depth: int = 3
