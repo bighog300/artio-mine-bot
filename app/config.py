@@ -16,6 +16,17 @@ def get_database_url() -> str:
     )
 
 
+def normalize_database_url(url: str) -> str:
+    """Auto-convert sync driver URLs to async equivalents."""
+    if url.startswith("postgresql+psycopg2://"):
+        return url.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if url.startswith("sqlite://"):
+        return url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+    return url
+
+
 def sanitize_database_url(database_url: str) -> str:
     """Mask secrets in DATABASE_URL before logging it."""
     split = urlsplit(database_url)
@@ -37,21 +48,18 @@ def sanitize_database_url(database_url: str) -> str:
 
 
 def validate_async_driver(database_url: str) -> None:
-    """Ensure DATABASE_URL is compatible with SQLAlchemy async engine."""
     if database_url.startswith("postgresql+asyncpg://"):
         return
-
+    if database_url.startswith("sqlite+aiosqlite://"):
+        return
     if database_url.startswith("postgresql://") or database_url.startswith(
         "postgresql+psycopg2://"
     ):
         raise RuntimeError(
-            "Invalid DATABASE_URL for async SQLAlchemy. Use "
-            "'postgresql+asyncpg://...' (sync PostgreSQL drivers are not supported)."
+            "Invalid DATABASE_URL. Use 'postgresql+asyncpg://...' not 'postgresql://'."
         )
-
     raise RuntimeError(
-        "Invalid DATABASE_URL. This API only supports PostgreSQL with asyncpg "
-        "('postgresql+asyncpg://...')."
+        "Unsupported DATABASE_URL scheme. Use postgresql+asyncpg:// or sqlite+aiosqlite://"
     )
 
 
@@ -80,6 +88,11 @@ class Settings(BaseSettings):
     def _set_playwright_default(self) -> "Settings":
         if self.playwright_enabled is None:
             self.playwright_enabled = self.environment not in STRICT_ENVIRONMENTS
+        return self
+
+    @model_validator(mode="after")
+    def _normalize_db_url(self) -> "Settings":
+        self.database_url = normalize_database_url(self.database_url)
         return self
 
 
