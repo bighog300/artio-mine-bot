@@ -1,0 +1,74 @@
+name: Deploy to Production
+
+on:
+  # Trigger only after the Docker build workflow completes successfully on main
+  workflow_run:
+    workflows: ["Build and Push Docker Image"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        env:
+          # Pass registry credentials as env vars so they're available in the
+          # remote shell script (appleboy/ssh-action expands vars listed in `envs`)
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GITHUB_ACTOR: ${{ github.actor }}
+          IMAGE_API: ghcr.io/${{ github.repository }}:latest
+          IMAGE_FRONTEND: ghcr.io/${{ github.repository }}-frontend:latest
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          envs: GHCR_TOKEN,GITHUB_ACTOR,IMAGE_API,IMAGE_FRONTEND
+          script: |
+            set -e
+
+            # Log in to GHCR so we can pull private images.
+            # For public images this step can be skipped.
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+            # Ensure the app directory exists on the server
+            mkdir -p /opt/artio-miner
+            cd /opt/artio-miner
+
+            # Write (or overwrite) the production compose file on the server.
+            # Uses only `image:` — no local build required.
+            cat > docker-compose.yml << COMPOSE
+            version: "3.9"
+            services:
+              api:
+                image: ${IMAGE_API}
+                ports:
+                  - "8000:8000"
+                volumes:
+                  - artio_data:/app/data
+                environment:
+                  - DATABASE_URL=sqlite+aiosqlite:////app/data/miner.db
+                restart: unless-stopped
+
+              frontend:
+                image: ${IMAGE_FRONTEND}
+                ports:
+                  - "5173:80"
+                environment:
+                  - VITE_API_URL=http://localhost:8000
+                depends_on:
+                  - api
+                restart: unless-stopped
+
+            volumes:
+              artio_data:
+            COMPOSE
+
+            # Pull the latest images, recreate containers, leave volumes intact
+            docker compose pull
+            docker compose up -d --remove-orphans
+
+            echo "Deployment complete."

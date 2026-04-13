@@ -3,15 +3,11 @@ set -e
 
 echo "Starting Artio Miner..."
 
-# Run migrations
+# Run database migrations (idempotent — safe to run on every startup)
 echo "Running database migrations..."
 alembic upgrade head
 
-# Start API in background
-echo "Starting API server..."
-uvicorn app.api.main:app --host 0.0.0.0 --port 8000 &
-
-echo "Artio Miner API running on http://localhost:8000"
-echo "Open the admin UI at http://localhost:5173"
-
-wait
+# Replace this shell process with uvicorn so it becomes PID 1.
+# Signals (SIGTERM, SIGINT) are delivered directly to uvicorn for clean shutdown.
+echo "Starting API server on :8000..."
+exec uvicorn app.api.main:app --host 0.0.0.0 --port 8000
