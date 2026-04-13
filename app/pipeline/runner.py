@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -77,7 +77,7 @@ class PipelineRunner:
                 self.db,
                 source_id,
                 status="done",
-                last_crawled_at=datetime.utcnow(),
+                last_crawled_at=datetime.now(UTC),
             )
             logger.info("pipeline_complete", source_id=source_id)
         except Exception as exc:
@@ -268,7 +268,7 @@ class PipelineRunner:
         )
 
         await crud.update_page(
-            self.db, page.id, status="extracted", extracted_at=datetime.utcnow()
+            self.db, page.id, status="extracted", extracted_at=datetime.now(UTC)
         )
 
         # Collect images

@@ -1,6 +1,7 @@
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.db.database import Base
@@ -18,6 +19,7 @@ async def db_session():
     async with TestSessionLocal() as session:
         yield session
     async with test_engine.begin() as conn:
+        await conn.run_sync(lambda c: c.execute(text("PRAGMA foreign_keys=OFF")))
         await conn.run_sync(Base.metadata.drop_all)
 
 

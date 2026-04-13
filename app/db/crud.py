@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -44,7 +44,7 @@ async def update_source(db: AsyncSession, source_id: str, **kwargs: Any) -> Sour
         raise ValueError(f"Source {source_id} not found")
     for key, value in kwargs.items():
         setattr(source, key, value)
-    source.updated_at = datetime.utcnow()
+    source.updated_at = datetime.now(UTC)
     await db.flush()
     await db.refresh(source)
     return source
@@ -229,7 +229,7 @@ async def update_record(db: AsyncSession, record_id: str, **kwargs: Any) -> Reco
         ):
             value = json.dumps(value)
         setattr(record, key, value)
-    record.updated_at = datetime.utcnow()
+    record.updated_at = datetime.now(UTC)
     await db.flush()
     await db.refresh(record)
     return record
@@ -254,7 +254,7 @@ async def bulk_approve(db: AsyncSession, source_id: str, min_confidence: int = 7
     records = list(result.scalars().all())
     for record in records:
         record.status = "approved"
-        record.updated_at = datetime.utcnow()
+        record.updated_at = datetime.now(UTC)
     await db.flush()
     return len(records)
 
@@ -312,7 +312,7 @@ async def set_primary_image(db: AsyncSession, record_id: str, image_id: str) -> 
     if record is None:
         raise ValueError(f"Record {record_id} not found")
     record.primary_image_id = image_id
-    record.updated_at = datetime.utcnow()
+    record.updated_at = datetime.now(UTC)
     await db.flush()
     await db.refresh(record)
     return record
