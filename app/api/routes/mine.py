@@ -11,7 +11,7 @@ from app.api.schemas import (
 )
 from app.config import settings
 from app.db import crud
-from app.queue import default_queue
+from app.queue import get_default_queue
 
 router = APIRouter(prefix="/mine", tags=["mining"])
 
@@ -25,7 +25,7 @@ def _ensure_worker_runtime() -> None:
 
 
 def _enqueue_pipeline_job(job_id: str, source_id: str, job_type: str, payload: dict) -> str:
-    rq_job = default_queue.enqueue(
+    rq_job = get_default_queue().enqueue(
         "app.pipeline.runner.process_pipeline_job",
         job_id=job_id,
         source_id=source_id,
