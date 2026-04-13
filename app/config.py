@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     max_pages_per_source: int = 500
     crawl_delay_ms: int = 1000
     playwright_enabled: bool = True
-    cors_origins: list[str] = ["http://localhost:5173"]
+    cors_origins: str = "http://localhost:5173"
 
 
 settings = Settings()
