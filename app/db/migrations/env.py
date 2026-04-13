@@ -9,12 +9,11 @@ from sqlalchemy import pool
 # Import Base so Alembic can detect schema changes
 from app.db.database import Base
 import app.db.models  # noqa: F401
+from app.config import settings
 
 config = context.config
-
-database_url = os.environ.get("DATABASE_URL")
-if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+# Always use the computed absolute URL from settings (respects DATABASE_URL env var)
+config.set_main_option("sqlalchemy.url", settings.database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
