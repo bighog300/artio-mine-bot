@@ -16,6 +16,12 @@ services:
     environment:
       # SQLite default — overridden by DATABASE_URL in .env when Postgres is configured
       - DATABASE_URL=sqlite+aiosqlite:////app/data/miner.db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
     restart: unless-stopped
 
   frontend:
@@ -25,11 +31,9 @@ services:
       dockerfile: Dockerfile.frontend
     ports:
       - "5173:80"
-    environment:
-      # Runtime-injected into the pre-built JS by inject-api-url.sh at container start
-      - VITE_API_URL=http://localhost:8765
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
