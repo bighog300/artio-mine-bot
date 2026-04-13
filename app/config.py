@@ -25,9 +25,45 @@ def get_database_url() -> str:
     """
     url = os.environ.get("DATABASE_URL")
     if url:
-        return url
+        return normalize_database_url(url)
     # Local dev fallback: absolute SQLite path so the app works without any config
     return f"sqlite+aiosqlite:///{BASE_DIR / 'data' / 'miner.db'}"
+
+
+def normalize_database_url(url: str) -> str:
+    """Normalize sync-style database URLs into async-driver URLs.
+
+    This keeps deployments resilient to common misconfiguration:
+    - postgresql://...              -> postgresql+asyncpg://...
+    - postgresql+psycopg2://...     -> postgresql+asyncpg://...
+    - sqlite://...                  -> sqlite+aiosqlite://...
+    """
+    if url.startswith("postgresql+psycopg2://"):
+        return url.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if url.startswith("sqlite://"):
+        return url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+    return url
+
+
+def validate_async_driver(database_url: str) -> None:
+    """Ensure DATABASE_URL is compatible with SQLAlchemy async engine."""
+    if database_url.startswith("postgresql+asyncpg://"):
+        return
+    if database_url.startswith("sqlite+aiosqlite://"):
+        return
+    if database_url.startswith("postgresql://") or database_url.startswith(
+        "postgresql+psycopg2://"
+    ):
+        raise RuntimeError(
+            "Invalid DATABASE_URL for async SQLAlchemy. Use "
+            "'postgresql+asyncpg://...' (not postgresql:// or postgresql+psycopg2://)."
+        )
+    if database_url.startswith("sqlite://"):
+        raise RuntimeError(
+            "Invalid SQLite async URL. Use 'sqlite+aiosqlite://...'."
+        )
 
 
 class Settings(BaseSettings):
@@ -73,6 +109,8 @@ def validate_env() -> None:
     ]
     if missing:
         raise RuntimeError(f"Missing env vars: {missing}")
+
+    validate_async_driver(settings.database_url)
 
     if settings.environment == "production" and "sqlite" in settings.database_url.lower():
         raise RuntimeError("SQLite is not supported in production. Use Postgres.")
