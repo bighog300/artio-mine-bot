@@ -12,3 +12,6 @@ os.environ.setdefault("ENVIRONMENT", "vercel")
 os.environ.setdefault("PLAYWRIGHT_ENABLED", "false")
 
 from app.api.main import app
+
+from mangum import Mangum
+handler = Mangum(app, lifespan="off")

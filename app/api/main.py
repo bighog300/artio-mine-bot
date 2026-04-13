@@ -87,7 +87,21 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    try:
+        from app.db.database import AsyncSessionLocal
+        from sqlalchemy import text
+
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+        db_status = "ok"
+    except Exception:
+        db_status = "error"
+    return {
+        "status": "ok",
+        "version": "1.0.0",
+        "db": db_status,
+        "openai": "configured" if settings.openai_api_key else "not configured",
+    }
 
 
 # Include routers
