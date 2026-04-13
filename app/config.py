@@ -12,7 +12,7 @@ BASE_DIR: Path = Path(__file__).resolve().parent.parent
 def get_database_url() -> str:
     """Return DATABASE_URL from env or a Docker-friendly asyncpg default."""
     return os.environ.get(
-        "DATABASE_URL", "postgresql+asyncpg://artio:artio@db:5432/artio_miner"
+        "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@db:5432/artio"
     )
 
 

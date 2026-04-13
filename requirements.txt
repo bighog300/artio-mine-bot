@@ -1,7 +1,5 @@
-# Production dependencies for Vercel serverless deployment.
-# Playwright is intentionally excluded — it cannot run in a serverless
-# environment.  Install the full package locally with:
-#   pip install -e ".[dev]"
+# Docker deployment dependencies (includes Playwright for crawling)
+# For serverless deployment, exclude Playwright from requirements.txt
 
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
@@ -10,6 +8,7 @@ asyncpg>=0.29.0
 aiosqlite>=0.20.0
 alembic>=1.13.0
 httpx>=0.27.0
+playwright>=1.44.0
 beautifulsoup4>=4.12.0
 lxml>=5.2.0
 openai>=1.30.0
