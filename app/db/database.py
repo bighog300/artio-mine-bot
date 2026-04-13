@@ -2,17 +2,23 @@ from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 from app.config import ensure_data_dir, settings
 
 _is_sqlite = settings.database_url.startswith("sqlite")
+_is_serverless = settings.environment == "production" and not _is_sqlite
 
-# Build engine kwargs depending on the backend.
-# SQLite:     needs check_same_thread=False; does not support pool_size/max_overflow.
-# PostgreSQL: benefits from a real connection pool and pre-ping for Neon serverless.
+# SQLite:            needs check_same_thread=False; no pool_size support.
+# Postgres (local):  real connection pool with pre-ping for resilience.
+# Postgres (Neon/serverless): NullPool — no persistent connections allowed.
 _engine_kwargs: dict = {"echo": False, "pool_pre_ping": True}
 if _is_sqlite:
     _engine_kwargs["connect_args"] = {"check_same_thread": False}
+elif _is_serverless:
+    # Neon and other serverless Postgres providers require NullPool —
+    # they close connections aggressively and pool_size causes exhaustion.
+    _engine_kwargs["poolclass"] = NullPool
 else:
     _engine_kwargs["pool_size"] = 5
     _engine_kwargs["max_overflow"] = 10
