@@ -15,7 +15,7 @@ async def lifespan(app: FastAPI):
 
     validate_env()
 
-    if settings.environment != "production":
+    if settings.environment not in {"production", "vercel"}:
         await init_db()
 
     if not settings.openai_api_key:

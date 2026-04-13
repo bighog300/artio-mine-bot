@@ -1,14 +1,14 @@
-"""Vercel serverless entry point."""
+"""Vercel serverless entrypoint for FastAPI."""
 import os
 import sys
+from pathlib import Path
 
-# Ensure repo root is on the path so `app` package is importable
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-os.environ.setdefault("ENVIRONMENT", "production")
+# Configure app for serverless constraints.
+os.environ.setdefault("ENVIRONMENT", "vercel")
 os.environ.setdefault("PLAYWRIGHT_ENABLED", "false")
 
-from mangum import Mangum  # noqa: E402
-from app.api.main import app  # noqa: E402
-
-handler = Mangum(app)
+from app.api.main import app
