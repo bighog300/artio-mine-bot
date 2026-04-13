@@ -322,3 +322,37 @@ export const pushToArtio = (params: ExportParams): Promise<ExportResult> =>
 // Stats
 export const getStats = (): Promise<GlobalStats> =>
   api.get("/api/stats").then((r) => r.data);
+
+// ─── Settings types ───────────────────────────────────────────────────────────
+
+export interface AppSettings {
+  artio_api_url: string | null;
+  artio_api_key_masked: string | null;
+  max_crawl_depth: number;
+  max_pages_per_source: number;
+  crawl_delay_ms: number;
+  artio_configured: boolean;
+}
+
+export interface SaveSettingsInput {
+  artio_api_url?: string | null;
+  artio_api_key?: string | null;
+  max_crawl_depth?: number;
+  max_pages_per_source?: number;
+  crawl_delay_ms?: number;
+}
+
+export interface TestConnectionResult {
+  success: boolean;
+  message: string;
+}
+
+// Settings
+export const getSettings = (): Promise<AppSettings> =>
+  api.get("/api/settings").then((r) => r.data);
+
+export const saveSettings = (data: SaveSettingsInput): Promise<AppSettings> =>
+  api.post("/api/settings", data).then((r) => r.data);
+
+export const testArtioConnection = (): Promise<TestConnectionResult> =>
+  api.post("/api/settings/test-artio").then((r) => r.data);

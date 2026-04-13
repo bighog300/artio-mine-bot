@@ -7,6 +7,7 @@ import { Records } from "@/pages/Records";
 import { RecordDetail } from "@/pages/RecordDetail";
 import { Images } from "@/pages/Images";
 import { Export } from "@/pages/Export";
+import { Settings } from "@/pages/Settings";
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="/records/:id" element={<RecordDetail />} />
           <Route path="/images" element={<Images />} />
           <Route path="/export" element={<Export />} />
+          <Route path="/settings" element={<Settings />} />
         </Routes>
       </Layout>
     </BrowserRouter>
