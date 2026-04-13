@@ -239,6 +239,27 @@ export interface GlobalStats {
   pages: { total: number; crawled: number; error: number };
 }
 
+export interface LogEntry {
+  id: string;
+  timestamp: string;
+  level: "debug" | "info" | "warning" | "error";
+  service: "api" | "worker";
+  source_id: string | null;
+  message: string;
+  context: string | null;
+}
+
+export interface LogFilters {
+  level?: string;
+  service?: string;
+  source_id?: string;
+  search?: string;
+  date_from?: string;
+  date_to?: string;
+  skip?: number;
+  limit?: number;
+}
+
 // ─── API Functions ────────────────────────────────────────────────────────────
 
 // Sources
@@ -322,6 +343,20 @@ export const pushToArtio = (params: ExportParams): Promise<ExportResult> =>
 // Stats
 export const getStats = (): Promise<GlobalStats> =>
   api.get("/stats").then((r) => r.data);
+
+// Logs
+export const getLogs = (params: LogFilters): Promise<PaginatedResponse<LogEntry>> =>
+  api.get("/logs", { params }).then((r) => r.data);
+
+export const deleteLogs = (
+  olderThanDays: number,
+  level?: string
+): Promise<{ deleted_count: number }> =>
+  api
+    .delete("/logs", {
+      params: { older_than_days: olderThanDays, level: level || undefined },
+    })
+    .then((r) => r.data);
 
 // ─── Settings types ───────────────────────────────────────────────────────────
 

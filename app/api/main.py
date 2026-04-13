@@ -7,6 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.config import sanitize_database_url, settings, validate_env
+from app.db.log_writer import configure_structlog_for_service
+
+api_log_processor = configure_structlog_for_service("api")
 
 logger = structlog.get_logger()
 
@@ -49,6 +52,7 @@ async def _wait_for_database(max_attempts: int = 6, base_delay_seconds: float = 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
+        await api_log_processor.start()
         validate_env()
 
         logger.info(
@@ -70,6 +74,8 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.exception("startup_failed", error=str(exc))
         raise
+    finally:
+        await api_log_processor.stop()
 
 
 app = FastAPI(title="Artio Miner API", version="1.0.0", lifespan=lifespan)
@@ -105,7 +111,7 @@ async def health():
 
 
 # Include routers
-from app.api.routes import export, images, mine, pages, records, sources, stats  # noqa: E402
+from app.api.routes import export, images, logs, mine, pages, records, sources, stats  # noqa: E402
 from app.api.routes import settings as settings_routes  # noqa: E402
 
 app.include_router(sources.router, prefix="/api")
@@ -116,3 +122,4 @@ app.include_router(images.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
 app.include_router(stats.router, prefix="/api")
 app.include_router(settings_routes.router, prefix="/api")
+app.include_router(logs.router, prefix="/api")

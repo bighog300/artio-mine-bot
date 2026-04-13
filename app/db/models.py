@@ -42,6 +42,7 @@ class Source(Base):
     pages: Mapped[list["Page"]] = relationship("Page", back_populates="source", cascade="all, delete-orphan")
     records: Mapped[list["Record"]] = relationship("Record", back_populates="source", cascade="all, delete-orphan")
     jobs: Mapped[list["Job"]] = relationship("Job", back_populates="source", cascade="all, delete-orphan")
+    logs: Mapped[list["Log"]] = relationship("Log", back_populates="source")
 
 
 class Page(Base):
@@ -219,4 +220,25 @@ class Job(Base):
     __table_args__ = (
         Index("ix_jobs_source_id", "source_id"),
         Index("ix_jobs_status", "status"),
+    )
+
+
+class Log(Base):
+    __tablename__ = "logs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
+    level: Mapped[str] = mapped_column(String, nullable=False)
+    service: Mapped[str] = mapped_column(String, nullable=False)
+    source_id: Mapped[str | None] = mapped_column(String, ForeignKey("sources.id"), nullable=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    context: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    source: Mapped["Source | None"] = relationship("Source", back_populates="logs")
+
+    __table_args__ = (
+        Index("ix_logs_timestamp", "timestamp"),
+        Index("ix_logs_level", "level"),
+        Index("ix_logs_service", "service"),
+        Index("ix_logs_source_id", "source_id"),
     )
