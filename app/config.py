@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Absolute path to project root (app/config.py → app/ → project root)
@@ -36,6 +37,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    environment: str = "development"
     openai_api_key: str = "sk-placeholder"
     openai_model: str = "gpt-4o"
     database_url: str = get_database_url()
@@ -44,8 +46,15 @@ class Settings(BaseSettings):
     max_crawl_depth: int = 3
     max_pages_per_source: int = 500
     crawl_delay_ms: int = 1000
-    playwright_enabled: bool = True
+    # None means "use environment-based default": True in dev, False in production.
+    playwright_enabled: bool | None = None
     cors_origins: str = "http://localhost:5173"
+
+    @model_validator(mode="after")
+    def _set_playwright_default(self) -> "Settings":
+        if self.playwright_enabled is None:
+            self.playwright_enabled = self.environment != "production"
+        return self
 
 
 settings = Settings()
