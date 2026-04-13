@@ -1,6 +1,8 @@
 import axios from "axios";
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+// Empty string → same-origin (works on Vercel and with Vite's dev proxy).
+// Set VITE_API_URL at build time only when the API is on a different origin.
+const BASE_URL = import.meta.env.VITE_API_URL || "";
 
 const api = axios.create({ baseURL: BASE_URL });
 

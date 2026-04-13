@@ -11,9 +11,15 @@ from app.api.schemas import (
     MineStatusProgress,
     MineStatusResponse,
 )
+from app.config import settings
 from app.db import crud
 
 router = APIRouter(prefix="/mine", tags=["mining"])
+
+_WORKER_ONLY_MSG = (
+    "Mining tasks cannot run on Vercel serverless. "
+    "Deploy a dedicated worker process and point it at the same database."
+)
 
 
 @router.post("/{source_id}/start", response_model=MineStartResponse, status_code=202)
@@ -23,6 +29,8 @@ async def start_mining(
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: AsyncSession = Depends(get_db),
 ):
+    if settings.environment == "production":
+        raise HTTPException(status_code=503, detail=_WORKER_ONLY_MSG)
     source = await crud.get_source(db, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -60,6 +68,8 @@ async def start_mining(
 
 @router.post("/{source_id}/map")
 async def map_site(source_id: str, db: AsyncSession = Depends(get_db)):
+    if settings.environment == "production":
+        raise HTTPException(status_code=503, detail=_WORKER_ONLY_MSG)
     source = await crud.get_source(db, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -97,6 +107,8 @@ async def crawl_source(
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: AsyncSession = Depends(get_db),
 ):
+    if settings.environment == "production":
+        raise HTTPException(status_code=503, detail=_WORKER_ONLY_MSG)
     source = await crud.get_source(db, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -128,6 +140,8 @@ async def extract_source(
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: AsyncSession = Depends(get_db),
 ):
+    if settings.environment == "production":
+        raise HTTPException(status_code=503, detail=_WORKER_ONLY_MSG)
     source = await crud.get_source(db, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -168,6 +182,8 @@ async def resume_mining(
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: AsyncSession = Depends(get_db),
 ):
+    if settings.environment == "production":
+        raise HTTPException(status_code=503, detail=_WORKER_ONLY_MSG)
     source = await crud.get_source(db, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")

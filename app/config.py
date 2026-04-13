@@ -51,9 +51,14 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
 
     @model_validator(mode="after")
-    def _set_playwright_default(self) -> "Settings":
+    def _apply_defaults_and_validate(self) -> "Settings":
         if self.playwright_enabled is None:
             self.playwright_enabled = self.environment != "production"
+        if self.environment == "production" and "sqlite" in self.database_url:
+            raise ValueError(
+                "SQLite is not supported in production. "
+                "Set DATABASE_URL to a PostgreSQL connection string."
+            )
         return self
 
 
