@@ -26,8 +26,10 @@ RUN chmod +x ./start.sh
 
 # ── Non-root user ─────────────────────────────────────────────────────────────
 RUN groupadd --system appuser \
-    && useradd --system --gid appuser --uid 1001 appuser \
-    && chown -R appuser:appuser /app
+    && useradd --system --gid appuser --uid 1001 appuser
+
+# Ensure mounted volume path is writable for SQLite when running as non-root.
+RUN mkdir -p /app/data && chown -R appuser:appuser /app
 
 USER appuser
 
