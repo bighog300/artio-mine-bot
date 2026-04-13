@@ -16,7 +16,7 @@ router = APIRouter(prefix="/mine", tags=["mining"])
 
 
 def _ensure_worker_runtime() -> None:
-    if settings.environment == "production":
+    if settings.environment in {"production", "vercel"}:
         raise HTTPException(
             status_code=503,
             detail="This task must run in a worker environment, not Vercel.",
