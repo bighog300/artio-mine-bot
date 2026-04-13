@@ -3,10 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # System dependencies (curl for health checks; Playwright deps via install-deps)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y curl libpq-dev && rm -rf /var/lib/apt/lists/*
 
 # ── Dependency layer (cached until pyproject.toml changes) ────────────────────
 COPY pyproject.toml .
