@@ -2,21 +2,36 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
+# System dependencies (curl for health checks; Playwright deps via install-deps)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# ── Dependency layer (cached until pyproject.toml changes) ────────────────────
 COPY pyproject.toml .
-RUN pip install -e ".[dev]"
+# Install production deps only — no [dev] extras (pytest, ruff, etc.)
+RUN pip install --no-cache-dir -e "."
 
-# Install Playwright browsers
-RUN playwright install chromium
-RUN playwright install-deps chromium
+# Install Playwright browsers to a fixed path inside /app
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/.playwright
+RUN playwright install chromium && playwright install-deps chromium
 
-COPY . .
+# ── Application source ────────────────────────────────────────────────────────
+# Copy only runtime files — tests, frontend, and docs are excluded via .dockerignore
+COPY app/ ./app/
+COPY alembic.ini .
+COPY scripts/start.sh ./start.sh
+RUN chmod +x ./start.sh
 
-RUN mkdir -p data
+# ── Non-root user ─────────────────────────────────────────────────────────────
+RUN groupadd --system appuser \
+    && useradd --system --gid appuser --uid 1001 appuser \
+    && chown -R appuser:appuser /app
 
+USER appuser
+
+# data/ is created at runtime by ensure_data_dir() called from init_db()
 EXPOSE 8000
 
-CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# start.sh: runs alembic migrations then exec uvicorn (uvicorn becomes PID 1)
+CMD ["./start.sh"]

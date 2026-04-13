@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets and local config
+.env
+.env.*
+
+# Database files — never bake data into the image
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Tests — not needed at runtime
+tests/
+
+# Frontend source — built separately via Dockerfile.frontend
+frontend/
+
+# Documentation
+docs/
+*.md
+AGENTS.md
+SPEC.md
+SCHEMA.md
+API.md
+UI.md
+STACK.md
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# CI
+.github/
+
+# Logs
+*.log
+logs/

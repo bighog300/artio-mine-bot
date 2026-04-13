@@ -2,18 +2,22 @@ version: "3.9"
 
 services:
   api:
+    # image: is used by `docker compose pull` on the server.
+    # build: is used by `docker compose up --build` for local development.
+    image: ghcr.io/bighog300/artio-mine-bot:latest
     build: .
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/app/data
-      - .:/app
-    env_file:
-      - .env
+      # Named volume — survives container restarts, no host-path assumptions
+      - artio_data:/app/data
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///./data/miner.db
+      # Absolute path inside the container; matches BASE_DIR / "data" / "miner.db"
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/miner.db
+    restart: unless-stopped
 
   frontend:
+    image: ghcr.io/bighog300/artio-mine-bot-frontend:latest
     build:
       context: .
       dockerfile: Dockerfile.frontend
@@ -23,3 +27,7 @@ services:
       - VITE_API_URL=http://localhost:8000
     depends_on:
       - api
+    restart: unless-stopped
+
+volumes:
+  artio_data:
