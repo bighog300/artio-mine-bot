@@ -1,12 +1,20 @@
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
+import os
 
-from app.db.database import Base
+# Force in-memory SQLite for all tests BEFORE any app module is imported.
+# This ensures settings.database_url resolves to SQLite even when DATABASE_URL
+# is set to a PostgreSQL URL in the developer's environment or .env file.
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 
-# In-memory SQLite: no disk writes, no directory dependencies, CI-safe
+import pytest_asyncio  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy import text  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
+
+from app.db.database import Base  # noqa: E402
+
+# In-memory SQLite: no disk writes, no directory pre-conditions, CI-safe.
+# StaticPool ensures all operations share the single in-memory connection.
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 test_engine = create_async_engine(

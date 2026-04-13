@@ -13,10 +13,20 @@ def ensure_data_dir() -> None:
 
 
 def get_database_url() -> str:
-    """Return DB URL from DATABASE_URL env var, or an absolute SQLite path."""
-    return os.environ.get("DATABASE_URL") or (
-        f"sqlite+aiosqlite:///{BASE_DIR / 'data' / 'miner.db'}"
-    )
+    """Return the database URL to use.
+
+    Priority:
+    1. DATABASE_URL env var (any value — postgres or sqlite both accepted)
+    2. Falls back to a local SQLite file for zero-config local dev
+
+    Production example:
+      DATABASE_URL=postgresql+asyncpg://user:password@ep-xxx.neon.tech/artio?sslmode=require
+    """
+    url = os.environ.get("DATABASE_URL")
+    if url:
+        return url
+    # Local dev fallback: absolute SQLite path so the app works without any config
+    return f"sqlite+aiosqlite:///{BASE_DIR / 'data' / 'miner.db'}"
 
 
 class Settings(BaseSettings):
