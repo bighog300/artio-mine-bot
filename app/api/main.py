@@ -4,7 +4,7 @@ import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import settings, validate_env
+from app.config import sanitize_database_url, settings, validate_env
 
 logger = structlog.get_logger()
 
@@ -14,6 +14,12 @@ async def lifespan(app: FastAPI):
     from app.db.database import init_db
 
     validate_env()
+
+    logger.info(
+        "startup_database_url",
+        database_url=sanitize_database_url(settings.database_url),
+        environment=settings.environment,
+    )
 
     if settings.environment not in {"production", "vercel"}:
         await init_db()

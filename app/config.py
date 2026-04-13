@@ -1,11 +1,15 @@
 import os
 from pathlib import Path
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Absolute path to project root (app/config.py → app/ → project root)
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
+
+
+STRICT_ENVIRONMENTS = {"production", "vercel"}
 
 
 def ensure_data_dir() -> None:
@@ -17,7 +21,7 @@ def get_database_url() -> str:
     """Return the database URL to use.
 
     Priority:
-    1. DATABASE_URL env var (any value — postgres or sqlite both accepted)
+    1. DATABASE_URL env var
     2. Falls back to a local SQLite file for zero-config local dev
 
     Production example:
@@ -25,19 +29,13 @@ def get_database_url() -> str:
     """
     url = os.environ.get("DATABASE_URL")
     if url:
-        return normalize_database_url(url)
+        return url
     # Local dev fallback: absolute SQLite path so the app works without any config
     return f"sqlite+aiosqlite:///{BASE_DIR / 'data' / 'miner.db'}"
 
 
 def normalize_database_url(url: str) -> str:
-    """Normalize sync-style database URLs into async-driver URLs.
-
-    This keeps deployments resilient to common misconfiguration:
-    - postgresql://...              -> postgresql+asyncpg://...
-    - postgresql+psycopg2://...     -> postgresql+asyncpg://...
-    - sqlite://...                  -> sqlite+aiosqlite://...
-    """
+    """Normalize sync-style database URLs into async-driver URLs."""
     if url.startswith("postgresql+psycopg2://"):
         return url.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
     if url.startswith("postgresql://"):
@@ -45,6 +43,26 @@ def normalize_database_url(url: str) -> str:
     if url.startswith("sqlite://"):
         return url.replace("sqlite://", "sqlite+aiosqlite://", 1)
     return url
+
+
+def sanitize_database_url(database_url: str) -> str:
+    """Mask secrets in DATABASE_URL before logging it."""
+    split = urlsplit(database_url)
+
+    netloc = split.netloc
+    if "@" in netloc:
+        userinfo, hostinfo = netloc.rsplit("@", 1)
+        username = userinfo.split(":", 1)[0] if userinfo else ""
+        masked_userinfo = username if username else "***"
+        netloc = f"{masked_userinfo}:***@{hostinfo}"
+
+    safe_query_items = [
+        (k, v if k.lower() in {"sslmode"} else "***")
+        for k, v in parse_qsl(split.query, keep_blank_values=True)
+    ]
+    safe_query = "&".join(f"{k}={v}" for k, v in safe_query_items)
+
+    return urlunsplit((split.scheme, netloc, split.path, safe_query, split.fragment))
 
 
 def validate_async_driver(database_url: str) -> None:
@@ -94,7 +112,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _normalize_db_url(self) -> "Settings":
-        self.database_url = normalize_database_url(self.database_url)
+        if self.environment not in STRICT_ENVIRONMENTS:
+            self.database_url = normalize_database_url(self.database_url)
         return self
 
 
