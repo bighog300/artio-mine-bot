@@ -1,9 +1,12 @@
 import json
+import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 import structlog
+from redis import from_url
+from rq import Connection, Worker
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.classifier import classify_page
@@ -20,9 +23,9 @@ from app.crawler.robots import RobotsChecker
 from app.crawler.site_mapper import SiteMap, Section, map_site
 from app.config import settings
 from app.db import crud
+from app.db.database import AsyncSessionLocal
 from app.db.models import Page, Record
 from app.pipeline.image_collector import collect_images
-from app.pipeline.queue import PipelineQueue
 
 logger = structlog.get_logger()
 
@@ -51,7 +54,6 @@ class PipelineRunner:
     ) -> None:
         self.db = db
         self.ai_client = ai_client
-        self.queue = PipelineQueue()
         self.robots_checker = RobotsChecker()
         self._extractors = {
             "artist": ArtistExtractor(ai_client),
@@ -296,3 +298,82 @@ class PipelineRunner:
             logger.warning("image_collection_error", record_id=record.id, error=str(exc))
 
         return record
+
+
+async def _run_pipeline_job_async(
+    job_id: str,
+    source_id: str,
+    job_type: str,
+    payload: dict[str, Any],
+) -> None:
+    del payload  # reserved for future task-specific options
+
+    async with AsyncSessionLocal() as db:
+        ai_client = OpenAIClient()
+        runner = PipelineRunner(db=db, ai_client=ai_client)
+        await crud.update_job_status(
+            db,
+            job_id,
+            "running",
+            started_at=datetime.now(UTC),
+        )
+
+        try:
+            if job_type == "run_full_pipeline":
+                await runner.run_full_pipeline(source_id)
+                result = {"status": "done"}
+            elif job_type == "map_site":
+                site_map = await runner.run_map_site(source_id)
+                result = {"sections": len(site_map.sections)}
+            elif job_type == "crawl_section":
+                result = await runner.run_crawl(source_id)
+            elif job_type == "extract_page":
+                stats = await runner.run_extract(source_id)
+                result = {
+                    "records_created": stats.records_created,
+                    "records_failed": stats.records_failed,
+                    "pages_processed": stats.pages_processed,
+                }
+            else:
+                raise ValueError(f"Unsupported job type: {job_type}")
+
+            await crud.update_job_status(
+                db,
+                job_id,
+                "done",
+                result=result,
+                completed_at=datetime.now(UTC),
+            )
+        except Exception as exc:
+            logger.exception("pipeline_job_failed", job_id=job_id, error=str(exc))
+            await crud.update_job_status(
+                db,
+                job_id,
+                "failed",
+                error_message=str(exc),
+                completed_at=datetime.now(UTC),
+            )
+            raise
+
+
+def process_pipeline_job(
+    job_id: str,
+    source_id: str,
+    job_type: str,
+    payload: dict[str, Any],
+) -> None:
+    import asyncio
+
+    asyncio.run(_run_pipeline_job_async(job_id, source_id, job_type, payload))
+
+
+def main() -> None:
+    redis_url = os.environ.get("REDIS_URL", settings.redis_url)
+    redis_conn = from_url(redis_url)
+    with Connection(redis_conn):
+        worker = Worker(["default"])
+        worker.work()
+
+
+if __name__ == "__main__":
+    main()

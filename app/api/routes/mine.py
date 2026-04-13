@@ -11,6 +11,7 @@ from app.api.schemas import (
 )
 from app.config import settings
 from app.db import crud
+from app.queue import default_queue
 
 router = APIRouter(prefix="/mine", tags=["mining"])
 
@@ -21,6 +22,17 @@ def _ensure_worker_runtime() -> None:
             status_code=503,
             detail="This task must run in a worker environment, not Vercel.",
         )
+
+
+def _enqueue_pipeline_job(job_id: str, source_id: str, job_type: str, payload: dict) -> str:
+    rq_job = default_queue.enqueue(
+        "app.pipeline.runner.process_pipeline_job",
+        job_id=job_id,
+        source_id=source_id,
+        job_type=job_type,
+        payload=payload,
+    )
+    return rq_job.id
 
 
 @router.post("/{source_id}/start", response_model=MineStartResponse, status_code=202)
@@ -41,11 +53,12 @@ async def start_mining(
         job_type="run_full_pipeline",
         payload=body.model_dump() if body else {},
     )
+    rq_job_id = _enqueue_pipeline_job(job.id, source_id, "run_full_pipeline", body.model_dump() if body else {})
 
     return MineStartResponse(
-        job_id=job.id,
+        job_id=rq_job_id,
         source_id=source_id,
-        status="pending",
+        status="queued",
         message="Mining job queued for worker execution",
     )
 
@@ -64,7 +77,8 @@ async def map_site(source_id: str, db: AsyncSession = Depends(get_db)):
         job_type="map_site",
         payload={},
     )
-    return {"job_id": job.id, "source_id": source_id, "status": "pending", "site_map": None}
+    rq_job_id = _enqueue_pipeline_job(job.id, source_id, "map_site", {})
+    return {"job_id": rq_job_id, "source_id": source_id, "status": "queued", "site_map": None}
 
 
 @router.post("/{source_id}/crawl", status_code=202)
@@ -81,7 +95,8 @@ async def crawl_source(
     job = await crud.create_job(
         db, source_id=source_id, job_type="crawl_section", payload={}
     )
-    return {"job_id": job.id, "status": "pending"}
+    rq_job_id = _enqueue_pipeline_job(job.id, source_id, "crawl_section", {})
+    return {"job_id": rq_job_id, "status": "queued"}
 
 
 @router.post("/{source_id}/extract", status_code=202)
@@ -98,7 +113,8 @@ async def extract_source(
     job = await crud.create_job(
         db, source_id=source_id, job_type="extract_page", payload={}
     )
-    return {"job_id": job.id, "status": "pending"}
+    rq_job_id = _enqueue_pipeline_job(job.id, source_id, "extract_page", {})
+    return {"job_id": rq_job_id, "status": "queued"}
 
 
 @router.post("/{source_id}/pause")
@@ -127,11 +143,12 @@ async def resume_mining(
         job_type="run_full_pipeline",
         payload={},
     )
+    rq_job_id = _enqueue_pipeline_job(job.id, source_id, "run_full_pipeline", {})
 
     return {
-        "job_id": job.id,
+        "job_id": rq_job_id,
         "source_id": source_id,
-        "status": "pending",
+        "status": "queued",
         "message": "Mining resume queued for worker execution",
     }
 
