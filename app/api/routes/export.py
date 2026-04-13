@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -87,7 +87,7 @@ async def push_to_artio(body: ExportPushRequest, db: AsyncSession = Depends(get_
     for record in records:
         if record.id in exported_ids:
             await crud.update_record(
-                db, record.id, status="exported", exported_at=datetime.utcnow()
+                db, record.id, status="exported", exported_at=datetime.now(UTC)
             )
 
     return ExportPushResponse(

@@ -1,6 +1,6 @@
 import json
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -37,7 +37,7 @@ class PipelineQueue:
 
         # Mark as running
         job = await crud.update_job_status(
-            db, job.id, "running", started_at=datetime.utcnow(), attempts=job.attempts + 1
+            db, job.id, "running", started_at=datetime.now(UTC), attempts=job.attempts + 1
         )
         logger.info("job_started", job_id=job.id, job_type=job.job_type)
 
@@ -49,7 +49,7 @@ class PipelineQueue:
                 job.id,
                 "failed",
                 error_message=f"No runner for job type: {job.job_type}",
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(UTC),
             )
             return job
 
@@ -61,7 +61,7 @@ class PipelineQueue:
                 job.id,
                 "done",
                 result=result if isinstance(result, dict) else {"result": str(result)},
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(UTC),
             )
             logger.info("job_done", job_id=job.id)
         except Exception as exc:
@@ -72,7 +72,7 @@ class PipelineQueue:
                 job.id,
                 new_status,
                 error_message=str(exc),
-                completed_at=datetime.utcnow() if new_status == "failed" else None,
+                completed_at=datetime.now(UTC) if new_status == "failed" else None,
             )
 
         return job

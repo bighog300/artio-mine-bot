@@ -1,4 +1,5 @@
 import structlog
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -6,7 +7,20 @@ from app.config import settings
 
 logger = structlog.get_logger()
 
-app = FastAPI(title="Artio Miner API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from app.db.database import init_db
+    await init_db()
+    if settings.openai_api_key == "sk-placeholder":
+        logger.warning(
+            "openai_not_configured",
+            message="OPENAI_API_KEY not set — AI extraction will fail",
+        )
+    yield
+
+
+app = FastAPI(title="Artio Miner API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -15,17 +29,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-async def startup_event():
-    from app.db.database import init_db
-    await init_db()
-    if settings.openai_api_key == "sk-placeholder":
-        logger.warning(
-            "openai_not_configured",
-            message="OPENAI_API_KEY not set — AI extraction will fail",
-        )
 
 
 @app.get("/health")
