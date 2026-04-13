@@ -55,6 +55,9 @@ def _truncate_html(html: str) -> tuple[str, bool]:
 
 
 async def _fetch_with_playwright(url: str) -> FetchResult:
+    if settings.environment == "production":
+        raise RuntimeError("This task must run in a worker environment, not Vercel.")
+
     from playwright.async_api import async_playwright
 
     try:

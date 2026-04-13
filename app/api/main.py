@@ -1,9 +1,10 @@
-import structlog
 from contextlib import asynccontextmanager
+
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import settings
+from app.config import settings, validate_env
 
 logger = structlog.get_logger()
 
@@ -11,12 +12,18 @@ logger = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.db.database import init_db
-    await init_db()
-    if settings.openai_api_key == "sk-placeholder":
+
+    validate_env()
+
+    if settings.environment != "production":
+        await init_db()
+
+    if not settings.openai_api_key:
         logger.warning(
             "openai_not_configured",
             message="OPENAI_API_KEY not set — AI extraction will fail",
         )
+
     yield
 
 
@@ -24,7 +31,7 @@ app = FastAPI(title="Artio Miner API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in settings.cors_origins.split(",")],
+    allow_origins=["*"] if settings.environment != "production" else [o.strip() for o in settings.cors_origins.split(",")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -33,20 +40,7 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    try:
-        from app.db.database import AsyncSessionLocal
-        async with AsyncSessionLocal() as session:
-            await session.execute(__import__("sqlalchemy").text("SELECT 1"))
-        db_status = "ok"
-    except Exception:
-        db_status = "error"
-
-    return {
-        "status": "ok",
-        "version": "1.0.0",
-        "db": db_status,
-        "openai": "configured" if settings.openai_api_key != "sk-placeholder" else "not configured",
-    }
+    return {"status": "ok"}
 
 
 # Include routers

@@ -1,8 +1,8 @@
 import axios from "axios";
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const API_URL = import.meta.env.VITE_API_URL || "/api";
 
-const api = axios.create({ baseURL: BASE_URL });
+const api = axios.create({ baseURL: API_URL });
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -243,85 +243,85 @@ export interface GlobalStats {
 
 // Sources
 export const getSources = (): Promise<PaginatedResponse<Source>> =>
-  api.get("/api/sources").then((r) => r.data);
+  api.get("/sources").then((r) => r.data);
 
 export const getSource = (id: string): Promise<Source> =>
-  api.get(`/api/sources/${id}`).then((r) => r.data);
+  api.get(`/sources/${id}`).then((r) => r.data);
 
 export const createSource = (data: CreateSourceInput): Promise<Source> =>
-  api.post("/api/sources", data).then((r) => r.data);
+  api.post("/sources", data).then((r) => r.data);
 
 export const deleteSource = (id: string): Promise<void> =>
-  api.delete(`/api/sources/${id}`).then(() => undefined);
+  api.delete(`/sources/${id}`).then(() => undefined);
 
 // Mining
 export const startMining = (sourceId: string, opts?: MineOptions): Promise<Job> =>
-  api.post(`/api/mine/${sourceId}/start`, opts ?? {}).then((r) => r.data);
+  api.post(`/mine/${sourceId}/start`, opts ?? {}).then((r) => r.data);
 
 export const getMiningStatus = (sourceId: string): Promise<MiningStatus> =>
-  api.get(`/api/mine/${sourceId}/status`).then((r) => r.data);
+  api.get(`/mine/${sourceId}/status`).then((r) => r.data);
 
 export const mapSite = (sourceId: string): Promise<SiteMap> =>
-  api.post(`/api/mine/${sourceId}/map`).then((r) => r.data.site_map);
+  api.post(`/mine/${sourceId}/map`).then((r) => r.data.site_map);
 
 export const pauseMining = (sourceId: string): Promise<void> =>
-  api.post(`/api/mine/${sourceId}/pause`).then(() => undefined);
+  api.post(`/mine/${sourceId}/pause`).then(() => undefined);
 
 export const resumeMining = (sourceId: string): Promise<void> =>
-  api.post(`/api/mine/${sourceId}/resume`).then(() => undefined);
+  api.post(`/mine/${sourceId}/resume`).then(() => undefined);
 
 // Pages
 export const getPages = (params: PageFilters): Promise<PaginatedResponse<Page>> =>
-  api.get("/api/pages", { params }).then((r) => r.data);
+  api.get("/pages", { params }).then((r) => r.data);
 
 export const getPage = (id: string): Promise<Page> =>
-  api.get(`/api/pages/${id}`).then((r) => r.data);
+  api.get(`/pages/${id}`).then((r) => r.data);
 
 export const reclassifyPage = (id: string): Promise<Page> =>
-  api.post(`/api/pages/${id}/reclassify`).then((r) => r.data);
+  api.post(`/pages/${id}/reclassify`).then((r) => r.data);
 
 export const reextractPage = (id: string): Promise<ArtRecord> =>
-  api.post(`/api/pages/${id}/reextract`).then((r) => r.data);
+  api.post(`/pages/${id}/reextract`).then((r) => r.data);
 
 // Records
 export const getRecords = (params: RecordFilters): Promise<PaginatedResponse<ArtRecord>> =>
-  api.get("/api/records", { params }).then((r) => r.data);
+  api.get("/records", { params }).then((r) => r.data);
 
 export const getRecord = (id: string): Promise<ArtRecord> =>
-  api.get(`/api/records/${id}`).then((r) => r.data);
+  api.get(`/records/${id}`).then((r) => r.data);
 
 export const updateRecord = (id: string, data: Partial<ArtRecord>): Promise<ArtRecord> =>
-  api.patch(`/api/records/${id}`, data).then((r) => r.data);
+  api.patch(`/records/${id}`, data).then((r) => r.data);
 
 export const approveRecord = (id: string): Promise<ArtRecord> =>
-  api.post(`/api/records/${id}/approve`).then((r) => r.data);
+  api.post(`/records/${id}/approve`).then((r) => r.data);
 
 export const rejectRecord = (id: string, reason?: string): Promise<ArtRecord> =>
-  api.post(`/api/records/${id}/reject`, { reason }).then((r) => r.data);
+  api.post(`/records/${id}/reject`, { reason }).then((r) => r.data);
 
 export const bulkApprove = (params: BulkApproveParams): Promise<{ approved_count: number }> =>
-  api.post("/api/records/bulk-approve", params).then((r) => r.data);
+  api.post("/records/bulk-approve", params).then((r) => r.data);
 
 export const setPrimaryImage = (recordId: string, imageId: string): Promise<ArtRecord> =>
-  api.post(`/api/records/${recordId}/set-primary-image`, { image_id: imageId }).then((r) => r.data);
+  api.post(`/records/${recordId}/set-primary-image`, { image_id: imageId }).then((r) => r.data);
 
 // Images
 export const getImages = (params: ImageFilters): Promise<PaginatedResponse<ImageRecord>> =>
-  api.get("/api/images", { params }).then((r) => r.data);
+  api.get("/images", { params }).then((r) => r.data);
 
 export const validateImages = (urls: string[]): Promise<ValidationResult[]> =>
-  api.post("/api/images/validate", { urls }).then((r) => r.data.results);
+  api.post("/images/validate", { urls }).then((r) => r.data.results);
 
 // Export
 export const getExportPreview = (sourceId?: string): Promise<ExportPreview> =>
-  api.get("/api/export/preview", { params: sourceId ? { source_id: sourceId } : {} }).then((r) => r.data);
+  api.get("/export/preview", { params: sourceId ? { source_id: sourceId } : {} }).then((r) => r.data);
 
 export const pushToArtio = (params: ExportParams): Promise<ExportResult> =>
-  api.post("/api/export/push", params).then((r) => r.data);
+  api.post("/export/push", params).then((r) => r.data);
 
 // Stats
 export const getStats = (): Promise<GlobalStats> =>
-  api.get("/api/stats").then((r) => r.data);
+  api.get("/stats").then((r) => r.data);
 
 // ─── Settings types ───────────────────────────────────────────────────────────
 
@@ -349,10 +349,10 @@ export interface TestConnectionResult {
 
 // Settings
 export const getSettings = (): Promise<AppSettings> =>
-  api.get("/api/settings").then((r) => r.data);
+  api.get("/settings").then((r) => r.data);
 
 export const saveSettings = (data: SaveSettingsInput): Promise<AppSettings> =>
-  api.post("/api/settings", data).then((r) => r.data);
+  api.post("/settings", data).then((r) => r.data);
 
 export const testArtioConnection = (): Promise<TestConnectionResult> =>
-  api.post("/api/settings/test-artio").then((r) => r.data);
+  api.post("/settings/test-artio").then((r) => r.data);

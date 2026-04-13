@@ -11,4 +11,4 @@ os.environ.setdefault("PLAYWRIGHT_ENABLED", "false")
 from mangum import Mangum  # noqa: E402
 from app.api.main import app  # noqa: E402
 
-handler = Mangum(app, lifespan="off")
+handler = Mangum(app)

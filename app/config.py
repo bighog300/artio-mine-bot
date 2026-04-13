@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     )
 
     environment: str = "development"
-    openai_api_key: str = "sk-placeholder"
+    openai_api_key: str = ""
     openai_model: str = "gpt-4o"
     database_url: str = get_database_url()
     artio_api_url: str | None = None
@@ -58,3 +58,26 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def validate_env() -> None:
+    required = ["DATABASE_URL"]
+
+    if settings.environment == "production":
+        required.append("OPENAI_API_KEY")
+
+    missing = [
+        key
+        for key in required
+        if not getattr(settings, key.lower(), None)
+    ]
+    if missing:
+        raise RuntimeError(f"Missing env vars: {missing}")
+
+    if settings.environment == "production" and "sqlite" in settings.database_url.lower():
+        raise RuntimeError("SQLite is not supported in production. Use Postgres.")
+
+
+def require_worker_environment() -> None:
+    if settings.environment == "production":
+        raise RuntimeError("This task must run in a worker environment, not Vercel.")

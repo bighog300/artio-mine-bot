@@ -1,11 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_ai_client, get_db
-from app.api.schemas import PageDetailResponse, PageResponse
+from app.api.deps import get_db
+from app.config import settings
 from app.db import crud
 
 router = APIRouter(prefix="/pages", tags=["pages"])
+
+
+def _ensure_worker_runtime() -> None:
+    if settings.environment == "production":
+        raise HTTPException(
+            status_code=503,
+            detail="This task must run in a worker environment, not Vercel.",
+        )
 
 
 def _page_to_dict(page, record_count: int = 0) -> dict:
@@ -54,35 +62,39 @@ async def get_page(page_id: str, db: AsyncSession = Depends(get_db)):
     }
 
 
-@router.post("/{page_id}/reclassify")
+@router.post("/{page_id}/reclassify", status_code=202)
 async def reclassify_page(page_id: str, db: AsyncSession = Depends(get_db)):
+    _ensure_worker_runtime()
+
     page = await crud.get_page(db, page_id)
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
     if not page.html:
         raise HTTPException(status_code=400, detail="Page has no HTML to classify")
 
-    from app.ai.classifier import classify_page
+    job = await crud.create_job(
+        db,
+        source_id=page.source_id,
+        job_type="reclassify_page",
+        payload={"page_id": page_id},
+    )
+    return {"job_id": job.id, "status": "pending", "page_id": page_id}
 
-    ai_client = get_ai_client()
-    result = await classify_page(url=page.url, html=page.html, ai_client=ai_client)
-    updated = await crud.update_page(db, page_id, page_type=result.page_type, status="classified")
-    return _page_to_dict(updated)
 
-
-@router.post("/{page_id}/reextract")
+@router.post("/{page_id}/reextract", status_code=202)
 async def reextract_page(page_id: str, db: AsyncSession = Depends(get_db)):
+    _ensure_worker_runtime()
+
     page = await crud.get_page(db, page_id)
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
     if not page.html:
         raise HTTPException(status_code=400, detail="Page has no HTML to extract")
 
-    from app.pipeline.runner import PipelineRunner
-
-    ai_client = get_ai_client()
-    runner = PipelineRunner(db=db, ai_client=ai_client)
-    record = await runner.run_extraction_for_page(page)
-    if record is None:
-        raise HTTPException(status_code=422, detail="Could not extract record from this page")
-    return {"id": record.id, "record_type": record.record_type, "status": record.status}
+    job = await crud.create_job(
+        db,
+        source_id=page.source_id,
+        job_type="reextract_page",
+        payload={"page_id": page_id},
+    )
+    return {"job_id": job.id, "status": "pending", "page_id": page_id}

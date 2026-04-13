@@ -63,6 +63,8 @@ class PipelineRunner:
 
     async def run_full_pipeline(self, source_id: str) -> None:
         """Run complete pipeline: map → crawl → extract."""
+        if settings.environment == "production":
+            raise RuntimeError("This task must run in a worker environment, not Vercel.")
         try:
             await crud.update_source(self.db, source_id, status="mapping")
             site_map = await self.run_map_site(source_id)
@@ -88,6 +90,8 @@ class PipelineRunner:
 
     async def run_map_site(self, source_id: str) -> SiteMap:
         """Map site structure and store in Source record."""
+        if settings.environment == "production":
+            raise RuntimeError("This task must run in a worker environment, not Vercel.")
         source = await crud.get_source(self.db, source_id)
         if source is None:
             raise ValueError(f"Source {source_id} not found")
@@ -120,6 +124,8 @@ class PipelineRunner:
         site_map: SiteMap | None = None,
     ) -> Any:
         """Crawl all pages for a source."""
+        if settings.environment == "production":
+            raise RuntimeError("This task must run in a worker environment, not Vercel.")
         if site_map is None:
             source = await crud.get_source(self.db, source_id)
             if source and source.site_map:
@@ -143,6 +149,8 @@ class PipelineRunner:
 
     async def run_extract(self, source_id: str) -> ExtractionStats:
         """Extract records from all fetched pages."""
+        if settings.environment == "production":
+            raise RuntimeError("This task must run in a worker environment, not Vercel.")
         pages = await crud.list_pages(
             self.db, source_id=source_id, status="fetched", limit=10000
         )
@@ -163,6 +171,8 @@ class PipelineRunner:
 
     async def run_extraction_for_page(self, page: Page) -> Record | None:
         """Classify page, extract record, score confidence, store in DB."""
+        if settings.environment == "production":
+            raise RuntimeError("This task must run in a worker environment, not Vercel.")
         if not page.html:
             return None
 
