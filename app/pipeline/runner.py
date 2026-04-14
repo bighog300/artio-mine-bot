@@ -82,6 +82,9 @@ class PipelineRunner:
                 crawl_error = str(exc)
                 logger.error("crawl_stage_error", source_id=source_id, error=crawl_error)
 
+            # Ensure crawl writes are committed before extraction reads pages.
+            await self.db.commit()
+
             await crud.update_source(self.db, source_id, status="extracting")
             await self.run_extract(source_id)
 
@@ -175,6 +178,7 @@ class PipelineRunner:
         """Extract records from eligible pages that are not yet terminal."""
         if settings.environment == "production":
             raise RuntimeError("This task must run in a worker environment, not Vercel.")
+        logger.info("extraction_started", source_id=source_id)
         status_result = await self.db.execute(
             select(Page.status, func.count(Page.id))
             .where(Page.source_id == source_id)
@@ -196,6 +200,10 @@ class PipelineRunner:
         if len(pages) == 0:
             logger.warning(
                 "no_pages_eligible_for_extraction",
+                source_id=source_id,
+            )
+            logger.info(
+                "page_status_distribution",
                 source_id=source_id,
                 statuses=status_counts,
             )
@@ -227,14 +235,26 @@ class PipelineRunner:
         if settings.environment == "production":
             raise RuntimeError("This task must run in a worker environment, not Vercel.")
         if not page.html:
+            logger.warning(
+                "page_extraction_skipped_no_html",
+                source_id=page.source_id,
+                page_id=page.id,
+                url=page.url,
+            )
             return None
 
+        logger.info(
+            "page_classified",
+            source_id=page.source_id,
+            page_id=page.id,
+            url=page.url,
+        )
         # Classify page
         classify_result = await classify_page(
             url=page.url, html=page.html, ai_client=self.ai_client
         )
         logger.info(
-            "page_classified",
+            "page_classification_result",
             source_id=page.source_id,
             page_id=page.id,
             url=page.url,
@@ -261,6 +281,13 @@ class PipelineRunner:
         # Extract
         extractor = self._extractors.get(record_type)
         if extractor is None:
+            logger.warning(
+                "page_extraction_skipped_missing_extractor",
+                source_id=page.source_id,
+                page_id=page.id,
+                url=page.url,
+                record_type=record_type,
+            )
             return None
 
         existing_record = await crud.get_record_by_page_and_type(
