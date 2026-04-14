@@ -66,10 +66,36 @@ server required.
 cp .env.example .env
 # Add your OPENAI_API_KEY to .env
 
-docker-compose up
+docker compose up
 ```
 
 Open http://localhost:5173 in your browser.
+
+### Docker build/pull troubleshooting
+
+If `docker compose up --build` fails while pulling base images (for example `nginx:*`), the most common cause is host-side Docker Hub connectivity/rate limiting rather than app code.
+
+```bash
+# Verify Docker Hub pull path
+docker pull nginx:1.27-alpine
+
+# Authenticate if you hit rate limits
+docker login
+
+# Retry clean frontend rebuild
+docker compose build frontend --no-cache
+
+# Retry full stack startup
+docker compose up --build -d
+```
+
+Optional network checks on the deployment host:
+
+```bash
+# DNS + TLS reachability to Docker Hub endpoints
+nslookup registry-1.docker.io
+curl -I https://registry-1.docker.io/v2/
+```
 
 ## Usage
 
