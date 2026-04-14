@@ -90,6 +90,28 @@ async def test_full_pipeline_happy_path(db_session: AsyncSession, mock_ai_client
 
 
 @pytest.mark.asyncio
+async def test_full_pipeline_runs_extraction_even_if_crawl_fails(
+    db_session: AsyncSession, mock_ai_client
+):
+    from app.crawler.site_mapper import SiteMap
+    from app.pipeline.runner import PipelineRunner
+
+    source = await crud.create_source(
+        db_session, url="https://crawl-fail.com", name="CrawlFail"
+    )
+    site_map = SiteMap(root_url="https://crawl-fail.com", sections=[])
+
+    runner = PipelineRunner(db=db_session, ai_client=mock_ai_client)
+    with patch.object(runner, "run_map_site", new=AsyncMock(return_value=site_map)):
+        with patch.object(runner, "run_crawl", new=AsyncMock(side_effect=RuntimeError("boom"))):
+            extract_mock = AsyncMock()
+            with patch.object(runner, "run_extract", new=extract_mock):
+                await runner.run_full_pipeline(source.id)
+
+    assert extract_mock.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_rerun_extract_does_not_duplicate_records(db_session: AsyncSession, mock_ai_client):
     from app.ai.classifier import ClassifyResult
     from app.pipeline.runner import PipelineRunner
