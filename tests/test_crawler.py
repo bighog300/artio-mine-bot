@@ -8,6 +8,7 @@ from app.crawler.fetcher import FetchResult, fetch
 from app.crawler.link_follower import CrawlQueue, _extract_links
 from app.crawler.robots import RobotsChecker
 from app.crawler.site_mapper import _extract_nav_links
+from app.db import crud
 
 SAMPLE_HTML = """
 <html>
@@ -146,3 +147,50 @@ async def test_crawl_respects_max_pages(db_session):
             )
 
     assert stats.pages_fetched <= 2
+
+
+@pytest.mark.asyncio
+async def test_crawl_sanitizes_null_bytes_before_store(db_session):
+    from app.crawler.link_follower import crawl_source
+    from app.crawler.site_mapper import Section, SiteMap
+
+    site_map = SiteMap(
+        root_url="https://example.com",
+        sections=[
+            Section(
+                name="Artists",
+                url="https://example.com/artists",
+                content_type="artist_directory",
+                confidence=80,
+            )
+        ],
+    )
+    source = await crud.create_source(db_session, url="https://example.com")
+    fetch_result = FetchResult(
+        url="https://example.com/artists",
+        final_url="https://example.com/artists",
+        html="<html><body>Hello\x00World</body></html>",
+        status_code=200,
+        method="httpx",
+    )
+    robots_checker = RobotsChecker()
+
+    with patch("app.crawler.link_follower.fetch", new=AsyncMock(return_value=fetch_result)):
+        with patch.object(robots_checker, "is_allowed", new=AsyncMock(return_value=True)):
+            stats = await crawl_source(
+                source_id=source.id,
+                site_map=site_map,
+                db=db_session,
+                robots_checker=robots_checker,
+                max_pages=1,
+                max_depth=0,
+            )
+
+    assert stats.pages_error == 0
+    pages = await crud.list_pages(db_session, source_id=source.id, limit=10)
+    stored_page = next(page for page in pages if page.url == "https://example.com/artists")
+    assert stored_page is not None
+    assert stored_page.status == "fetched"
+    assert stored_page.html is not None
+    assert "\x00" not in stored_page.html
+    assert stored_page.html == "<html><body>HelloWorld</body></html>"
