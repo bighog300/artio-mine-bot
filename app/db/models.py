@@ -35,9 +35,9 @@ class Source(Base):
     total_pages: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     total_records: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now, nullable=False)
-    last_crawled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
+    last_crawled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     pages: Mapped[list["Page"]] = relationship("Page", back_populates="source", cascade="all, delete-orphan")
     records: Mapped[list["Record"]] = relationship("Record", back_populates="source", cascade="all, delete-orphan")
@@ -60,9 +60,9 @@ class Page(Base):
     html: Mapped[str | None] = mapped_column(Text, nullable=True)
     title: Mapped[str | None] = mapped_column(String, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    crawled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    extracted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, nullable=False)
+    crawled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    extracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
 
     source: Mapped["Source"] = relationship("Source", back_populates="pages")
     records: Mapped[list["Record"]] = relationship("Record", back_populates="page")
@@ -139,10 +139,10 @@ class Record(Base):
     # Admin fields
     admin_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     primary_image_id: Mapped[str | None] = mapped_column(String, ForeignKey("images.id"), nullable=True)
-    exported_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    exported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
 
     source: Mapped["Source"] = relationship("Source", back_populates="records")
     page: Mapped["Page | None"] = relationship("Page", back_populates="records")
@@ -183,7 +183,7 @@ class Image(Base):
     mime_type: Mapped[str | None] = mapped_column(String, nullable=True)
     is_valid: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     confidence: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
 
     record: Mapped["Record | None"] = relationship(
         "Record",
@@ -211,9 +211,9 @@ class Job(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, nullable=False)
 
     source: Mapped["Source"] = relationship("Source", back_populates="jobs")
 
