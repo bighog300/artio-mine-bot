@@ -52,6 +52,28 @@ def _extract_nav_links(html: str, base_url: str) -> list[tuple[str, str]]:
     return links
 
 
+def _extract_home_links(html: str, base_url: str) -> list[tuple[str, str]]:
+    """Extract (text, url) pairs from all links on homepage as fallback."""
+    soup = BeautifulSoup(html, "lxml")
+    links: list[tuple[str, str]] = []
+    seen: set[str] = set()
+
+    for a in soup.find_all("a", href=True):
+        href = a.get("href", "").strip()
+        if not href or href.startswith("#") or href.startswith("javascript:"):
+            continue
+        full_url = urljoin(base_url, href).split("#")[0]
+        if not _same_domain(base_url, full_url):
+            continue
+        if full_url in seen:
+            continue
+        seen.add(full_url)
+        text = a.get_text(strip=True) or full_url.rsplit("/", 1)[-1]
+        links.append((text, full_url))
+
+    return links
+
+
 CONTENT_TYPE_PATTERNS = [
     ("artist_directory", ["/artists", "/artist", "/our-artists", "/gallery-artists"]),
     ("event_listing", ["/events", "/event", "/whats-on", "/what-s-on", "/what's-on", "/upcoming"]),
@@ -100,6 +122,9 @@ async def map_site(url: str, ai_client=None, html: str | None = None) -> SiteMap
 
     nav_links = _extract_nav_links(html, url)
     logger.info("map_site_nav_links", url=url, count=len(nav_links))
+    if not nav_links:
+        nav_links = _extract_home_links(html, url)
+        logger.info("map_site_nav_links_fallback_home_links", url=url, count=len(nav_links))
 
     sections: list[Section] = []
     seen_types: set[str] = set()

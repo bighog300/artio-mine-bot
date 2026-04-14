@@ -76,6 +76,9 @@ class CrawlQueue:
     def empty(self) -> bool:
         return self._queue.empty()
 
+    def size(self) -> int:
+        return self._queue.qsize()
+
     @property
     def seen(self) -> set[str]:
         return self._seen
@@ -99,16 +102,30 @@ async def crawl_source(
 
     stats = CrawlStats()
     queue = CrawlQueue()
-    source_exists = await crud.wait_for_source(db, source_id, retries=3, delay_seconds=0.2)
-    if source_exists is None:
+    source = await crud.wait_for_source(db, source_id, retries=3, delay_seconds=0.2)
+    if source is None:
         raise ValueError(f"Source {source_id} not found before crawl page storage")
+    root_url = source.url or site_map.root_url
 
     # Seed queue with section URLs
     for section in site_map.sections:
         queue.add(section.url, depth=0)
 
-    # Also seed from root
-    queue.add(site_map.root_url, depth=0)
+    # Always seed from root URL to guarantee at least one crawl target.
+    if root_url:
+        queue.add(root_url, depth=0)
+        root_page, root_created = await crud.get_or_create_page(db, source_id=source_id, url=root_url)
+        if root_created:
+            await crud.update_page(
+                db,
+                root_page.id,
+                original_url=root_url,
+                status="fetched",
+                depth=0,
+            )
+            logger.info("page_created", source_id=source_id, page_id=root_page.id, url=root_url)
+
+    logger.info("crawl_started", source_id=source_id, frontier_size=queue.size())
 
     while not queue.empty() and stats.pages_fetched < max_pages:
         item = await queue.get()
@@ -149,6 +166,8 @@ async def crawl_source(
             page, created = await crud.get_or_create_page(
                 db, source_id=source_id, url=result.final_url
             )
+            if created:
+                logger.info("page_created", source_id=source_id, page_id=page.id, url=result.final_url)
             title = _extract_title(result.html)
             update_kwargs = {
                 "original_url": url,
@@ -169,6 +188,7 @@ async def crawl_source(
                     status=page.status,
                 )
             await crud.update_page(db, page.id, **update_kwargs)
+            logger.info("page_fetched", source_id=source_id, page_id=page.id, url=result.final_url)
         except Exception as exc:
             logger.error("store_page_error", url=url, error=str(exc))
             await db.rollback()
