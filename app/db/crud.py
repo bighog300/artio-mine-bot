@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Image, Job, Page, Record, Source
@@ -168,6 +168,22 @@ async def list_pages(
     return list(result.scalars().all())
 
 
+async def list_pages_by_statuses(
+    db: AsyncSession,
+    source_id: str,
+    statuses: list[str],
+    *,
+    limit: int = 10000,
+) -> list[Page]:
+    stmt: Select[tuple[Page]] = (
+        select(Page)
+        .where(Page.source_id == source_id, Page.status.in_(statuses))
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
 async def update_page(db: AsyncSession, page_id: str, **kwargs: Any) -> Page:
     page = await get_page(db, page_id)
     if page is None:
@@ -183,6 +199,12 @@ async def count_pages(db: AsyncSession, source_id: str, status: str | None = Non
     stmt = select(func.count(Page.id)).where(Page.source_id == source_id)
     if status:
         stmt = stmt.where(Page.status == status)
+    result = await db.execute(stmt)
+    return result.scalar_one()
+
+
+async def count_pages_in_statuses(db: AsyncSession, source_id: str, statuses: list[str]) -> int:
+    stmt = select(func.count(Page.id)).where(Page.source_id == source_id, Page.status.in_(statuses))
     result = await db.execute(stmt)
     return result.scalar_one()
 
@@ -204,6 +226,23 @@ async def create_record(
     await db.commit()
     await db.refresh(record)
     return record
+
+
+async def get_record_by_page_and_type(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    page_id: str,
+    record_type: str,
+) -> Record | None:
+    result = await db.execute(
+        select(Record).where(
+            Record.source_id == source_id,
+            Record.page_id == page_id,
+            Record.record_type == record_type,
+        )
+    )
+    return result.scalar_one_or_none()
 
 
 async def get_record(db: AsyncSession, record_id: str) -> Record | None:

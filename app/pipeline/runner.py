@@ -163,11 +163,14 @@ class PipelineRunner:
         return {"pages_fetched": stats.pages_fetched, "errors": stats.pages_error}
 
     async def run_extract(self, source_id: str) -> ExtractionStats:
-        """Extract records from all fetched pages."""
+        """Extract records from eligible pages that are not yet terminal."""
         if settings.environment == "production":
             raise RuntimeError("This task must run in a worker environment, not Vercel.")
-        pages = await crud.list_pages(
-            self.db, source_id=source_id, status="fetched", limit=10000
+        pages = await crud.list_pages_by_statuses(
+            self.db,
+            source_id=source_id,
+            statuses=["fetched", "classified"],
+            limit=10000,
         )
         stats = ExtractionStats()
 
@@ -181,7 +184,8 @@ class PipelineRunner:
                 logger.error("extract_page_error", page_id=page.id, error=str(exc))
                 stats.records_failed += 1
 
-        await crud.update_source(self.db, source_id, total_records=stats.records_created)
+        total_records = await crud.count_records(self.db, source_id=source_id)
+        await crud.update_source(self.db, source_id, total_records=total_records)
         return stats
 
     async def run_extraction_for_page(self, page: Page) -> Record | None:
@@ -195,6 +199,14 @@ class PipelineRunner:
         classify_result = await classify_page(
             url=page.url, html=page.html, ai_client=self.ai_client
         )
+        logger.info(
+            "page_classified",
+            source_id=page.source_id,
+            page_id=page.id,
+            url=page.url,
+            page_type=classify_result.page_type,
+            confidence=classify_result.confidence,
+        )
         await crud.update_page(
             self.db, page.id, page_type=classify_result.page_type, status="classified"
         )
@@ -203,6 +215,13 @@ class PipelineRunner:
         if record_type is None:
             # Not a detail page — skip extraction
             await crud.update_page(self.db, page.id, status="skipped")
+            logger.info(
+                "page_skipped",
+                source_id=page.source_id,
+                page_id=page.id,
+                url=page.url,
+                page_type=classify_result.page_type,
+            )
             return None
 
         # Extract
@@ -210,19 +229,43 @@ class PipelineRunner:
         if extractor is None:
             return None
 
+        existing_record = await crud.get_record_by_page_and_type(
+            self.db,
+            source_id=page.source_id,
+            page_id=page.id,
+            record_type=record_type,
+        )
+        if existing_record is not None:
+            await crud.update_page(self.db, page.id, status="extracted", extracted_at=datetime.now(UTC))
+            logger.info(
+                "record_duplicate_skipped",
+                source_id=page.source_id,
+                page_id=page.id,
+                record_id=existing_record.id,
+                record_type=record_type,
+            )
+            return None
+
         try:
             data = await extractor.extract(url=page.url, html=page.html)
         except Exception as exc:
             logger.error("extractor_error", page_id=page.id, record_type=record_type, error=str(exc))
-            await crud.create_record(
+            existing_error_record = await crud.get_record_by_page_and_type(
                 self.db,
                 source_id=page.source_id,
-                record_type=record_type,
                 page_id=page.id,
-                source_url=page.url,
-                status="error",
-                raw_error=str(exc),
+                record_type=record_type,
             )
+            if existing_error_record is None:
+                await crud.create_record(
+                    self.db,
+                    source_id=page.source_id,
+                    record_type=record_type,
+                    page_id=page.id,
+                    source_url=page.url,
+                    status="error",
+                    raw_error=str(exc),
+                )
             await crud.update_page(self.db, page.id, status="error", error_message=str(exc))
             return None
 
@@ -290,6 +333,15 @@ class PipelineRunner:
             source_id=page.source_id,
             record_type=record_type,
             **record_kwargs,
+        )
+        logger.info(
+            "record_created",
+            source_id=page.source_id,
+            page_id=page.id,
+            record_id=record.id,
+            record_type=record_type,
+            confidence_score=score,
+            confidence_band=band,
         )
 
         await crud.update_page(
