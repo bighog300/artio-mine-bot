@@ -30,10 +30,10 @@ def _ensure_worker_runtime() -> None:
 def _enqueue_pipeline_job(job_id: str, source_id: str, job_type: str, payload: dict) -> str:
     rq_job = get_default_queue().enqueue(
         "app.pipeline.runner.process_pipeline_job",
-        job_id=job_id,
-        source_id=source_id,
-        job_type=job_type,
-        payload=payload,
+        job_id,
+        source_id,
+        job_type,
+        payload,
     )
     return rq_job.id
 
