@@ -54,6 +54,13 @@ def _extract_title(html: str) -> str | None:
     return None
 
 
+def sanitize_html(html: str) -> str:
+    if not html:
+        return html
+    sanitized_html = html.replace("\x00", "")
+    return sanitized_html
+
+
 class CrawlQueue:
     def __init__(self) -> None:
         self._queue: asyncio.Queue[tuple[str, int]] = asyncio.Queue()
@@ -168,12 +175,19 @@ async def crawl_source(
             )
             if created:
                 logger.info("page_created", source_id=source_id, page_id=page.id, url=result.final_url)
-            title = _extract_title(result.html)
+            raw_html = result.html
+            if isinstance(raw_html, bytes):
+                raw_html = raw_html.decode("utf-8", errors="replace")
+            sanitized_html = sanitize_html(raw_html)
+            if sanitized_html != raw_html:
+                logger.warning("html_sanitized_null_bytes_removed", url=result.final_url)
+
+            title = _extract_title(sanitized_html)
             update_kwargs = {
                 "original_url": url,
                 "fetch_method": result.method,
-                "html": result.html,
-                "html_truncated": len(result.html.encode()) >= 500 * 1024,
+                "html": sanitized_html,
+                "html_truncated": len(sanitized_html.encode()) >= 500 * 1024,
                 "title": title,
                 "depth": depth,
             }
@@ -205,7 +219,7 @@ async def crawl_source(
 
         # Extract links for next depth
         if depth < max_depth:
-            links = _extract_links(result.html, result.final_url)
+            links = _extract_links(sanitized_html, result.final_url)
             for link in links:
                 queue.add(link, depth=depth + 1)
 
