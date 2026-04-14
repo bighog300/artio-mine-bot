@@ -70,17 +70,17 @@ class PipelineRunner:
         """Run complete pipeline: map → crawl → extract."""
         if settings.environment == "production":
             raise RuntimeError("This task must run in a worker environment, not Vercel.")
+        crawl_exception: Exception | None = None
         try:
             await crud.update_source(self.db, source_id, status="mapping")
             site_map = await self.run_map_site(source_id)
 
             await crud.update_source(self.db, source_id, status="crawling")
-            crawl_error: str | None = None
             try:
                 await self.run_crawl(source_id, site_map=site_map)
             except Exception as exc:
-                crawl_error = str(exc)
-                logger.error("crawl_stage_error", source_id=source_id, error=crawl_error)
+                crawl_exception = exc
+                logger.error("crawl_stage_error", source_id=source_id, error=str(exc))
 
             # Ensure crawl writes are committed before extraction reads pages.
             await self.db.commit()
@@ -88,8 +88,10 @@ class PipelineRunner:
             await crud.update_source(self.db, source_id, status="extracting")
             await self.run_extract(source_id)
 
-            if crawl_error is not None:
-                raise RuntimeError(f"crawl failed before extraction: {crawl_error}")
+            if crawl_exception is not None:
+                raise RuntimeError(
+                    f"crawl failed before extraction: {crawl_exception}"
+                ) from crawl_exception
 
             await crud.update_source(
                 self.db,
@@ -106,6 +108,7 @@ class PipelineRunner:
                 )
             except ValueError:
                 logger.warning("pipeline_error_source_missing", source_id=source_id)
+            raise
 
     async def run_map_site(self, source_id: str) -> SiteMap:
         """Map site structure and store in Source record."""

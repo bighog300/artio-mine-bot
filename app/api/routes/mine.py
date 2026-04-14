@@ -17,6 +17,7 @@ from app.queue import QueueUnavailableError, check_queue_health, get_default_que
 
 router = APIRouter(prefix="/mine", tags=["mining"])
 logger = structlog.get_logger()
+PIPELINE_JOB_TIMEOUT_SECONDS = 900
 
 
 def _ensure_worker_runtime() -> None:
@@ -34,6 +35,7 @@ def _enqueue_pipeline_job(job_id: str, source_id: str, job_type: str, payload: d
         source_id,
         job_type,
         payload,
+        job_timeout=PIPELINE_JOB_TIMEOUT_SECONDS,
     )
     return rq_job.id
 
