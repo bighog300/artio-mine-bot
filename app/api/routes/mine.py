@@ -54,6 +54,8 @@ async def start_mining(
         payload=body.model_dump() if body else {},
     )
     rq_job_id = _enqueue_pipeline_job(job.id, source_id, "run_full_pipeline", body.model_dump() if body else {})
+    await crud.update_source(db, source_id, status="queued", error_message=None)
+    await crud.update_job_status(db, job.id, "queued")
 
     return MineStartResponse(
         job_id=rq_job_id,
@@ -78,6 +80,8 @@ async def map_site(source_id: str, db: AsyncSession = Depends(get_db)):
         payload={},
     )
     rq_job_id = _enqueue_pipeline_job(job.id, source_id, "map_site", {})
+    await crud.update_source(db, source_id, status="queued", error_message=None)
+    await crud.update_job_status(db, job.id, "queued")
     return {"job_id": rq_job_id, "source_id": source_id, "status": "queued", "site_map": None}
 
 
@@ -96,6 +100,8 @@ async def crawl_source(
         db, source_id=source_id, job_type="crawl_section", payload={}
     )
     rq_job_id = _enqueue_pipeline_job(job.id, source_id, "crawl_section", {})
+    await crud.update_source(db, source_id, status="queued", error_message=None)
+    await crud.update_job_status(db, job.id, "queued")
     return {"job_id": rq_job_id, "status": "queued"}
 
 
@@ -114,6 +120,8 @@ async def extract_source(
         db, source_id=source_id, job_type="extract_page", payload={}
     )
     rq_job_id = _enqueue_pipeline_job(job.id, source_id, "extract_page", {})
+    await crud.update_source(db, source_id, status="queued", error_message=None)
+    await crud.update_job_status(db, job.id, "queued")
     return {"job_id": rq_job_id, "status": "queued"}
 
 
@@ -144,6 +152,8 @@ async def resume_mining(
         payload={},
     )
     rq_job_id = _enqueue_pipeline_job(job.id, source_id, "run_full_pipeline", {})
+    await crud.update_source(db, source_id, status="queued", error_message=None)
+    await crud.update_job_status(db, job.id, "queued")
 
     return {
         "job_id": rq_job_id,
@@ -159,10 +169,12 @@ async def get_mining_status(source_id: str, db: AsyncSession = Depends(get_db)):
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
 
-    jobs = await crud.list_jobs(db, source_id=source_id, status="running")
+    jobs = await crud.list_jobs(db, source_id=source_id)
     current_job = None
-    if jobs:
-        current_job = JobSummary.model_validate(jobs[0])
+    for job in jobs:
+        if job.status in {"queued", "pending", "running"}:
+            current_job = JobSummary.model_validate(job)
+            break
 
     pages_crawled = await crud.count_pages(db, source_id=source_id, status="fetched")
     records_extracted = await crud.count_records(db, source_id=source_id)

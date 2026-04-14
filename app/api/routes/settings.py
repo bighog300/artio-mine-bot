@@ -12,16 +12,19 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 class SettingsResponse(BaseModel):
     artio_api_url: str | None
     artio_api_key_masked: str | None
+    openai_api_key_masked: str | None
     max_crawl_depth: int
     max_pages_per_source: int
     crawl_delay_ms: int
     artio_configured: bool
+    openai_configured: bool
     readonly: bool  # True on Vercel — settings managed via env vars
 
 
 class SaveSettingsRequest(BaseModel):
     artio_api_url: str | None = None
     artio_api_key: str | None = None
+    openai_api_key: str | None = None
     max_crawl_depth: int | None = None
     max_pages_per_source: int | None = None
     crawl_delay_ms: int | None = None
@@ -52,10 +55,12 @@ async def get_settings() -> SettingsResponse:
     return SettingsResponse(
         artio_api_url=settings.artio_api_url,
         artio_api_key_masked=_mask_key(settings.artio_api_key),
+        openai_api_key_masked=_mask_key(settings.openai_api_key),
         max_crawl_depth=settings.max_crawl_depth,
         max_pages_per_source=settings.max_pages_per_source,
         crawl_delay_ms=settings.crawl_delay_ms,
         artio_configured=bool(settings.artio_api_url and settings.artio_api_key),
+        openai_configured=bool(settings.openai_api_key),
         readonly=_is_readonly(),
     )
 
@@ -88,6 +93,11 @@ async def save_settings(body: SaveSettingsRequest) -> SettingsResponse:
             if not key.startswith("***") and key:
                 set_key(str(env_file), "ARTIO_API_KEY", key)
 
+        if "openai_api_key" in sent and body.openai_api_key:
+            key = body.openai_api_key.strip()
+            if not key.startswith("***") and key:
+                set_key(str(env_file), "OPENAI_API_KEY", key)
+
         if "max_crawl_depth" in sent and body.max_crawl_depth is not None:
             set_key(str(env_file), "MAX_CRAWL_DEPTH", str(body.max_crawl_depth))
 
@@ -105,6 +115,11 @@ async def save_settings(body: SaveSettingsRequest) -> SettingsResponse:
         key = body.artio_api_key.strip()
         if not key.startswith("***"):
             settings.artio_api_key = key or None
+
+    if "openai_api_key" in sent and body.openai_api_key:
+        key = body.openai_api_key.strip()
+        if not key.startswith("***"):
+            settings.openai_api_key = key
 
     if "max_crawl_depth" in sent and body.max_crawl_depth is not None:
         settings.max_crawl_depth = body.max_crawl_depth

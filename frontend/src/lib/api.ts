@@ -363,15 +363,19 @@ export const deleteLogs = (
 export interface AppSettings {
   artio_api_url: string | null;
   artio_api_key_masked: string | null;
+  openai_api_key_masked: string | null;
   max_crawl_depth: number;
   max_pages_per_source: number;
   crawl_delay_ms: number;
   artio_configured: boolean;
+  openai_configured: boolean;
+  readonly: boolean;
 }
 
 export interface SaveSettingsInput {
   artio_api_url?: string | null;
   artio_api_key?: string | null;
+  openai_api_key?: string | null;
   max_crawl_depth?: number;
   max_pages_per_source?: number;
   crawl_delay_ms?: number;

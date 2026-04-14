@@ -191,6 +191,46 @@ async def test_mine_start(test_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_mine_start_sets_source_queued(test_client: AsyncClient):
+    create_resp = await test_client.post(
+        "/api/sources", json={"url": "https://mine-queued.com"}
+    )
+    source_id = create_resp.json()["id"]
+
+    with patch(
+        "app.api.routes.mine._enqueue_pipeline_job",
+        return_value="mock-rq-job-id",
+    ):
+        resp = await test_client.post(f"/api/mine/{source_id}/start")
+
+    assert resp.status_code == 200
+    source_resp = await test_client.get(f"/api/sources/{source_id}")
+    assert source_resp.status_code == 200
+    assert source_resp.json()["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_mining_status_includes_queued_job(test_client: AsyncClient):
+    create_resp = await test_client.post(
+        "/api/sources", json={"url": "https://mine-status-queued.com"}
+    )
+    source_id = create_resp.json()["id"]
+
+    with patch(
+        "app.api.routes.mine._enqueue_pipeline_job",
+        return_value="mock-rq-job-id",
+    ):
+        await test_client.post(f"/api/mine/{source_id}/start")
+
+    status_resp = await test_client.get(f"/api/mine/{source_id}/status")
+    assert status_resp.status_code == 200
+    payload = status_resp.json()
+    assert payload["status"] == "queued"
+    assert payload["current_job"] is not None
+    assert payload["current_job"]["status"] == "queued"
+
+
+@pytest.mark.asyncio
 async def test_mine_start_not_found(test_client: AsyncClient):
     resp = await test_client.post("/api/mine/nonexistent/start")
     assert resp.status_code == 404
@@ -212,3 +252,20 @@ async def test_list_images(test_client: AsyncClient):
     assert resp.status_code == 200
     data = resp.json()
     assert "items" in data
+
+
+@pytest.mark.asyncio
+async def test_settings_openai_api_key_flow(test_client: AsyncClient):
+    read_resp = await test_client.get("/api/settings")
+    assert read_resp.status_code == 200
+    assert "openai_api_key_masked" in read_resp.json()
+    assert "openai_configured" in read_resp.json()
+
+    save_resp = await test_client.post(
+        "/api/settings",
+        json={"openai_api_key": "sk-test-openai-1234"},
+    )
+    assert save_resp.status_code == 200
+    payload = save_resp.json()
+    assert payload["openai_configured"] is True
+    assert payload["openai_api_key_masked"] == "***...1234"

@@ -21,6 +21,8 @@ export function Settings() {
   const [artioUrl, setArtioUrl] = useState("");
   const [artioKey, setArtioKey] = useState("");
   const [artioKeyDirty, setArtioKeyDirty] = useState(false);
+  const [openaiKey, setOpenaiKey] = useState("");
+  const [openaiKeyDirty, setOpenaiKeyDirty] = useState(false);
   const [connStatus, setConnStatus] = useState<ConnectionStatus>({ state: "idle" });
 
   // Crawl settings section
@@ -35,6 +37,7 @@ export function Settings() {
     if (!data) return;
     setArtioUrl(data.artio_api_url ?? "");
     setArtioKey(data.artio_api_key_masked ?? "");
+    setOpenaiKey(data.openai_api_key_masked ?? "");
     setMaxDepth(data.max_crawl_depth);
     setMaxPages(data.max_pages_per_source);
     setCrawlDelay(data.crawl_delay_ms);
@@ -46,6 +49,7 @@ export function Settings() {
         artio_api_url: artioUrl || null,
         // Only send the key when the user has actually typed a new value
         ...(artioKeyDirty ? { artio_api_key: artioKey || null } : {}),
+        ...(openaiKeyDirty ? { openai_api_key: openaiKey || null } : {}),
         max_crawl_depth: maxDepth,
         max_pages_per_source: maxPages,
         crawl_delay_ms: crawlDelay,
@@ -53,7 +57,9 @@ export function Settings() {
     onSuccess: (updated) => {
       queryClient.setQueryData(["settings"], updated);
       setArtioKeyDirty(false);
+      setOpenaiKeyDirty(false);
       setArtioKey(updated.artio_api_key_masked ?? "");
+      setOpenaiKey(updated.openai_api_key_masked ?? "");
       setSavedAt(Date.now());
     },
   });
@@ -85,6 +91,14 @@ export function Settings() {
           <span>
             <strong>Artio API not configured</strong> — Set ARTIO_API_URL and ARTIO_API_KEY
             below to enable export.
+          </span>
+        </div>
+      )}
+      {!data?.openai_configured && (
+        <div className="flex items-start gap-2 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+          <span className="mt-0.5 shrink-0">⚠</span>
+          <span>
+            <strong>OpenAI key not configured</strong> — Add OPENAI_API_KEY below to enable mining.
           </span>
         </div>
       )}
@@ -122,6 +136,22 @@ export function Settings() {
               onChange={(e) => {
                 setArtioKey(e.target.value);
                 setArtioKeyDirty(true);
+              }}
+              placeholder="sk-…"
+              className={inputCls}
+            />
+          </Field>
+
+          <Field
+            label="OpenAI API Key"
+            hint="Used by the mining pipeline. Your key is masked after saving."
+          >
+            <input
+              type="password"
+              value={openaiKey}
+              onChange={(e) => {
+                setOpenaiKey(e.target.value);
+                setOpenaiKeyDirty(true);
               }}
               placeholder="sk-…"
               className={inputCls}
