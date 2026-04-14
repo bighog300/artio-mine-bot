@@ -269,3 +269,20 @@ async def test_settings_openai_api_key_flow(test_client: AsyncClient):
     payload = save_resp.json()
     assert payload["openai_configured"] is True
     assert payload["openai_api_key_masked"] == "***...1234"
+
+
+@pytest.mark.asyncio
+async def test_settings_save_returns_handled_error_when_env_persist_fails(test_client: AsyncClient):
+    with (
+        patch("app.api.routes.settings._is_readonly", return_value=False),
+        patch("app.api.routes.settings._validate_env_target"),
+        patch("dotenv.set_key", side_effect=PermissionError("read-only filesystem")),
+    ):
+        save_resp = await test_client.post(
+            "/api/settings",
+            json={"openai_api_key": "sk-test-openai-9999"},
+        )
+
+    assert save_resp.status_code == 500
+    payload = save_resp.json()
+    assert payload["detail"] == "Failed to persist settings to .env. Check file path and permissions."
