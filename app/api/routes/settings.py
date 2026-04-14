@@ -1,10 +1,14 @@
+import os
+
 import httpx
-from fastapi import APIRouter
+import structlog
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.config import settings
 
 router = APIRouter(prefix="/settings", tags=["settings"])
+logger = structlog.get_logger(__name__)
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -48,6 +52,17 @@ def _is_readonly() -> bool:
     return settings.environment == "production"
 
 
+def _validate_env_target(env_file: str) -> None:
+    env_dir = os.path.dirname(env_file) or "."
+    if not os.path.isdir(env_dir):
+        raise RuntimeError(f"Settings directory does not exist: {env_dir}")
+    if os.path.exists(env_file):
+        if not os.access(env_file, os.W_OK):
+            raise RuntimeError(f"Settings file is not writable: {env_file}")
+    elif not os.access(env_dir, os.W_OK):
+        raise RuntimeError(f"Settings directory is not writable: {env_dir}")
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("", response_model=SettingsResponse)
@@ -79,33 +94,42 @@ async def save_settings(body: SaveSettingsRequest) -> SettingsResponse:
         # Only write to .env file when running locally / on Docker
         from app.config import BASE_DIR
         from dotenv import set_key, unset_key
-        env_file = BASE_DIR / ".env"
 
-        if "artio_api_url" in sent:
-            url = (body.artio_api_url or "").strip()
-            if url:
-                set_key(str(env_file), "ARTIO_API_URL", url)
-            else:
-                unset_key(str(env_file), "ARTIO_API_URL")
+        env_file = str(BASE_DIR / ".env")
+        try:
+            _validate_env_target(env_file)
 
-        if "artio_api_key" in sent and body.artio_api_key:
-            key = body.artio_api_key.strip()
-            if not key.startswith("***") and key:
-                set_key(str(env_file), "ARTIO_API_KEY", key)
+            if "artio_api_url" in sent:
+                url = (body.artio_api_url or "").strip()
+                if url:
+                    set_key(env_file, "ARTIO_API_URL", url)
+                else:
+                    unset_key(env_file, "ARTIO_API_URL")
 
-        if "openai_api_key" in sent and body.openai_api_key:
-            key = body.openai_api_key.strip()
-            if not key.startswith("***") and key:
-                set_key(str(env_file), "OPENAI_API_KEY", key)
+            if "artio_api_key" in sent and body.artio_api_key:
+                key = body.artio_api_key.strip()
+                if not key.startswith("***") and key:
+                    set_key(env_file, "ARTIO_API_KEY", key)
 
-        if "max_crawl_depth" in sent and body.max_crawl_depth is not None:
-            set_key(str(env_file), "MAX_CRAWL_DEPTH", str(body.max_crawl_depth))
+            if "openai_api_key" in sent and body.openai_api_key:
+                key = body.openai_api_key.strip()
+                if not key.startswith("***") and key:
+                    set_key(env_file, "OPENAI_API_KEY", key)
 
-        if "max_pages_per_source" in sent and body.max_pages_per_source is not None:
-            set_key(str(env_file), "MAX_PAGES_PER_SOURCE", str(body.max_pages_per_source))
+            if "max_crawl_depth" in sent and body.max_crawl_depth is not None:
+                set_key(env_file, "MAX_CRAWL_DEPTH", str(body.max_crawl_depth))
 
-        if "crawl_delay_ms" in sent and body.crawl_delay_ms is not None:
-            set_key(str(env_file), "CRAWL_DELAY_MS", str(body.crawl_delay_ms))
+            if "max_pages_per_source" in sent and body.max_pages_per_source is not None:
+                set_key(env_file, "MAX_PAGES_PER_SOURCE", str(body.max_pages_per_source))
+
+            if "crawl_delay_ms" in sent and body.crawl_delay_ms is not None:
+                set_key(env_file, "CRAWL_DELAY_MS", str(body.crawl_delay_ms))
+        except (OSError, PermissionError, ValueError, RuntimeError) as exc:
+            logger.exception("settings_persist_failed", env_file=env_file, error=str(exc))
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to persist settings to .env. Check file path and permissions.",
+            ) from exc
 
     # Always update in-memory settings
     if "artio_api_url" in sent:
