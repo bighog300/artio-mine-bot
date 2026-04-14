@@ -1,4 +1,5 @@
 import json
+from asyncio import sleep
 from datetime import UTC, datetime
 from typing import Any
 
@@ -31,6 +32,23 @@ async def get_source(db: AsyncSession, source_id: str) -> Source | None:
 async def get_source_by_url(db: AsyncSession, url: str) -> Source | None:
     result = await db.execute(select(Source).where(Source.url == url))
     return result.scalar_one_or_none()
+
+
+async def wait_for_source(
+    db: AsyncSession,
+    source_id: str,
+    *,
+    retries: int = 3,
+    delay_seconds: float = 0.2,
+) -> Source | None:
+    """Wait briefly for source visibility across transactions/processes."""
+    for attempt in range(retries):
+        source = await get_source(db, source_id)
+        if source is not None:
+            return source
+        if attempt < retries - 1:
+            await sleep(delay_seconds)
+    return None
 
 
 async def list_sources(db: AsyncSession, skip: int = 0, limit: int = 50) -> list[Source]:
