@@ -9,6 +9,7 @@ const statusConfig: Record<string, { label: string; className: string; pulse?: b
   approved: { label: "Approved", className: "bg-green-100 text-green-800" },
   exported: { label: "Exported", className: "bg-green-100 text-green-800" },
   running: { label: "Running", className: "bg-blue-100 text-blue-800", pulse: true },
+  queued: { label: "Queued", className: "bg-indigo-100 text-indigo-800", pulse: true },
   crawling: { label: "Crawling", className: "bg-blue-100 text-blue-800", pulse: true },
   extracting: { label: "Extracting", className: "bg-purple-100 text-purple-800", pulse: true },
   mapping: { label: "Mapping", className: "bg-blue-100 text-blue-800", pulse: true },
