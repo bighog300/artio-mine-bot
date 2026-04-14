@@ -173,6 +173,28 @@ async def test_list_pages(test_client: AsyncClient):
     assert "items" in data
 
 
+
+
+def test_enqueue_pipeline_job_passes_job_id_as_function_argument():
+    from app.api.routes import mine
+
+    captured: dict[str, object] = {}
+
+    class _FakeQueue:
+        def enqueue(self, func_name: str, *args, **kwargs):
+            captured["func_name"] = func_name
+            captured["args"] = args
+            captured["kwargs"] = kwargs
+            return SimpleNamespace(id="rq-id-123")
+
+    with patch("app.api.routes.mine.get_default_queue", return_value=_FakeQueue()):
+        rq_job_id = mine._enqueue_pipeline_job("db-job-id", "source-1", "run_full_pipeline", {"k": "v"})
+
+    assert rq_job_id == "rq-id-123"
+    assert captured["func_name"] == "app.pipeline.runner.process_pipeline_job"
+    assert captured["args"] == ("db-job-id", "source-1", "run_full_pipeline", {"k": "v"})
+    assert captured["kwargs"] == {}
+
 @pytest.mark.asyncio
 async def test_mine_start(test_client: AsyncClient):
     create_resp = await test_client.post(
