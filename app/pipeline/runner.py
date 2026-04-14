@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 from redis import from_url
 from rq import Worker
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.classifier import classify_page
@@ -74,10 +75,18 @@ class PipelineRunner:
             site_map = await self.run_map_site(source_id)
 
             await crud.update_source(self.db, source_id, status="crawling")
-            await self.run_crawl(source_id, site_map=site_map)
+            crawl_error: str | None = None
+            try:
+                await self.run_crawl(source_id, site_map=site_map)
+            except Exception as exc:
+                crawl_error = str(exc)
+                logger.error("crawl_stage_error", source_id=source_id, error=crawl_error)
 
             await crud.update_source(self.db, source_id, status="extracting")
             await self.run_extract(source_id)
+
+            if crawl_error is not None:
+                raise RuntimeError(f"crawl failed before extraction: {crawl_error}")
 
             await crud.update_source(
                 self.db,
@@ -166,13 +175,30 @@ class PipelineRunner:
         """Extract records from eligible pages that are not yet terminal."""
         if settings.environment == "production":
             raise RuntimeError("This task must run in a worker environment, not Vercel.")
+        status_result = await self.db.execute(
+            select(Page.status, func.count(Page.id))
+            .where(Page.source_id == source_id)
+            .group_by(Page.status)
+        )
+        status_counts = {status: count for status, count in status_result.all()}
         pages = await crud.list_pages_by_statuses(
             self.db,
             source_id=source_id,
             statuses=["fetched", "classified"],
             limit=10000,
         )
-        logger.info("eligible_pages_count", source_id=source_id, count=len(pages))
+        logger.info(
+            "eligible_pages_count",
+            source_id=source_id,
+            count=len(pages),
+            statuses=status_counts,
+        )
+        if len(pages) == 0:
+            logger.warning(
+                "no_pages_eligible_for_extraction",
+                source_id=source_id,
+                statuses=status_counts,
+            )
         stats = ExtractionStats()
 
         for page in pages:
