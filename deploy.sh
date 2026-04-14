@@ -158,9 +158,15 @@ info "Branch: $BRANCH_NOW  |  Commit: $COMMIT"
 if [[ "$RESTART_ONLY" == false ]]; then
   step "Building Docker images"
   SHA_TAG=$(git rev-parse --short HEAD)
+  IMAGE_TAG="ghcr.io/bighog300/artio-mine-bot:api-$SHA_TAG"
   $COMPOSE build --no-cache --parallel
-  docker tag artio-miner-api:latest artio-miner-api:$SHA_TAG
-  success "Images built and tagged with SHA: $SHA_TAG"
+  docker tag artio-miner-api:latest $IMAGE_TAG
+  step "Pushing to GHCR"
+  echo $GITHUB_TOKEN | docker login ghcr.io -u bighog300 --password-stdin
+  docker push $IMAGE_TAG
+  # Update docker-compose.yml to use the tagged image
+  sed -i "s|build: .|image: $IMAGE_TAG|" docker-compose.yml
+  success "Images built, tagged, pushed, and compose updated: $IMAGE_TAG"
 else
   info "Skipping build (--restart-only)"
 fi
