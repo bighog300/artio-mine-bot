@@ -104,7 +104,7 @@ Open http://localhost:5173 in your browser.
 ## Deployment Checklist
 
 - [ ] Builds without errors
-- [ ] `/api/health` returns `200`
+- [ ] `/health` returns `200`
 - [ ] Frontend loads and calls `/api`
 - [ ] No SQLite in production
 - [ ] No long-running tasks in API
