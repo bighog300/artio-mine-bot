@@ -185,18 +185,11 @@ def downgrade() -> None:
         batch_op.drop_index('ix_images_record_id')
 
     op.drop_table('images')
-    with op.batch_alter_table('pages', schema=None) as batch_op:
-        batch_op.drop_index('ix_pages_status')
-        batch_op.drop_index('ix_pages_source_id')
-        batch_op.drop_index('ix_pages_page_type')
-
-    op.drop_table('pages')
     with op.batch_alter_table('jobs', schema=None) as batch_op:
         batch_op.drop_index('ix_jobs_status')
         batch_op.drop_index('ix_jobs_source_id')
 
     op.drop_table('jobs')
-    op.drop_table('sources')
     with op.batch_alter_table('records', schema=None) as batch_op:
         batch_op.drop_index('ix_records_status')
         batch_op.drop_index('ix_records_source_id')
@@ -204,4 +197,11 @@ def downgrade() -> None:
         batch_op.drop_index('ix_records_confidence_band')
 
     op.drop_table('records')
+    with op.batch_alter_table('pages', schema=None) as batch_op:
+        batch_op.drop_index('ix_pages_status')
+        batch_op.drop_index('ix_pages_source_id')
+        batch_op.drop_index('ix_pages_page_type')
+
+    op.drop_table('pages')
+    op.drop_table('sources')
     # ### end Alembic commands ###
