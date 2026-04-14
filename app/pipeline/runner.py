@@ -172,6 +172,7 @@ class PipelineRunner:
             statuses=["fetched", "classified"],
             limit=10000,
         )
+        logger.info("eligible_pages_count", source_id=source_id, count=len(pages))
         stats = ExtractionStats()
 
         for page in pages:
@@ -184,6 +185,13 @@ class PipelineRunner:
                 logger.error("extract_page_error", page_id=page.id, error=str(exc))
                 stats.records_failed += 1
 
+        logger.info(
+            "pages_processed",
+            source_id=source_id,
+            pages_processed=stats.pages_processed,
+            records_created=stats.records_created,
+            records_failed=stats.records_failed,
+        )
         total_records = await crud.count_records(self.db, source_id=source_id)
         await crud.update_source(self.db, source_id, total_records=total_records)
         return stats
