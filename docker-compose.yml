@@ -43,6 +43,23 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  worker:
+    build: .
+    command: ["python", "-m", "app.pipeline.runner"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/artio
+      REDIS_URL: redis://redis:6379/0
+      ENVIRONMENT: docker
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
   migrate:
     build: .
     command: ["alembic", "upgrade", "head"]
