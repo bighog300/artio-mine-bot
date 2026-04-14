@@ -35,6 +35,7 @@ async def test_create_page(db_session: AsyncSession):
     assert page.source_id == source.id
     assert page.url == "https://example.com/artists/"
     assert page.depth == 1
+    assert page.status == "fetched"
 
 
 @pytest.mark.asyncio

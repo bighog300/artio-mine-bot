@@ -125,6 +125,7 @@ async def get_source_stats(db: AsyncSession, source_id: str) -> dict[str, Any]:
 
 async def create_page(db: AsyncSession, source_id: str, url: str, **kwargs: Any) -> Page:
     original_url = kwargs.pop("original_url", url)
+    kwargs.setdefault("status", "fetched")
     page = Page(source_id=source_id, url=url, original_url=original_url, **kwargs)
     db.add(page)
     await db.commit()
