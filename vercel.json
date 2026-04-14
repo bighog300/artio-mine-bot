@@ -4,12 +4,9 @@
   "functions": {
     "api/index.py": {
       "runtime": "vercel-python@4.1.4",
-      "memory": 1024,
-      "maxDuration": 30
+      "memory": 3008,      // ← Was 1024 (FIXED)
+      "maxDuration": 60    // ← Was 30 (FIXED)
     }
   },
-  "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index.py" },
-    { "source": "/((?!api).*)", "destination": "/index.html" }
-  ]
+  ...
 }
