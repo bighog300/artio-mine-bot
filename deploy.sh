@@ -154,18 +154,13 @@ COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BRANCH_NOW=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 info "Branch: $BRANCH_NOW  |  Commit: $COMMIT"
 
-# ── Stop existing containers ──────────────────────────────────────────────────
-if [[ "$BUILD_ONLY" == false ]]; then
-  step "Stopping existing containers"
-  $COMPOSE down --remove-orphans
-  success "Containers stopped"
-fi
-
 # ── Build images ──────────────────────────────────────────────────────────────
 if [[ "$RESTART_ONLY" == false ]]; then
   step "Building Docker images"
+  SHA_TAG=$(git rev-parse --short HEAD)
   $COMPOSE build --no-cache --parallel
-  success "Images built"
+  docker tag artio-miner-api:latest artio-miner-api:$SHA_TAG
+  success "Images built and tagged with SHA: $SHA_TAG"
 else
   info "Skipping build (--restart-only)"
 fi
@@ -173,6 +168,7 @@ fi
 # ── Start containers ──────────────────────────────────────────────────────────
 if [[ "$BUILD_ONLY" == false ]]; then
   step "Starting containers"
+  $COMPOSE pull || info "Pull failed, using local images"
   $COMPOSE up -d
   success "Containers started"
 
@@ -199,7 +195,7 @@ fi
 # ── Run migrations ────────────────────────────────────────────────────────────
 if [[ "$DO_MIGRATE" == true ]] && [[ "$BUILD_ONLY" == false ]]; then
   step "Running database migrations"
-  $COMPOSE exec api alembic upgrade head
+  $COMPOSE --profile migrate run --rm migrate
   success "Migrations applied"
 else
   info "Skipping migrations"
@@ -218,6 +214,7 @@ if [[ "$BUILD_ONLY" == false ]]; then
   echo -e "  ${BOLD}Commit${RESET}     →  $COMMIT  ($BRANCH_NOW)"
   echo ""
   echo -e "  Logs:   ${BLUE}$COMPOSE logs -f${RESET}"
+  echo -e "  Inspect: ${BLUE}docker inspect $($COMPOSE ps -q api)${RESET}"
   echo -e "  Stop:   ${BLUE}$COMPOSE down${RESET}"
   echo ""
 else

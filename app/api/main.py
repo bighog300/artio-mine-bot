@@ -14,7 +14,7 @@ api_log_processor = configure_structlog_for_service("api")
 logger = structlog.get_logger()
 
 
-async def _wait_for_database(max_attempts: int = 6, base_delay_seconds: float = 1.0) -> None:
+async def _wait_for_database(max_attempts: int = 30, base_delay_seconds: float = 1.0) -> None:
     """Retry database initialization/check during startup."""
     from app.db.database import AsyncSessionLocal, init_db
 
@@ -108,6 +108,16 @@ async def health():
         "db": db_status,
         "openai": "configured" if settings.openai_api_key else "not configured",
     }
+
+
+@app.get("/health/db")
+async def health_db():
+    from app.db.database import AsyncSessionLocal
+    from sqlalchemy import text
+
+    async with AsyncSessionLocal() as session:
+        await session.execute(text("SELECT 1"))
+    return {"status": "ok", "db": "healthy"}
 
 
 # Include routers
