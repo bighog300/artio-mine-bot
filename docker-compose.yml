@@ -49,11 +49,6 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/artio
-    depends_on:
-      db:
-        condition: service_healthy
-    profiles:
-      - migrate
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: docker
     depends_on:
@@ -68,6 +63,8 @@ services:
       dockerfile: Dockerfile.frontend
     ports:
       - "5173:80"
+    environment:
+      VITE_API_URL: http://localhost:8765
     depends_on:
       - api
 
