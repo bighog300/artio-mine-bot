@@ -56,7 +56,7 @@ async def _handle_enqueue_failure(
     db: AsyncSession,
     *,
     source_id: str,
-    job_id: str,
+    job_id: str | None,
     job_type: str,
     exc: Exception,
 ) -> None:
@@ -67,13 +67,50 @@ async def _handle_enqueue_failure(
         job_type=job_type,
         error=str(exc),
     )
-    await crud.update_job_status(db, job_id, "failed", error_message=f"Queue enqueue failed: {exc}")
-    await crud.update_source(
+    if job_id:
+        try:
+            await crud.update_job_status(
+                db, job_id, "failed", error_message=f"Queue enqueue failed: {exc}"
+            )
+        except ValueError:
+            logger.warning("enqueue_failure_job_missing", job_id=job_id, source_id=source_id)
+    try:
+        await crud.update_source(
+            db,
+            source_id,
+            status="error",
+            error_message="Failed to enqueue mining job. Check Redis/worker availability.",
+        )
+    except ValueError:
+        logger.warning("enqueue_failure_source_missing", source_id=source_id)
+
+
+async def _create_and_enqueue_job(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    job_type: str,
+    payload: dict,
+) -> str:
+    source = await crud.wait_for_source(db, source_id, retries=3, delay_seconds=0.2)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    # Persist source+job state before enqueue so workers always see durable rows.
+    await crud.update_source(db, source_id, status="queued", error_message=None)
+    job = await crud.create_job(
         db,
-        source_id,
-        status="error",
-        error_message="Failed to enqueue mining job. Check Redis/worker availability.",
+        source_id=source_id,
+        job_type=job_type,
+        payload=payload,
     )
+    persisted_job = await crud.wait_for_job(db, job.id, retries=3, delay_seconds=0.2)
+    if persisted_job is None:
+        logger.error("job_not_visible_after_commit", source_id=source_id, job_id=job.id)
+        raise HTTPException(status_code=500, detail="Job persistence failed before enqueue")
+
+    await crud.update_job_status(db, persisted_job.id, "queued")
+    return _enqueue_pipeline_job(persisted_job.id, source_id, job_type, payload)
 
 
 @router.post("/{source_id}/start", response_model=MineStartResponse, status_code=200)
@@ -85,24 +122,19 @@ async def start_mining(
     _ensure_worker_runtime()
     _assert_queue_available()
 
-    source = await crud.get_source(db, source_id)
-    if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
-
-    job = await crud.create_job(
-        db,
-        source_id=source_id,
-        job_type="run_full_pipeline",
-        payload=body.model_dump() if body else {},
-    )
     payload = body.model_dump() if body else {}
     try:
-        rq_job_id = _enqueue_pipeline_job(job.id, source_id, "run_full_pipeline", payload)
+        rq_job_id = await _create_and_enqueue_job(
+            db,
+            source_id=source_id,
+            job_type="run_full_pipeline",
+            payload=payload,
+        )
     except (QueueUnavailableError, RedisError, OSError, RuntimeError) as exc:
         await _handle_enqueue_failure(
             db,
             source_id=source_id,
-            job_id=job.id,
+            job_id=None,
             job_type="run_full_pipeline",
             exc=exc,
         )
@@ -110,8 +142,6 @@ async def start_mining(
             status_code=503,
             detail="Failed to start mining: queue infrastructure unavailable.",
         ) from exc
-    await crud.update_source(db, source_id, status="queued", error_message=None)
-    await crud.update_job_status(db, job.id, "queued")
 
     return MineStartResponse(
         job_id=rq_job_id,
@@ -126,25 +156,15 @@ async def map_site(source_id: str, db: AsyncSession = Depends(get_db)):
     _ensure_worker_runtime()
     _assert_queue_available()
 
-    source = await crud.get_source(db, source_id)
-    if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
-
-    job = await crud.create_job(
-        db,
-        source_id=source_id,
-        job_type="map_site",
-        payload={},
-    )
     try:
-        rq_job_id = _enqueue_pipeline_job(job.id, source_id, "map_site", {})
+        rq_job_id = await _create_and_enqueue_job(
+            db, source_id=source_id, job_type="map_site", payload={}
+        )
     except (QueueUnavailableError, RedisError, OSError, RuntimeError) as exc:
         await _handle_enqueue_failure(
-            db, source_id=source_id, job_id=job.id, job_type="map_site", exc=exc
+            db, source_id=source_id, job_id=None, job_type="map_site", exc=exc
         )
         raise HTTPException(status_code=503, detail="Failed to queue site mapping job.") from exc
-    await crud.update_source(db, source_id, status="queued", error_message=None)
-    await crud.update_job_status(db, job.id, "queued")
     return {"job_id": rq_job_id, "source_id": source_id, "status": "queued", "site_map": None}
 
 
@@ -156,22 +176,15 @@ async def crawl_source(
     _ensure_worker_runtime()
     _assert_queue_available()
 
-    source = await crud.get_source(db, source_id)
-    if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
-
-    job = await crud.create_job(
-        db, source_id=source_id, job_type="crawl_section", payload={}
-    )
     try:
-        rq_job_id = _enqueue_pipeline_job(job.id, source_id, "crawl_section", {})
+        rq_job_id = await _create_and_enqueue_job(
+            db, source_id=source_id, job_type="crawl_section", payload={}
+        )
     except (QueueUnavailableError, RedisError, OSError, RuntimeError) as exc:
         await _handle_enqueue_failure(
-            db, source_id=source_id, job_id=job.id, job_type="crawl_section", exc=exc
+            db, source_id=source_id, job_id=None, job_type="crawl_section", exc=exc
         )
         raise HTTPException(status_code=503, detail="Failed to queue crawl job.") from exc
-    await crud.update_source(db, source_id, status="queued", error_message=None)
-    await crud.update_job_status(db, job.id, "queued")
     return {"job_id": rq_job_id, "status": "queued"}
 
 
@@ -183,22 +196,15 @@ async def extract_source(
     _ensure_worker_runtime()
     _assert_queue_available()
 
-    source = await crud.get_source(db, source_id)
-    if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
-
-    job = await crud.create_job(
-        db, source_id=source_id, job_type="extract_page", payload={}
-    )
     try:
-        rq_job_id = _enqueue_pipeline_job(job.id, source_id, "extract_page", {})
+        rq_job_id = await _create_and_enqueue_job(
+            db, source_id=source_id, job_type="extract_page", payload={}
+        )
     except (QueueUnavailableError, RedisError, OSError, RuntimeError) as exc:
         await _handle_enqueue_failure(
-            db, source_id=source_id, job_id=job.id, job_type="extract_page", exc=exc
+            db, source_id=source_id, job_id=None, job_type="extract_page", exc=exc
         )
         raise HTTPException(status_code=503, detail="Failed to queue extraction job.") from exc
-    await crud.update_source(db, source_id, status="queued", error_message=None)
-    await crud.update_job_status(db, job.id, "queued")
     return {"job_id": rq_job_id, "status": "queued"}
 
 
@@ -219,29 +225,22 @@ async def resume_mining(
     _ensure_worker_runtime()
     _assert_queue_available()
 
-    source = await crud.get_source(db, source_id)
-    if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
-
-    job = await crud.create_job(
-        db,
-        source_id=source_id,
-        job_type="run_full_pipeline",
-        payload={},
-    )
     try:
-        rq_job_id = _enqueue_pipeline_job(job.id, source_id, "run_full_pipeline", {})
+        rq_job_id = await _create_and_enqueue_job(
+            db,
+            source_id=source_id,
+            job_type="run_full_pipeline",
+            payload={},
+        )
     except (QueueUnavailableError, RedisError, OSError, RuntimeError) as exc:
         await _handle_enqueue_failure(
             db,
             source_id=source_id,
-            job_id=job.id,
+            job_id=None,
             job_type="run_full_pipeline",
             exc=exc,
         )
         raise HTTPException(status_code=503, detail="Failed to resume mining job.") from exc
-    await crud.update_source(db, source_id, status="queued", error_message=None)
-    await crud.update_job_status(db, job.id, "queued")
 
     return {
         "job_id": rq_job_id,
