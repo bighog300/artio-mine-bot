@@ -233,6 +233,47 @@ async def test_mine_start_sets_source_queued(test_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_mine_resume_chooses_extract_when_pages_pending_extraction(
+    test_client: AsyncClient, db_session: AsyncSession
+):
+    source = await crud.create_source(
+        db_session, url="https://resume-extract.com", name="Resume Extract"
+    )
+    await crud.create_page(
+        db_session,
+        source_id=source.id,
+        url="https://resume-extract.com/page-1",
+        original_url="https://resume-extract.com/page-1",
+        status="fetched",
+    )
+
+    with patch("app.api.routes.mine._enqueue_pipeline_job", return_value="rq-resume-extract"):
+        resp = await test_client.post(f"/api/mine/{source.id}/resume")
+
+    assert resp.status_code == 202
+    assert "extract_page" in resp.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_mine_resume_chooses_crawl_for_paused_source_with_site_map(
+    test_client: AsyncClient, db_session: AsyncSession
+):
+    source = await crud.create_source(db_session, url="https://resume-crawl.com")
+    await crud.update_source(
+        db_session,
+        source.id,
+        status="paused",
+        site_map=json.dumps({"root_url": source.url, "sections": []}),
+    )
+
+    with patch("app.api.routes.mine._enqueue_pipeline_job", return_value="rq-resume-crawl"):
+        resp = await test_client.post(f"/api/mine/{source.id}/resume")
+
+    assert resp.status_code == 202
+    assert "crawl_section" in resp.json()["message"]
+
+
+@pytest.mark.asyncio
 async def test_mining_status_includes_queued_job(test_client: AsyncClient):
     create_resp = await test_client.post(
         "/api/sources", json={"url": "https://mine-status-queued.com"}

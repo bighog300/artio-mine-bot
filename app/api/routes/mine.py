@@ -52,6 +52,34 @@ def _assert_queue_available(require_worker: bool = True) -> None:
         )
 
 
+async def _choose_resume_job_type(db: AsyncSession, source_id: str) -> str:
+    source = await crud.get_source(db, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    pending_extraction = await crud.count_pages_in_statuses(
+        db,
+        source_id,
+        statuses=["fetched", "classified"],
+    )
+
+    if pending_extraction > 0:
+        chosen = "extract_page"
+    elif source.status in {"paused", "error", "crawling", "mapping"} and source.site_map:
+        chosen = "crawl_section"
+    else:
+        chosen = "run_full_pipeline"
+
+    logger.info(
+        "resume_stage_selected",
+        source_id=source_id,
+        source_status=source.status,
+        pending_extraction=pending_extraction,
+        selected_job_type=chosen,
+    )
+    return chosen
+
+
 async def _handle_enqueue_failure(
     db: AsyncSession,
     *,
@@ -225,11 +253,12 @@ async def resume_mining(
     _ensure_worker_runtime()
     _assert_queue_available()
 
+    resume_job_type = await _choose_resume_job_type(db, source_id)
     try:
         rq_job_id = await _create_and_enqueue_job(
             db,
             source_id=source_id,
-            job_type="run_full_pipeline",
+            job_type=resume_job_type,
             payload={},
         )
     except (QueueUnavailableError, RedisError, OSError, RuntimeError) as exc:
@@ -237,7 +266,7 @@ async def resume_mining(
             db,
             source_id=source_id,
             job_id=None,
-            job_type="run_full_pipeline",
+            job_type=resume_job_type,
             exc=exc,
         )
         raise HTTPException(status_code=503, detail="Failed to resume mining job.") from exc
@@ -246,7 +275,7 @@ async def resume_mining(
         "job_id": rq_job_id,
         "source_id": source_id,
         "status": "queued",
-        "message": "Mining resume queued for worker execution",
+        "message": f"Mining resume queued for worker execution ({resume_job_type})",
     }
 
 

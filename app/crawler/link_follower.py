@@ -13,6 +13,7 @@ from app.crawler.site_mapper import SiteMap
 from app.db import crud
 
 logger = structlog.get_logger()
+TERMINAL_PAGE_STATUSES = {"extracted", "skipped"}
 
 
 @dataclass
@@ -149,17 +150,25 @@ async def crawl_source(
                 db, source_id=source_id, url=result.final_url
             )
             title = _extract_title(result.html)
-            await crud.update_page(
-                db,
-                page.id,
-                original_url=url,
-                status="fetched",
-                fetch_method=result.method,
-                html=result.html,
-                html_truncated=len(result.html.encode()) >= 500 * 1024,
-                title=title,
-                depth=depth,
-            )
+            update_kwargs = {
+                "original_url": url,
+                "fetch_method": result.method,
+                "html": result.html,
+                "html_truncated": len(result.html.encode()) >= 500 * 1024,
+                "title": title,
+                "depth": depth,
+            }
+            if page.status not in TERMINAL_PAGE_STATUSES:
+                update_kwargs["status"] = "fetched"
+            else:
+                logger.info(
+                    "crawl_page_preserve_terminal_status",
+                    source_id=source_id,
+                    page_id=page.id,
+                    url=result.final_url,
+                    status=page.status,
+                )
+            await crud.update_page(db, page.id, **update_kwargs)
         except Exception as exc:
             logger.error("store_page_error", url=url, error=str(exc))
             await db.rollback()
@@ -182,7 +191,8 @@ async def crawl_source(
 
     # Update source stats
     try:
-        await crud.update_source(db, source_id, total_pages=stats.pages_fetched)
+        total_pages = await crud.count_pages(db, source_id=source_id)
+        await crud.update_source(db, source_id, total_pages=total_pages)
     except Exception:
         await db.rollback()
 
