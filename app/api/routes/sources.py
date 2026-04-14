@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
+import structlog
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
@@ -12,6 +14,7 @@ from app.api.schemas import (
 from app.db import crud
 
 router = APIRouter(prefix="/sources", tags=["sources"])
+logger = structlog.get_logger()
 
 
 @router.get("", response_model=dict)
@@ -34,8 +37,29 @@ async def create_source(body: SourceCreate, db: AsyncSession = Depends(get_db)):
     existing = await crud.get_source_by_url(db, body.url)
     if existing:
         raise HTTPException(status_code=409, detail="Source with this URL already exists")
-    source = await crud.create_source(db, url=body.url, name=body.name)
-    return source
+
+    try:
+        source = await crud.create_source(db, url=body.url, name=body.name)
+        return source
+    except IntegrityError as exc:
+        await db.rollback()
+        logger.warning(
+            "source_create_integrity_error",
+            url=body.url,
+            error=str(exc),
+        )
+        raise HTTPException(status_code=409, detail="Source with this URL already exists") from exc
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        logger.error(
+            "source_create_db_error",
+            url=body.url,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Database error while creating source. Check API logs for details.",
+        ) from exc
 
 
 @router.get("/{source_id}", response_model=SourceDetailResponse)
