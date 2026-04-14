@@ -88,9 +88,12 @@ class PipelineRunner:
             logger.info("pipeline_complete", source_id=source_id)
         except Exception as exc:
             logger.error("pipeline_error", source_id=source_id, error=str(exc))
-            await crud.update_source(
-                self.db, source_id, status="error", error_message=str(exc)
-            )
+            try:
+                await crud.update_source(
+                    self.db, source_id, status="error", error_message=str(exc)
+                )
+            except ValueError:
+                logger.warning("pipeline_error_source_missing", source_id=source_id)
 
     async def run_map_site(self, source_id: str) -> SiteMap:
         """Map site structure and store in Source record."""
@@ -321,14 +324,37 @@ async def _run_pipeline_job_async(
 
     try:
         async with AsyncSessionLocal() as db:
+            source = await crud.wait_for_source(db, source_id, retries=3, delay_seconds=0.2)
+            if source is None:
+                logger.error(
+                    "pipeline_job_missing_source",
+                    job_id=job_id,
+                    source_id=source_id,
+                    job_type=job_type,
+                )
+                return
+            job = await crud.wait_for_job(db, job_id, retries=3, delay_seconds=0.2)
+            if job is None:
+                logger.error(
+                    "pipeline_job_missing_job_row",
+                    job_id=job_id,
+                    source_id=source_id,
+                    job_type=job_type,
+                )
+                return
+
             ai_client = OpenAIClient()
             runner = PipelineRunner(db=db, ai_client=ai_client)
-            await crud.update_job_status(
-                db,
-                job_id,
-                "running",
-                started_at=datetime.now(UTC),
-            )
+            try:
+                await crud.update_job_status(
+                    db,
+                    job_id,
+                    "running",
+                    started_at=datetime.now(UTC),
+                )
+            except ValueError:
+                logger.error("pipeline_job_missing_job_row_on_start", job_id=job_id, source_id=source_id)
+                return
 
             try:
                 if job_type == "run_full_pipeline":
@@ -358,13 +384,20 @@ async def _run_pipeline_job_async(
                 )
             except Exception as exc:
                 logger.exception("pipeline_job_failed", job_id=job_id, error=str(exc))
-                await crud.update_job_status(
-                    db,
-                    job_id,
-                    "failed",
-                    error_message=str(exc),
-                    completed_at=datetime.now(UTC),
-                )
+                try:
+                    await crud.update_job_status(
+                        db,
+                        job_id,
+                        "failed",
+                        error_message=str(exc),
+                        completed_at=datetime.now(UTC),
+                    )
+                except ValueError:
+                    logger.warning(
+                        "pipeline_job_failed_status_update_skipped",
+                        job_id=job_id,
+                        source_id=source_id,
+                    )
                 raise
     finally:
         await worker_log_processor.stop()

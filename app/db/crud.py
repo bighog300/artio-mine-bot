@@ -351,6 +351,28 @@ async def create_job(
     return job
 
 
+async def get_job(db: AsyncSession, job_id: str) -> Job | None:
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    return result.scalar_one_or_none()
+
+
+async def wait_for_job(
+    db: AsyncSession,
+    job_id: str,
+    *,
+    retries: int = 3,
+    delay_seconds: float = 0.2,
+) -> Job | None:
+    """Wait briefly for job visibility across transactions/processes."""
+    for attempt in range(retries):
+        job = await get_job(db, job_id)
+        if job is not None:
+            return job
+        if attempt < retries - 1:
+            await sleep(delay_seconds)
+    return None
+
+
 async def get_next_pending_job(db: AsyncSession) -> Job | None:
     result = await db.execute(
         select(Job).where(Job.status == "pending").order_by(Job.created_at).limit(1)
