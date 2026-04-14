@@ -3,6 +3,16 @@ import axios from "axios";
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
 const api = axios.create({ baseURL: API_URL });
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const detail = error?.response?.data?.detail;
+    if (typeof detail === "string" && detail.length > 0) {
+      return Promise.reject(new Error(detail));
+    }
+    return Promise.reject(error);
+  }
+);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

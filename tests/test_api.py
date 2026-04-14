@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -234,6 +235,42 @@ async def test_mining_status_includes_queued_job(test_client: AsyncClient):
 async def test_mine_start_not_found(test_client: AsyncClient):
     resp = await test_client.post("/api/mine/nonexistent/start")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_mine_start_returns_controlled_error_when_enqueue_fails(test_client: AsyncClient):
+    create_resp = await test_client.post(
+        "/api/sources", json={"url": "https://mine-enqueue-fail.com"}
+    )
+    source_id = create_resp.json()["id"]
+
+    with (
+        patch("app.api.routes.mine._assert_queue_available"),
+        patch("app.api.routes.mine._enqueue_pipeline_job", side_effect=RuntimeError("redis down")),
+    ):
+        resp = await test_client.post(f"/api/mine/{source_id}/start")
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"] == "Failed to start mining: queue infrastructure unavailable."
+
+    source_resp = await test_client.get(f"/api/sources/{source_id}")
+    assert source_resp.status_code == 200
+    assert source_resp.json()["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_queue_health_endpoint(test_client: AsyncClient):
+    with patch(
+        "app.api.routes.mine.check_queue_health",
+        return_value=SimpleNamespace(redis_ok=True, workers_available=True, worker_count=1),
+    ):
+        resp = await test_client.get("/api/mine/queue/health")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["redis_ok"] is True
+    assert payload["workers_available"] is True
+    assert payload["worker_count"] == 1
 
 
 @pytest.mark.asyncio

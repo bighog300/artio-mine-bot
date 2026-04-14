@@ -11,6 +11,7 @@ export function Sources() {
   const [urlInput, setUrlInput] = useState("");
   const [nameInput, setNameInput] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [startFeedback, setStartFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -37,6 +38,15 @@ export function Sources() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sources"] }),
   });
 
+  const startMutation = useMutation({
+    mutationFn: (sourceId: string) => startMining(sourceId),
+    onSuccess: () => {
+      setStartFeedback({ type: "success", message: "Mining queued successfully." });
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
+    },
+    onError: (e: Error) => setStartFeedback({ type: "error", message: e.message }),
+  });
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -48,6 +58,17 @@ export function Sources() {
           <Plus size={16} /> Add Source
         </button>
       </div>
+      {startFeedback && (
+        <div
+          className={`rounded border px-3 py-2 text-sm ${
+            startFeedback.type === "success"
+              ? "border-green-200 bg-green-50 text-green-700"
+              : "border-red-200 bg-red-50 text-red-700"
+          }`}
+        >
+          {startFeedback.message}
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-white rounded-lg border overflow-hidden">
@@ -88,8 +109,9 @@ export function Sources() {
                       <Eye size={16} />
                     </button>
                     <button
-                      onClick={() => startMining(source.id)}
-                      className="p-1 text-gray-500 hover:text-green-600"
+                      onClick={() => startMutation.mutate(source.id)}
+                      disabled={startMutation.isPending}
+                      className="p-1 text-gray-500 hover:text-green-600 disabled:opacity-50"
                       title="Run"
                     >
                       <Play size={16} />
