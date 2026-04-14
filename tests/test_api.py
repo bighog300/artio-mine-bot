@@ -193,7 +193,7 @@ def test_enqueue_pipeline_job_passes_job_id_as_function_argument():
     assert rq_job_id == "rq-id-123"
     assert captured["func_name"] == "app.pipeline.runner.process_pipeline_job"
     assert captured["args"] == ("db-job-id", "source-1", "run_full_pipeline", {"k": "v"})
-    assert captured["kwargs"] == {}
+    assert captured["kwargs"] == {"job_timeout": mine.PIPELINE_JOB_TIMEOUT_SECONDS}
 
 @pytest.mark.asyncio
 async def test_mine_start(test_client: AsyncClient):

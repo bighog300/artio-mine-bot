@@ -1,3 +1,4 @@
+import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -106,9 +107,44 @@ async def test_full_pipeline_runs_extraction_even_if_crawl_fails(
         with patch.object(runner, "run_crawl", new=AsyncMock(side_effect=RuntimeError("boom"))):
             extract_mock = AsyncMock()
             with patch.object(runner, "run_extract", new=extract_mock):
-                await runner.run_full_pipeline(source.id)
+                with pytest.raises(RuntimeError, match="crawl failed before extraction"):
+                    await runner.run_full_pipeline(source.id)
 
     assert extract_mock.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_full_pipeline_logs_extraction_started_after_slow_crawl_timeout(
+    db_session: AsyncSession, mock_ai_client
+):
+    from app.crawler.site_mapper import SiteMap
+    from app.pipeline.runner import PipelineRunner
+
+    source = await crud.create_source(
+        db_session, url="https://slow-timeout.com", name="Slow Timeout"
+    )
+    site_map = SiteMap(root_url="https://slow-timeout.com", sections=[])
+
+    runner = PipelineRunner(db=db_session, ai_client=mock_ai_client)
+
+    async def _slow_crawl(*args, **kwargs):
+        del args, kwargs
+        await asyncio.sleep(0.01)
+        raise TimeoutError("crawl exceeded timeout window")
+
+    with patch.object(runner, "run_map_site", new=AsyncMock(return_value=site_map)):
+        with patch.object(runner, "run_crawl", new=AsyncMock(side_effect=_slow_crawl)):
+            with patch("app.pipeline.runner.logger") as mock_logger:
+                with pytest.raises(RuntimeError, match="crawl failed before extraction"):
+                    await runner.run_full_pipeline(source.id)
+
+    extraction_logs = [
+        call
+        for call in mock_logger.info.call_args_list
+        if call.args and call.args[0] == "extraction_started"
+    ]
+    assert len(extraction_logs) == 1
+    assert extraction_logs[0].kwargs["source_id"] == source.id
 
 
 @pytest.mark.asyncio
