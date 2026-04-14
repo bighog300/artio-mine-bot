@@ -98,6 +98,9 @@ async def crawl_source(
 
     stats = CrawlStats()
     queue = CrawlQueue()
+    source_exists = await crud.wait_for_source(db, source_id, retries=3, delay_seconds=0.2)
+    if source_exists is None:
+        raise ValueError(f"Source {source_id} not found before crawl page storage")
 
     # Seed queue with section URLs
     for section in site_map.sections:
@@ -137,7 +140,7 @@ async def crawl_source(
                     depth=depth,
                 )
             except Exception:
-                pass
+                await db.rollback()
             continue
 
         # Store page
@@ -159,6 +162,13 @@ async def crawl_source(
             )
         except Exception as exc:
             logger.error("store_page_error", url=url, error=str(exc))
+            await db.rollback()
+            source_exists = await crud.get_source(db, source_id)
+            if source_exists is None:
+                logger.error("store_page_source_missing", source_id=source_id, url=url)
+                raise ValueError(
+                    f"Source {source_id} no longer exists while storing crawled pages"
+                ) from exc
             stats.pages_error += 1
             continue
 
@@ -174,7 +184,7 @@ async def crawl_source(
     try:
         await crud.update_source(db, source_id, total_pages=stats.pages_fetched)
     except Exception:
-        pass
+        await db.rollback()
 
     logger.info(
         "crawl_complete",

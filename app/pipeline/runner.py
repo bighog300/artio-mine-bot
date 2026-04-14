@@ -130,6 +130,14 @@ class PipelineRunner:
         """Crawl all pages for a source."""
         if settings.environment == "production":
             raise RuntimeError("This task must run in a worker environment, not Vercel.")
+        source_exists = await crud.wait_for_source(
+            self.db,
+            source_id,
+            retries=3,
+            delay_seconds=0.2,
+        )
+        if source_exists is None:
+            raise ValueError(f"Source {source_id} not found before crawl start")
         if site_map is None:
             source = await crud.get_source(self.db, source_id)
             if source and source.site_map:
