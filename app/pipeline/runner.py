@@ -3,8 +3,10 @@ import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 import structlog
+from bs4 import BeautifulSoup
 from redis import from_url
 from rq import Worker
 from sqlalchemy import func, select
@@ -40,6 +42,11 @@ DETAIL_PAGE_TYPES = {
     "venue_profile": "venue",
     "artwork_detail": "artwork",
 }
+DISCOVERY_PAGE_TYPES = {
+    "artist_directory_letter",
+    "artist_profile_hub",
+}
+TERMINAL_PAGE_STATUSES = {"extracted", "skipped", "expanded"}
 
 
 @dataclass
@@ -268,6 +275,10 @@ class PipelineRunner:
             self.db, page.id, page_type=classify_result.page_type, status="classified"
         )
 
+        if classify_result.page_type in DISCOVERY_PAGE_TYPES:
+            await self.handle_discovery_page(page, classify_result.page_type)
+            return None
+
         record_type = DETAIL_PAGE_TYPES.get(classify_result.page_type)
         if record_type is None:
             # Not a detail page — skip extraction
@@ -427,6 +438,111 @@ class PipelineRunner:
             logger.warning("image_collection_error", record_id=record.id, error=str(exc))
 
         return record
+
+    async def handle_discovery_page(self, page: Page, page_type: str) -> None:
+        if page_type == "artist_directory_letter":
+            await self.expand_artist_directory_letter(page)
+        elif page_type == "artist_profile_hub":
+            await self.deepen_same_slug_children(page)
+        else:
+            return
+        await crud.update_page(self.db, page.id, status="expanded")
+        logger.info(
+            "discovery_page_expanded",
+            source_id=page.source_id,
+            page_id=page.id,
+            url=page.url,
+            page_type=page_type,
+        )
+
+    async def expand_artist_directory_letter(self, page: Page) -> None:
+        if not page.html:
+            return
+
+        soup = BeautifulSoup(page.html, "lxml")
+        base_netloc = urlparse(page.url).netloc
+        for link in soup.find_all("a", href=True):
+            href = (link.get("href") or "").strip()
+            if not href or href.startswith("#") or href.startswith("javascript:"):
+                continue
+            full_url = urljoin(page.url, href).split("#")[0]
+            parsed = urlparse(full_url)
+            if parsed.netloc != base_netloc:
+                continue
+            segments = [segment for segment in parsed.path.split("/") if segment]
+            if len(segments) != 1:
+                continue
+            slug = segments[0]
+            if "." in slug:
+                continue
+            child_page, created = await crud.get_or_create_page(
+                self.db,
+                source_id=page.source_id,
+                url=full_url,
+            )
+            if created or child_page.status not in TERMINAL_PAGE_STATUSES:
+                await crud.update_page(
+                    self.db,
+                    child_page.id,
+                    original_url=full_url,
+                    status="pending",
+                    depth=max(page.depth + 1, child_page.depth),
+                )
+
+    async def deepen_same_slug_children(self, page: Page) -> None:
+        base_url = page.url if page.url.endswith("/") else f"{page.url}/"
+        suffixes = [
+            "about.php",
+            "exhibitions.php",
+            "articles.php",
+            "press.php",
+            "memories.php",
+        ]
+        for suffix in suffixes:
+            child_url = urljoin(base_url, suffix)
+            child_page, created = await crud.get_or_create_page(
+                self.db,
+                source_id=page.source_id,
+                url=child_url,
+            )
+            if created or child_page.status not in TERMINAL_PAGE_STATUSES:
+                await crud.update_page(
+                    self.db,
+                    child_page.id,
+                    original_url=child_url,
+                    status="pending",
+                    depth=max(page.depth + 1, child_page.depth),
+                )
+
+            result = await fetch(child_url)
+            if result.error:
+                await crud.update_page(
+                    self.db,
+                    child_page.id,
+                    status="error",
+                    error_message=result.error,
+                )
+                logger.warning(
+                    "discovery_child_fetch_error",
+                    source_id=page.source_id,
+                    parent_page_id=page.id,
+                    page_id=child_page.id,
+                    url=child_url,
+                    error=result.error,
+                )
+                continue
+
+            await crud.update_page(
+                self.db,
+                child_page.id,
+                original_url=result.url,
+                url=result.final_url,
+                html=result.html,
+                fetch_method=result.method,
+                html_truncated=len(result.html.encode("utf-8")) >= 500 * 1024,
+                status="fetched",
+                depth=max(page.depth + 1, child_page.depth),
+            )
 
 
 async def _run_pipeline_job_async(
