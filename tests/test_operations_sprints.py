@@ -121,6 +121,45 @@ async def test_activity_logs_endpoint_handles_non_string_messages(test_client: A
 
 
 @pytest.mark.asyncio
+async def test_activity_logs_endpoint_skips_malformed_row_and_keeps_valid_items(
+    test_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class _ExplodingToString:
+        def __str__(self) -> str:
+            raise RuntimeError("cannot stringify")
+
+    class _BrokenLog:
+        id = "log-broken"
+        timestamp = "2026-01-01T00:00:00Z"
+        level = "info"
+        service = "api"
+        source_id = None
+        message = _ExplodingToString()
+        context = _ExplodingToString()
+
+    class _ValidLog:
+        id = "log-valid"
+        timestamp = "2026-01-01T00:01:00Z"
+        level = "info"
+        service = "api"
+        source_id = "source-1"
+        message = "pipeline_complete source complete"
+        context = '{"count": 1}'
+
+    async def _fake_list_logs(*args, **kwargs):
+        return ([_BrokenLog(), _ValidLog()], 2)
+
+    monkeypatch.setattr(logs_routes, "list_logs", _fake_list_logs)
+
+    response = await test_client.get("/api/logs/activity")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["id"] == "log-valid"
+
+
+@pytest.mark.asyncio
 async def test_duplicate_reviews_endpoint_db_error_fallback(test_client: AsyncClient, monkeypatch: pytest.MonkeyPatch):
     async def _broken_list_duplicate_reviews(*args, **kwargs):
         raise SQLAlchemyError("duplicate_reviews table missing")
