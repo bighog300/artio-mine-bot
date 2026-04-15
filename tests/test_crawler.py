@@ -306,7 +306,14 @@ async def test_extract_with_ai_fallback():
     crawler = AutomatedCrawler(
         structure_map={
             "extraction_rules": {
-                "artist_profile": {"css_selectors": {"name": "h1.missing"}}
+                "artist_profile": {
+                    "css_selectors": {
+                        "name": "h1.missing",
+                        "bio": "div.biography",
+                        "mediums": "ul.mediums",
+                        "contact": "div.contact",
+                    }
+                }
             }
         },
         db=MagicMock(),
@@ -317,7 +324,9 @@ async def test_extract_with_ai_fallback():
         "artist_profile",
         "https://example.com/artists/jane-doe",
     )
+    assert extracted["confidence"] == 60
     assert extracted["confidence"] < 80
+    assert extracted["method"] == "deterministic"
     fallback = await crawler._extract_with_ai("<html>content</html>", "artist_profile", "context")
     assert fallback["method"] == "ai_fallback"
     assert fallback["data"]["name"] == "Fallback Artist"

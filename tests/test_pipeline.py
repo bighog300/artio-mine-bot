@@ -27,6 +27,17 @@ async def test_full_pipeline_happy_path(db_session: AsyncSession, mock_ai_client
     from app.pipeline.runner import PipelineRunner
 
     source = await crud.create_source(db_session, url="https://example.com", name="Test")
+    await crud.update_source(
+        db_session,
+        source.id,
+        structure_map=json.dumps(
+            {
+                "crawl_plan": {"phases": []},
+                "extraction_rules": {},
+                "directory_structure": "test structure",
+            }
+        ),
+    )
 
     sample_html = """<html><head><title>Artist</title></head><body>
     <img src="https://example.com/portrait.jpg" alt="portrait">
@@ -279,6 +290,17 @@ async def test_pipeline_handles_fetch_error(db_session: AsyncSession, mock_ai_cl
     from app.pipeline.runner import PipelineRunner
 
     source = await crud.create_source(db_session, url="https://errsite.com")
+    await crud.update_source(
+        db_session,
+        source.id,
+        structure_map=json.dumps(
+            {
+                "crawl_plan": {"phases": []},
+                "extraction_rules": {},
+                "directory_structure": "test",
+            }
+        ),
+    )
     site_map = SiteMap(root_url="https://errsite.com", sections=[])
 
     error_result = FetchResult(

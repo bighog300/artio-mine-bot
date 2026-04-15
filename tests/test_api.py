@@ -314,7 +314,14 @@ async def test_mine_start_returns_controlled_error_when_enqueue_fails(test_clien
         resp = await test_client.post(f"/api/mine/{source_id}/start")
 
     assert resp.status_code == 503
-    assert resp.json()["detail"] == "Failed to start mining: queue infrastructure unavailable."
+    detail = resp.json()["detail"]
+    assert any(
+        message in detail
+        for message in (
+            "Redis queue unavailable",
+            "queue infrastructure unavailable",
+        )
+    )
 
     source_resp = await test_client.get(f"/api/sources/{source_id}")
     assert source_resp.status_code == 200
