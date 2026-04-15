@@ -72,8 +72,33 @@ async def get_activity(
         "extraction_started",
         "pages_processed",
     }
+    def _safe_to_text(value: object, *, fallback: str = "") -> str:
+        if isinstance(value, str):
+            return value
+        if value is None:
+            return fallback
+        try:
+            return str(value)
+        except Exception:
+            logger.warning("activity_logs_string_coercion_failed", value_type=type(value).__name__)
+            return fallback
+
+    def _safe_context(context: object) -> object:
+        if context is None:
+            return None
+        if isinstance(context, (dict, list, str, int, float, bool)):
+            return context
+        try:
+            return json.loads(str(context))
+        except Exception:
+            logger.warning(
+                "activity_logs_context_coercion_failed",
+                context_type=type(context).__name__,
+            )
+            return _safe_to_text(context)
+
     def _is_activity_message(message: object) -> bool:
-        text = message if isinstance(message, str) else str(message or "")
+        text = _safe_to_text(message)
         return any(token in text for token in activity_tokens)
 
     try:
@@ -91,19 +116,29 @@ async def get_activity(
         )
         activity = []
         for log in items:
-            if not _is_activity_message(log.message):
+            try:
+                if not _is_activity_message(log.message):
+                    continue
+                activity.append(
+                    {
+                        "id": _safe_to_text(getattr(log, "id", "")),
+                        "timestamp": getattr(log, "timestamp", None),
+                        "level": (
+                            _safe_to_text(getattr(log, "level", "info"), fallback="info")
+                            or "info"
+                        ),
+                        "service": (
+                            _safe_to_text(getattr(log, "service", "unknown"), fallback="unknown")
+                            or "unknown"
+                        ),
+                        "source_id": _safe_to_text(getattr(log, "source_id", None)) or None,
+                        "message": _safe_to_text(getattr(log, "message", "")),
+                        "context": _safe_context(getattr(log, "context", None)),
+                    }
+                )
+            except Exception:
+                logger.exception("activity_logs_row_transform_error")
                 continue
-            activity.append(
-                {
-                    "id": log.id,
-                    "timestamp": log.timestamp,
-                    "level": log.level,
-                    "service": log.service,
-                    "source_id": log.source_id,
-                    "message": log.message if isinstance(log.message, str) else str(log.message),
-                    "context": log.context,
-                }
-            )
         return {"items": activity[:limit]}
     except SQLAlchemyError as exc:
         logger.error(

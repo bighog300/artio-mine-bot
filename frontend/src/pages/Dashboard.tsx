@@ -15,6 +15,7 @@ export function Dashboard() {
     retry: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
+    refetchOnMount: false,
   });
   const { data: jobs } = useQuery({ queryKey: ["jobs", "dashboard"], queryFn: () => getJobs({ limit: 200 }) });
   const { data: queues } = useQuery({ queryKey: ["queues"], queryFn: getQueues });
@@ -147,7 +148,7 @@ export function Dashboard() {
               </div>
             ))}
             {isActivityError && (
-              <div className="text-sm text-amber-700">Activity feed is temporarily unavailable.</div>
+              <div className="text-sm text-amber-700" role="status">Activity feed is temporarily unavailable.</div>
             )}
             {!isActivityError && (!activity || activity.items.length === 0) && (
               <div className="text-sm text-gray-500">No activity yet.</div>
