@@ -90,6 +90,7 @@ export interface MappingDraftSummary {
   mapping_count: number;
   approved_count: number;
   needs_review_count: number;
+  changed_from_published_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -119,6 +120,8 @@ export interface MappingRow {
   sort_order: number;
   transforms: string[];
   rationale: string[];
+  confidence_band: "HIGH" | "MEDIUM" | "LOW";
+  low_confidence_blocked: boolean;
 }
 
 export interface MappingPreviewResponse {
@@ -137,6 +140,29 @@ export interface MappingPreviewResponse {
     warning: string | null;
   }>;
   record_preview: Record<string, string>;
+  source_snippet: string | null;
+  category_preview: Record<string, string[]>;
+  warnings: string[];
+}
+
+export interface MappingVersion {
+  id: string;
+  source_id: string;
+  version_number: number;
+  status: string;
+  scan_status: string;
+  created_at: string;
+  updated_at: string;
+  published_at: string | null;
+  created_by: string | null;
+  published_by: string | null;
+}
+
+export interface MappingDiffSummary {
+  added: number;
+  removed: number;
+  changed: number;
+  unchanged: number;
 }
 
 export interface MineOptions {
@@ -529,9 +555,18 @@ export const applySourceMappingAction = (
   sourceId: string,
   draftId: string,
   rowIds: string[],
-  action: "approve" | "reject" | "disable" | "enable" | "needs_review"
+  action: "approve" | "reject" | "ignore" | "disable" | "enable" | "needs_review" | "move_destination",
+  opts?: {
+    destination_entity?: string;
+    destination_field?: string;
+    force_low_confidence?: boolean;
+  }
 ): Promise<{ updated: number; action: string }> =>
-  api.post(`/sources/${sourceId}/mapping-drafts/${draftId}/rows/actions`, { row_ids: rowIds, action }).then((r) => r.data);
+  api.post(`/sources/${sourceId}/mapping-drafts/${draftId}/rows/actions`, {
+    row_ids: rowIds,
+    action,
+    ...opts,
+  }).then((r) => r.data);
 
 export const getSourceMappingPageTypes = (
   sourceId: string,
@@ -545,6 +580,23 @@ export const getSourceMappingPreview = (
   samplePageId: string
 ): Promise<MappingPreviewResponse> =>
   api.post(`/sources/${sourceId}/mapping-drafts/${draftId}/preview`, { sample_page_id: samplePageId }).then((r) => r.data);
+
+export const getSourceMappingVersions = (
+  sourceId: string
+): Promise<PaginatedResponse<MappingVersion>> =>
+  api.get(`/sources/${sourceId}/mapping-drafts`).then((r) => r.data);
+
+export const publishSourceMappingDraft = (
+  sourceId: string,
+  draftId: string
+): Promise<{ id: string; source_id: string; status: string; published_at: string; published_by: string | null }> =>
+  api.post(`/sources/${sourceId}/mapping-drafts/${draftId}/publish`).then((r) => r.data);
+
+export const getSourceMappingDiff = (
+  sourceId: string,
+  draftId: string
+): Promise<MappingDiffSummary> =>
+  api.get(`/sources/${sourceId}/mapping-drafts/${draftId}/diff`).then((r) => r.data);
 
 // Mining
 export const startMining = (sourceId: string, opts?: MineOptions): Promise<MineStartResponse> =>

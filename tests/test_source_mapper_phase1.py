@@ -51,6 +51,13 @@ async def test_mapping_rows_list_update_and_actions(test_client: AsyncClient):
     assert action_resp.status_code == 200
     assert action_resp.json()["updated"] == 1
 
+    ignore_resp = await test_client.post(
+        f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows/actions",
+        json={"row_ids": [row_id], "action": "ignore"},
+    )
+    assert ignore_resp.status_code == 200
+    assert ignore_resp.json()["updated"] == 1
+
 
 @pytest.mark.asyncio
 async def test_mapping_row_validation_error_on_invalid_destination(test_client: AsyncClient):
@@ -94,3 +101,86 @@ async def test_preview_generation_contract_and_persistence(test_client: AsyncCli
     assert len(results) >= 1
     saved_preview = json.loads(results[-1].record_preview_json)
     assert "record_preview" in saved_preview
+
+
+@pytest.mark.asyncio
+async def test_low_confidence_requires_force_on_approve(test_client: AsyncClient):
+    source_resp = await test_client.post("/api/sources", json={"url": "https://mapper-low-confidence.test"})
+    source_id = source_resp.json()["id"]
+    draft_resp = await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})
+    draft_id = draft_resp.json()["id"]
+    row_id = (await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows")).json()["items"][0]["id"]
+
+    blocked = await test_client.post(
+        f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows/actions",
+        json={"row_ids": [row_id], "action": "approve"},
+    )
+    assert blocked.status_code == 409
+
+    forced = await test_client.post(
+        f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows/actions",
+        json={"row_ids": [row_id], "action": "approve", "force_low_confidence": True},
+    )
+    assert forced.status_code == 200
+    assert forced.json()["updated"] == 1
+
+
+@pytest.mark.asyncio
+async def test_publish_state_transition_and_version_clone_workflow(test_client: AsyncClient):
+    source_resp = await test_client.post("/api/sources", json={"url": "https://mapper-publish.test"})
+    source_id = source_resp.json()["id"]
+    draft_resp = await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})
+    draft_id = draft_resp.json()["id"]
+    row_id = (await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows")).json()["items"][0]["id"]
+
+    cannot_publish = await test_client.post(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/publish")
+    assert cannot_publish.status_code == 409
+
+    approve = await test_client.post(
+        f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows/actions",
+        json={"row_ids": [row_id], "action": "approve", "force_low_confidence": True},
+    )
+    assert approve.status_code == 200
+
+    publish = await test_client.post(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/publish")
+    assert publish.status_code == 200
+    assert publish.json()["status"] == "published"
+
+    cloned_draft = await test_client.post(
+        f"/api/sources/{source_id}/mapping-drafts",
+        json={"scan_mode": "edit_published"},
+    )
+    assert cloned_draft.status_code == 201
+    assert cloned_draft.json()["status"] == "draft"
+
+    versions = await test_client.get(f"/api/sources/{source_id}/mapping-drafts")
+    assert versions.status_code == 200
+    assert versions.json()["total"] >= 2
+
+
+@pytest.mark.asyncio
+async def test_preview_regression_includes_snippet_categories_and_warnings(test_client: AsyncClient):
+    source_resp = await test_client.post("/api/sources", json={"url": "https://mapper-preview-regression.test", "name": "Preview Regression"})
+    source_id = source_resp.json()["id"]
+    draft_id = (await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})).json()["id"]
+    row = (await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows")).json()["items"][0]
+
+    await test_client.patch(
+        f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows/{row['id']}",
+        json={"category_target": "live-events"},
+    )
+    preview_resp = await test_client.post(
+        f"/api/sources/{source_id}/mapping-drafts/{draft_id}/preview",
+        json={"sample_page_id": "default"},
+    )
+    assert preview_resp.status_code == 200
+    payload = preview_resp.json()
+    assert "category_preview" in payload
+    assert "warnings" in payload
+    assert payload["source_snippet"] is None or isinstance(payload["source_snippet"], str)
+    assert payload["record_preview"].get("title") is not None
+
+    diff_resp = await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/diff")
+    assert diff_resp.status_code == 200
+    diff_payload = diff_resp.json()
+    assert set(diff_payload.keys()) == {"added", "removed", "changed", "unchanged"}
