@@ -91,6 +91,8 @@ export interface MappingDraftSummary {
   approved_count: number;
   needs_review_count: number;
   changed_from_published_count: number;
+  scan_progress_percent: number;
+  scan_stage: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -581,7 +583,12 @@ export const updateSourceMappingRow = (
   sourceId: string,
   draftId: string,
   rowId: string,
-  data: Partial<MappingRow>
+  data: Partial<
+    Pick<
+      MappingRow,
+      "destination_entity" | "destination_field" | "category_target" | "status" | "is_enabled" | "is_required" | "sort_order" | "transforms" | "rationale"
+    >
+  >
 ): Promise<MappingRow> =>
   api.patch(`/sources/${sourceId}/mapping-drafts/${draftId}/rows/${rowId}`, data).then((r) => r.data);
 

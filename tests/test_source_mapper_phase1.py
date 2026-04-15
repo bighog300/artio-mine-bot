@@ -195,6 +195,10 @@ async def test_scan_endpoint_and_sample_run_flow(test_client: AsyncClient):
     scan_resp = await test_client.post(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/scan")
     assert scan_resp.status_code == 202
     assert scan_resp.json()["scan_status"] in {"completed", "error", "queued"}
+    draft_resp = await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}")
+    assert draft_resp.status_code == 200
+    assert "scan_progress_percent" in draft_resp.json()
+    assert draft_resp.json()["scan_progress_percent"] >= 0
 
     sample_run_resp = await test_client.post(
         f"/api/sources/{source_id}/mapping-drafts/{draft_id}/sample-run",

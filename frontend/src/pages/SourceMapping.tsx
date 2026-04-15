@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   applySourceMappingAction,
   createSourceMappingDraft,
@@ -27,6 +27,7 @@ import { VersionHistoryPanel } from "@/components/source-mapper/VersionHistoryPa
 
 export function SourceMapping() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [draftId, setDraftId] = useState<string | null>(null);
@@ -35,6 +36,13 @@ export function SourceMapping() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
   const [settings, setSettings] = useState({ max_pages: 50, max_depth: 3, sample_pages_per_type: 5 });
+
+  useEffect(() => {
+    const draftFromUrl = searchParams.get("draft");
+    if (draftFromUrl && !draftId) {
+      setDraftId(draftFromUrl);
+    }
+  }, [searchParams, draftId]);
 
   const { data: source } = useQuery({ queryKey: ["source", id], queryFn: () => getSource(id!), enabled: !!id });
   const { data: draft } = useQuery({
@@ -98,7 +106,18 @@ export function SourceMapping() {
   });
 
   const updateRowMutation = useMutation({
-    mutationFn: ({ rowId, status }: { rowId: string; status: string }) => updateSourceMappingRow(id!, draftId!, rowId, { status }),
+    mutationFn: ({
+      rowId,
+      updates,
+    }: {
+      rowId: string;
+      updates: {
+        status?: string;
+        destination_entity?: string;
+        destination_field?: string;
+        category_target?: string | null;
+      };
+    }) => updateSourceMappingRow(id!, draftId!, rowId, updates),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["source-mapping-rows", id, draftId] }),
     onError: (e: Error) => setMessage(e.message),
   });
@@ -179,6 +198,7 @@ export function SourceMapping() {
           {!draft ? <p className="text-gray-500">No scan draft yet.</p> : (
             <ul className="space-y-1">
               <li>Status: <strong>{draft.scan_status}</strong></li>
+              <li>Progress: <strong>{draft.scan_progress_percent}%</strong>{draft.scan_stage ? ` (${draft.scan_stage})` : ""}</li>
               <li>Rows: <strong>{draft.mapping_count}</strong></li>
               <li>Approved: <strong>{draft.approved_count}</strong></li>
               <li>Needs review: <strong>{draft.needs_review_count}</strong></li>
@@ -208,7 +228,7 @@ export function SourceMapping() {
         onStatusFilterChange={setStatusFilter}
         selectedRowIds={selectedRowIds}
         setSelectedRowIds={setSelectedRowIds}
-        onStatusChange={(rowId, status) => updateRowMutation.mutate({ rowId, status })}
+        onRowUpdate={(rowId, updates) => updateRowMutation.mutate({ rowId, updates })}
       />
 
       <VersionHistoryPanel
