@@ -70,6 +70,16 @@ def _serialize_row(row) -> MappingRowResponse:
     return MappingRowResponse(**payload)
 
 
+def _draft_progress(draft) -> tuple[int, str | None]:
+    try:
+        summary = json.loads(draft.summary_json or "{}")
+    except (TypeError, json.JSONDecodeError):
+        summary = {}
+    progress = int(summary.get("progress_percent", 0) or 0)
+    stage = summary.get("stage")
+    return progress, stage
+
+
 @router.post("", response_model=MappingDraftSummary, status_code=201)
 async def create_mapping_draft(
     source_id: str,
@@ -110,6 +120,7 @@ async def create_mapping_draft(
     approved_count = sum(1 for row in rows if row.status == "approved")
     needs_review_count = sum(1 for row in rows if row.status in {"proposed", "needs_review"})
     changed_count = sum(1 for row in rows if row.status == "changed_from_published")
+    scan_progress_percent, scan_stage = _draft_progress(draft)
     return MappingDraftSummary(
         **MappingDraftSummary.model_validate(draft).model_dump(),
         page_type_count=len(page_types),
@@ -117,6 +128,8 @@ async def create_mapping_draft(
         approved_count=approved_count,
         needs_review_count=needs_review_count,
         changed_from_published_count=changed_count,
+        scan_progress_percent=scan_progress_percent,
+        scan_stage=scan_stage,
     )
 
 
@@ -151,6 +164,7 @@ async def get_scan_status_and_results(
     approved_count = sum(1 for row in rows if row.status == "approved")
     needs_review_count = sum(1 for row in rows if row.status in {"proposed", "needs_review"})
     changed_count = sum(1 for row in rows if row.status == "changed_from_published")
+    scan_progress_percent, scan_stage = _draft_progress(draft)
     return MappingDraftSummary(
         **MappingDraftSummary.model_validate(draft).model_dump(),
         page_type_count=len(page_types),
@@ -158,6 +172,8 @@ async def get_scan_status_and_results(
         approved_count=approved_count,
         needs_review_count=needs_review_count,
         changed_from_published_count=changed_count,
+        scan_progress_percent=scan_progress_percent,
+        scan_stage=scan_stage,
     )
 
 

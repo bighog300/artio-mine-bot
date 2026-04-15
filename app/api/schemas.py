@@ -134,6 +134,8 @@ class MappingDraftSummary(BaseModel):
     approved_count: int = 0
     needs_review_count: int = 0
     changed_from_published_count: int = 0
+    scan_progress_percent: int = 0
+    scan_stage: str | None = None
 
 
 class MappingScanResponse(BaseModel):

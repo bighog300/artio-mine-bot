@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Eye, Pause, Play, RotateCcw, Square, Trash2 } from "lucide-react";
 import {
   createSource,
+  createSourceMappingDraft,
   deleteSource,
   getSources,
   mapSite,
@@ -72,6 +73,27 @@ export function Sources() {
     onError: (e: Error) => setError(e.message),
   });
 
+  const createAndOpenMappingMutation = useMutation({
+    mutationFn: async () => {
+      const source = await createSource(form);
+      const draft = await createSourceMappingDraft(source.id, {
+        scan_mode: "standard",
+        max_pages: form.max_pages ?? 50,
+        max_depth: form.max_depth ?? 3,
+      });
+      return { sourceId: source.id, draftId: draft.id };
+    },
+    onSuccess: ({ sourceId, draftId }) => {
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
+      setShowDialog(false);
+      setError(null);
+      setActionFeedback("Source saved and mapping scan started.");
+      setForm({ url: "", name: "", crawl_intent: "site_root", enabled: true });
+      navigate(`/sources/${sourceId}/mapping?draft=${draftId}`);
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: deleteSource,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sources"] }),
@@ -101,7 +123,7 @@ export function Sources() {
     onError: (e: Error) => setActionFeedback(e.message),
   });
 
-  const isCreateBusy = createMutation.isPending || createAndRunMutation.isPending;
+  const isCreateBusy = createMutation.isPending || createAndRunMutation.isPending || createAndOpenMappingMutation.isPending;
   const canSubmit = useMemo(() => Boolean(form.url?.trim()), [form.url]);
 
   return (
@@ -241,6 +263,7 @@ export function Sources() {
             </div>
             <div className="flex flex-wrap gap-2 mt-4">
               <button disabled={!canSubmit || isCreateBusy} onClick={() => createMutation.mutate(form)} className="px-3 py-2 bg-slate-700 text-white rounded disabled:opacity-60">Save Source</button>
+              <button disabled={!canSubmit || isCreateBusy} onClick={() => createAndOpenMappingMutation.mutate()} className="px-3 py-2 bg-purple-600 text-white rounded disabled:opacity-60">Save & Open Mapping Scan</button>
               <button disabled={!canSubmit || isCreateBusy} onClick={() => createAndRunMutation.mutate({ action: "start-discovery" })} className="px-3 py-2 bg-blue-600 text-white rounded disabled:opacity-60">Save & Start Discovery</button>
               <button disabled={!canSubmit || isCreateBusy} onClick={() => createAndRunMutation.mutate({ action: "start-full" })} className="px-3 py-2 bg-green-600 text-white rounded disabled:opacity-60">Save & Start Full Mining</button>
               <button onClick={() => setShowDialog(false)} className="px-3 py-2 border rounded">Cancel</button>

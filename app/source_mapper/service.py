@@ -1,12 +1,15 @@
 import json
 from datetime import UTC, datetime
+from urllib.parse import urljoin, urlparse
 
 import structlog
+from bs4 import BeautifulSoup
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud
 from app.db.models import Source, SourceMappingSample, SourceMappingVersion
+from app.crawler.fetcher import fetch
 from app.source_mapper.page_clustering import cluster_pages
 from app.source_mapper.proposal_engine import build_proposals
 from app.source_mapper.preview import build_preview
@@ -21,13 +24,24 @@ class SourceMapperService:
 
     async def run_scan(self, source: Source, draft: SourceMappingVersion) -> dict[str, int | str]:
         try:
+            await crud.clear_source_mapping_draft_data(self.db, draft.id)
             draft.scan_status = "running"
             source.mapping_status = "draft"
+            draft.summary_json = json.dumps({"progress_percent": 5, "stage": "discovering_pages"})
             await self.db.commit()
 
-            discovered_pages = self._build_discovery_seed(source)
+            discovered_pages = await self._discover_pages(source, draft)
+            draft.summary_json = json.dumps(
+                {
+                    "progress_percent": 35,
+                    "stage": "clustering_page_types",
+                    "discovered_page_count": len(discovered_pages),
+                }
+            )
+            await self.db.commit()
             clusters = cluster_pages(discovered_pages)
 
+            proposal_count = 0
             for cluster in clusters:
                 page_type = await crud.create_source_mapping_page_type(
                     self.db,
@@ -37,14 +51,16 @@ class SourceMapperService:
                     sample_count=len(cluster.sample_urls),
                     confidence_score=cluster.confidence_score,
                 )
+                sample_map = {item.url: item for item in discovered_pages}
                 for sample_url in cluster.sample_urls:
+                    sample = sample_map.get(sample_url)
                     await crud.create_source_mapping_sample(
                         self.db,
                         draft.id,
                         page_type_id=page_type.id,
                         url=sample_url,
-                        title=source.name,
-                        html_snapshot=None,
+                        title=sample.title if sample else source.name,
+                        html_snapshot=(sample.html_snippet if sample else None),
                     )
 
                 proposals = build_proposals(cluster, source_name=source.name)
@@ -61,8 +77,18 @@ class SourceMapperService:
                         status="proposed",
                         rationale=proposal.rationale,
                     )
+                    proposal_count += 1
 
             draft.scan_status = "completed"
+            draft.summary_json = json.dumps(
+                {
+                    "progress_percent": 100,
+                    "stage": "completed",
+                    "discovered_page_count": len(discovered_pages),
+                    "page_type_count": len(clusters),
+                    "proposal_count": proposal_count,
+                }
+            )
             source.last_mapping_scan_at = datetime.now(UTC)
             source.last_mapping_error = None
             await self.db.commit()
@@ -75,6 +101,7 @@ class SourceMapperService:
                 error=str(exc),
             )
             draft.scan_status = "error"
+            draft.summary_json = json.dumps({"progress_percent": 100, "stage": "error"})
             source.mapping_status = "error"
             source.last_mapping_error = str(exc)
             await self.db.commit()
@@ -164,6 +191,56 @@ class SourceMapperService:
         await self.db.commit()
         return {"sample_run_id": run.id, "status": run.status}
 
+    async def _discover_pages(self, source: Source, draft: SourceMappingVersion) -> list[DiscoveredPage]:
+        if urlparse(source.url).netloc.endswith(".test"):
+            return self._build_discovery_seed(source)
+        options = json.loads(draft.scan_options_json or "{}")
+        max_pages = int(options.get("max_pages", 50))
+        allowed_paths = [p for p in options.get("allowed_paths", []) if isinstance(p, str)]
+        blocked_paths = [p for p in options.get("blocked_paths", []) if isinstance(p, str)]
+
+        homepage = await fetch(source.url)
+        if not homepage.html:
+            return self._build_discovery_seed(source)
+
+        discovered: list[DiscoveredPage] = []
+        seen: set[str] = set()
+        home_title = self._extract_title(homepage.html) or source.name
+        discovered.append(
+            DiscoveredPage(
+                url=homepage.final_url,
+                title=home_title,
+                html_snippet=homepage.html[:400],
+            )
+        )
+        seen.add(homepage.final_url)
+
+        soup = BeautifulSoup(homepage.html, "lxml")
+        for anchor in soup.find_all("a", href=True):
+            href = str(anchor.get("href") or "").strip()
+            if not href or href.startswith("#") or href.startswith("javascript:") or href.startswith("mailto:"):
+                continue
+            absolute = urljoin(homepage.final_url, href).split("#")[0]
+            if absolute in seen:
+                continue
+            if not self._is_internal(source.url, absolute):
+                continue
+            if not self._passes_path_rules(absolute, allowed_paths, blocked_paths):
+                continue
+            seen.add(absolute)
+            fetched = await fetch(absolute)
+            discovered.append(
+                DiscoveredPage(
+                    url=fetched.final_url,
+                    title=self._extract_title(fetched.html) or anchor.get_text(strip=True) or None,
+                    html_snippet=(fetched.html[:400] if fetched.html else None),
+                )
+            )
+            if len(discovered) >= max_pages:
+                break
+
+        return discovered if len(discovered) > 1 else self._build_discovery_seed(source)
+
     def _build_discovery_seed(self, source: Source) -> list[DiscoveredPage]:
         base = source.url.rstrip("/")
         return [
@@ -173,6 +250,24 @@ class SourceMapperService:
             DiscoveredPage(url=f"{base}/exhibitions/sample-exhibition", title="Sample Exhibition"),
             DiscoveredPage(url=f"{base}/venues/sample-venue", title="Sample Venue"),
         ]
+
+    def _is_internal(self, source_url: str, candidate_url: str) -> bool:
+        return urlparse(source_url).netloc == urlparse(candidate_url).netloc
+
+    def _passes_path_rules(self, candidate_url: str, allowed_paths: list[str], blocked_paths: list[str]) -> bool:
+        path = urlparse(candidate_url).path.lower()
+        if allowed_paths and not any(path.startswith(item.lower()) for item in allowed_paths):
+            return False
+        if blocked_paths and any(path.startswith(item.lower()) for item in blocked_paths):
+            return False
+        return True
+
+    def _extract_title(self, html: str) -> str | None:
+        if not html:
+            return None
+        soup = BeautifulSoup(html, "lxml")
+        title = soup.title.get_text(strip=True) if soup.title else None
+        return title or None
 
     async def _resolve_sample(self, draft_id: str, sample_page_id: str) -> SourceMappingSample | None:
         if sample_page_id == "default":

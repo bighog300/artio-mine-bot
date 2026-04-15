@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.embeddings import cosine_similarity, create_embedding
@@ -387,6 +387,19 @@ async def list_source_mapping_page_types(db: AsyncSession, draft_id: str) -> lis
         select(SourceMappingPageType).where(SourceMappingPageType.mapping_version_id == draft_id)
     )
     return list(result.scalars().all())
+
+
+async def clear_source_mapping_draft_data(db: AsyncSession, draft_id: str) -> None:
+    await db.execute(delete(SourceMappingSampleResult).where(
+        SourceMappingSampleResult.sample_run_id.in_(
+            select(SourceMappingSampleRun.id).where(SourceMappingSampleRun.mapping_version_id == draft_id)
+        )
+    ))
+    await db.execute(delete(SourceMappingSampleRun).where(SourceMappingSampleRun.mapping_version_id == draft_id))
+    await db.execute(delete(SourceMappingRow).where(SourceMappingRow.mapping_version_id == draft_id))
+    await db.execute(delete(SourceMappingSample).where(SourceMappingSample.mapping_version_id == draft_id))
+    await db.execute(delete(SourceMappingPageType).where(SourceMappingPageType.mapping_version_id == draft_id))
+    await db.commit()
 
 
 async def update_source_mapping_row(
