@@ -136,6 +136,13 @@ class MappingDraftSummary(BaseModel):
     changed_from_published_count: int = 0
 
 
+class MappingScanResponse(BaseModel):
+    draft_id: str
+    scan_status: str
+    job_id: str | None = None
+    message: str
+
+
 class MappingPageTypeResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
@@ -189,6 +196,32 @@ class MappingRowActionRequest(BaseModel):
 
 class MappingPreviewRequest(BaseModel):
     sample_page_id: str
+
+
+class MappingSampleRunRequest(BaseModel):
+    page_type_keys: list[str] = []
+    sample_count: int = 10
+
+
+class MappingSampleRunResponse(BaseModel):
+    sample_run_id: str
+    status: str
+
+
+class MappingSampleRunResultItem(BaseModel):
+    id: str
+    sample_run_id: str
+    sample_id: str | None = None
+    review_status: str
+    record_preview: dict[str, Any] = {}
+    created_at: datetime
+    updated_at: datetime
+
+
+class MappingSampleRunResultResponse(BaseModel):
+    sample_run_id: str
+    status: str
+    items: list[MappingSampleRunResultItem]
 
 
 class MappingExtractionPreview(BaseModel):

@@ -184,3 +184,48 @@ async def test_preview_regression_includes_snippet_categories_and_warnings(test_
     assert diff_resp.status_code == 200
     diff_payload = diff_resp.json()
     assert set(diff_payload.keys()) == {"added", "removed", "changed", "unchanged"}
+
+
+@pytest.mark.asyncio
+async def test_scan_endpoint_and_sample_run_flow(test_client: AsyncClient):
+    source_resp = await test_client.post("/api/sources", json={"url": "https://mapper-scan-flow.test"})
+    source_id = source_resp.json()["id"]
+    draft_id = (await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})).json()["id"]
+
+    scan_resp = await test_client.post(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/scan")
+    assert scan_resp.status_code == 202
+    assert scan_resp.json()["scan_status"] in {"completed", "error", "queued"}
+
+    sample_run_resp = await test_client.post(
+        f"/api/sources/{source_id}/mapping-drafts/{draft_id}/sample-run",
+        json={"sample_count": 3},
+    )
+    assert sample_run_resp.status_code == 202
+    sample_run_id = sample_run_resp.json()["sample_run_id"]
+
+    sample_results_resp = await test_client.get(
+        f"/api/sources/{source_id}/mapping-drafts/{draft_id}/sample-run/{sample_run_id}"
+    )
+    assert sample_results_resp.status_code == 200
+    payload = sample_results_resp.json()
+    assert payload["sample_run_id"] == sample_run_id
+    assert isinstance(payload["items"], list)
+
+
+@pytest.mark.asyncio
+async def test_rollback_published_mapping_version(test_client: AsyncClient):
+    source_resp = await test_client.post("/api/sources", json={"url": "https://mapper-rollback.test"})
+    source_id = source_resp.json()["id"]
+    draft_id = (await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})).json()["id"]
+    row_id = (await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows")).json()["items"][0]["id"]
+    await test_client.post(
+        f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows/actions",
+        json={"row_ids": [row_id], "action": "approve", "force_low_confidence": True},
+    )
+    publish = await test_client.post(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/publish")
+    assert publish.status_code == 200
+    version_id = publish.json()["id"]
+
+    rollback = await test_client.post(f"/api/sources/{source_id}/mapping-drafts/versions/{version_id}/rollback")
+    assert rollback.status_code == 200
+    assert rollback.json()["id"] == version_id
