@@ -3,7 +3,11 @@ import { decideDuplicate, getDuplicateReviews } from "@/lib/api";
 
 export function DuplicateResolution() {
   const queryClient = useQueryClient();
-  const { data, isLoading } = useQuery({ queryKey: ["duplicate-reviews"], queryFn: () => getDuplicateReviews("pending") });
+  const { data, isLoading } = useQuery({
+    queryKey: ["duplicate-reviews"],
+    queryFn: () => getDuplicateReviews("pending"),
+    retry: false,
+  });
 
   const decideMutation = useMutation({
     mutationFn: decideDuplicate,

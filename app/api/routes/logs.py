@@ -108,6 +108,14 @@ async def get_activity(
             error=str(exc),
         )
         return {"items": []}
+    except Exception:
+        logger.exception(
+            "activity_logs_unexpected_error",
+            limit=limit,
+            offset=0,
+            source_id=source_id,
+        )
+        return {"items": []}
 
 
 @router.delete("")
