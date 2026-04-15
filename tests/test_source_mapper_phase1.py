@@ -215,6 +215,23 @@ async def test_scan_endpoint_and_sample_run_flow(test_client: AsyncClient):
     assert payload["sample_run_id"] == sample_run_id
     assert isinstance(payload["items"], list)
 
+    if payload["items"]:
+        result_id = payload["items"][0]["id"]
+        moderate_resp = await test_client.patch(
+            f"/api/sources/{source_id}/mapping-drafts/{draft_id}/sample-run/{sample_run_id}/results/{result_id}",
+            json={"review_status": "approved", "review_notes": "Looks good"},
+        )
+        assert moderate_resp.status_code == 200
+        assert moderate_resp.json()["review_status"] == "approved"
+        assert moderate_resp.json()["review_notes"] == "Looks good"
+
+        filtered_resp = await test_client.get(
+            f"/api/sources/{source_id}/mapping-drafts/{draft_id}/sample-run/{sample_run_id}?review_status=approved"
+        )
+        assert filtered_resp.status_code == 200
+        filtered_items = filtered_resp.json()["items"]
+        assert all(item["review_status"] == "approved" for item in filtered_items)
+
 
 @pytest.mark.asyncio
 async def test_rollback_published_mapping_version(test_client: AsyncClient):

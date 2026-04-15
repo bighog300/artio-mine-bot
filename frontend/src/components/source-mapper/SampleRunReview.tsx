@@ -4,9 +4,10 @@ interface Props {
   sampleRun?: MappingSampleRunResultResponse;
   onStart: () => void;
   loading: boolean;
+  onModerateResult: (resultId: string, update: { review_status?: string; review_notes?: string }) => void;
 }
 
-export function SampleRunReview({ sampleRun, onStart, loading }: Props) {
+export function SampleRunReview({ sampleRun, onStart, loading, onModerateResult }: Props) {
   return (
     <section className="rounded border bg-white p-4 space-y-3">
       <div className="flex items-center justify-between">
@@ -21,7 +22,21 @@ export function SampleRunReview({ sampleRun, onStart, loading }: Props) {
           <ul className="space-y-1 text-xs">
             {sampleRun.items.slice(0, 5).map((item) => (
               <li key={item.id} className="border rounded p-2">
-                <div>Status: {item.review_status}</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div>Status: {item.review_status}</div>
+                  <div className="flex gap-1">
+                    <button className="px-2 py-1 border rounded" onClick={() => onModerateResult(item.id, { review_status: "approved" })}>Approve</button>
+                    <button className="px-2 py-1 border rounded" onClick={() => onModerateResult(item.id, { review_status: "needs_review" })}>Needs review</button>
+                    <button className="px-2 py-1 border rounded" onClick={() => onModerateResult(item.id, { review_status: "rejected" })}>Reject</button>
+                  </div>
+                </div>
+                <textarea
+                  className="mt-2 w-full rounded border px-2 py-1 text-xs"
+                  rows={2}
+                  defaultValue={item.review_notes ?? ""}
+                  placeholder="Optional moderation notes"
+                  onBlur={(e) => onModerateResult(item.id, { review_notes: e.target.value })}
+                />
                 <pre className="bg-slate-50 rounded p-2 mt-1 overflow-auto">{JSON.stringify(item.record_preview, null, 2)}</pre>
               </li>
             ))}

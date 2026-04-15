@@ -215,6 +215,7 @@ class MappingSampleRunResultItem(BaseModel):
     sample_run_id: str
     sample_id: str | None = None
     review_status: str
+    review_notes: str | None = None
     record_preview: dict[str, Any] = {}
     created_at: datetime
     updated_at: datetime
@@ -224,6 +225,11 @@ class MappingSampleRunResultResponse(BaseModel):
     sample_run_id: str
     status: str
     items: list[MappingSampleRunResultItem]
+
+
+class MappingSampleRunResultUpdateRequest(BaseModel):
+    review_status: str | None = None
+    review_notes: str | None = None
 
 
 class MappingExtractionPreview(BaseModel):

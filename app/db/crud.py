@@ -711,11 +711,49 @@ async def get_source_mapping_sample_run(
 async def list_source_mapping_sample_results(
     db: AsyncSession,
     sample_run_id: str,
+    *,
+    review_status: str | None = None,
 ) -> list[SourceMappingSampleResult]:
-    result = await db.execute(
-        select(SourceMappingSampleResult).where(SourceMappingSampleResult.sample_run_id == sample_run_id)
-    )
+    stmt = select(SourceMappingSampleResult).where(SourceMappingSampleResult.sample_run_id == sample_run_id)
+    if review_status:
+        stmt = stmt.where(SourceMappingSampleResult.review_status == review_status)
+    stmt = stmt.order_by(SourceMappingSampleResult.created_at.asc())
+    result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def update_source_mapping_sample_result(
+    db: AsyncSession,
+    source_id: str,
+    draft_id: str,
+    sample_run_id: str,
+    result_id: str,
+    *,
+    review_status: str | None = None,
+    review_notes: str | None = None,
+) -> SourceMappingSampleResult:
+    stmt = (
+        select(SourceMappingSampleResult)
+        .join(SourceMappingSampleRun, SourceMappingSampleResult.sample_run_id == SourceMappingSampleRun.id)
+        .join(SourceMappingVersion, SourceMappingSampleRun.mapping_version_id == SourceMappingVersion.id)
+        .where(
+            SourceMappingVersion.source_id == source_id,
+            SourceMappingVersion.id == draft_id,
+            SourceMappingSampleRun.id == sample_run_id,
+            SourceMappingSampleResult.id == result_id,
+        )
+    )
+    result = (await db.execute(stmt)).scalar_one_or_none()
+    if result is None:
+        raise ValueError("Sample run result not found")
+    if review_status is not None:
+        result.review_status = review_status
+    if review_notes is not None:
+        result.review_notes = review_notes
+    result.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(result)
+    return result
 
 
 async def rollback_source_mapping_version(

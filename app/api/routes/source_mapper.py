@@ -16,6 +16,7 @@ from app.api.schemas import (
     MappingSampleRunResponse,
     MappingSampleRunResultItem,
     MappingSampleRunResultResponse,
+    MappingSampleRunResultUpdateRequest,
     MappingScanResponse,
     MappingRowActionRequest,
     MappingRowResponse,
@@ -373,19 +374,21 @@ async def get_sample_run_results(
     source_id: str,
     draft_id: str,
     sample_run_id: str,
+    review_status: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     _role: str = Depends(require_permission("read")),
 ):
     sample_run = await crud.get_source_mapping_sample_run(db, source_id, draft_id, sample_run_id)
     if sample_run is None:
         raise HTTPException(status_code=404, detail="Sample run not found")
-    results = await crud.list_source_mapping_sample_results(db, sample_run_id)
+    results = await crud.list_source_mapping_sample_results(db, sample_run_id, review_status=review_status)
     items = [
         MappingSampleRunResultItem(
             id=item.id,
             sample_run_id=item.sample_run_id,
             sample_id=item.sample_id,
             review_status=item.review_status,
+            review_notes=item.review_notes,
             record_preview=json.loads(item.record_preview_json or "{}"),
             created_at=item.created_at,
             updated_at=item.updated_at,
@@ -393,6 +396,55 @@ async def get_sample_run_results(
         for item in results
     ]
     return MappingSampleRunResultResponse(sample_run_id=sample_run_id, status=sample_run.status, items=items)
+
+
+@router.patch("/{draft_id}/sample-run/{sample_run_id}/results/{result_id}", response_model=MappingSampleRunResultItem)
+async def update_sample_run_result(
+    source_id: str,
+    draft_id: str,
+    sample_run_id: str,
+    result_id: str,
+    body: MappingSampleRunResultUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields provided for update")
+    try:
+        result = await crud.update_source_mapping_sample_result(
+            db,
+            source_id,
+            draft_id,
+            sample_run_id,
+            result_id,
+            review_status=updates.get("review_status"),
+            review_notes=updates.get("review_notes"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await crud.create_audit_action(
+        db,
+        action_type="mapping_sample_result_updated",
+        user_id="admin",
+        source_id=source_id,
+        details={
+            "draft_id": draft_id,
+            "sample_run_id": sample_run_id,
+            "result_id": result_id,
+            "updates": updates,
+        },
+    )
+    return MappingSampleRunResultItem(
+        id=result.id,
+        sample_run_id=result.sample_run_id,
+        sample_id=result.sample_id,
+        review_status=result.review_status,
+        review_notes=result.review_notes,
+        record_preview=json.loads(result.record_preview_json or "{}"),
+        created_at=result.created_at,
+        updated_at=result.updated_at,
+    )
 
 
 @router.get("", response_model=dict)
