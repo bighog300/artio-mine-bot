@@ -134,6 +134,8 @@ class Record(Base):
     raw_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     extraction_model: Mapped[str | None] = mapped_column(String, nullable=True)
     extraction_provider: Mapped[str | None] = mapped_column(String, nullable=True)
+    embedding_vector: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding_updated_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
 
     # Confidence
     confidence_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

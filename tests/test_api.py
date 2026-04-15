@@ -488,3 +488,117 @@ async def test_metrics_endpoint(test_client: AsyncClient):
     assert "total_artists" in payload
     assert "avg_completeness" in payload
     assert "conflicts_count" in payload
+
+
+@pytest.mark.asyncio
+async def test_semantic_artist_search_returns_ranked_results(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://semantic-artists.com")
+    await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Alice Painter",
+        bio="Contemporary painter exploring memory and color fields in Cape Town",
+        city="Cape Town",
+    )
+    await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Bruno Sculptor",
+        bio="Large scale bronze sculpture in Johannesburg",
+        city="Johannesburg",
+    )
+
+    resp = await test_client.get("/api/semantic/artists", params={"q": "memory painter cape town"})
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["total"] >= 2
+    assert payload["items"][0]["name"] == "Alice Painter"
+    assert payload["items"][0]["semantic_score"] >= payload["items"][1]["semantic_score"]
+
+
+@pytest.mark.asyncio
+async def test_duplicate_suggestions_and_merge(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://duplicates.com")
+    first = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Alice Elahi",
+        bio="Cape Town contemporary artist working across painting",
+        website_url="https://alice.example.com",
+        raw_data=json.dumps({"related": {"exhibitions": [{"title": "City Light"}]}}),
+    )
+    second = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Alice N. Elahi",
+        bio="Contemporary painter from Cape Town with city light exhibitions",
+        website_url="https://alice.example.com",
+        raw_data=json.dumps({"related": {"exhibitions": [{"title": "City Light"}]}}),
+    )
+
+    dup_resp = await test_client.get("/api/suggest/duplicates", params={"min_score": 0.55})
+    assert dup_resp.status_code == 200
+    dup_payload = dup_resp.json()
+    assert dup_payload["total"] >= 1
+    pair_ids = {(item["left_id"], item["right_id"]) for item in dup_payload["items"]}
+    assert (first.id, second.id) in pair_ids or (second.id, first.id) in pair_ids
+
+    merge_resp = await test_client.post(
+        "/api/merge/artists",
+        json={"primary_id": first.id, "secondary_id": second.id},
+    )
+    assert merge_resp.status_code == 200
+    assert merge_resp.json()["status"] == "merged"
+
+    get_secondary = await test_client.get(f"/api/records/{second.id}")
+    assert get_secondary.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_related_artists_and_ask_endpoint(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://related.com")
+    anchor = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Alice Elahi",
+        bio="Artist focused on abstract memory and color",
+        city="Cape Town",
+        raw_data=json.dumps({"related": {"exhibitions": [{"title": "Harbor Echoes"}]}}),
+    )
+    peer = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Alicia Elahi",
+        bio="Abstract color painter exploring memory",
+        city="Cape Town",
+        raw_data=json.dumps({"related": {"exhibitions": [{"title": "Harbor Echoes"}]}}),
+    )
+    await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Jonas Metal",
+        bio="Steel installation artist",
+        city="Durban",
+    )
+
+    related_resp = await test_client.get(f"/api/related/artists/{anchor.id}")
+    assert related_resp.status_code == 200
+    related_payload = related_resp.json()
+    assert related_payload["items"]
+    assert related_payload["items"][0]["id"] == peer.id
+
+    ask_resp = await test_client.post(
+        "/api/ask",
+        json={"query": "Show me artists similar to Alice Elahi who exhibited in Cape Town"},
+    )
+    assert ask_resp.status_code == 200
+    ask_payload = ask_resp.json()
+    assert ask_payload["results"]
+    assert ask_payload["intent"] in {"artist_similarity", "semantic_lookup"}
