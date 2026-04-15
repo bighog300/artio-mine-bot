@@ -386,3 +386,105 @@ async def test_settings_save_returns_handled_error_when_env_persist_fails(test_c
     assert save_resp.status_code == 500
     payload = save_resp.json()
     assert payload["detail"] == "Failed to persist settings to .env. Check file path and permissions."
+
+
+@pytest.mark.asyncio
+async def test_search_artists_endpoint(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://search-artists.com")
+    await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Alice Elahi",
+        bio="Contemporary artist",
+        completeness_score=82,
+        has_conflicts=False,
+        raw_data=json.dumps({"artist_payload": {"exhibitions": [{"title": "Solo Show"}], "articles": []}}),
+    )
+
+    resp = await test_client.get("/api/search/artists", params={"q": "Alice", "has_exhibitions": "true"})
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["total"] >= 1
+    assert payload["items"][0]["name"] == "Alice Elahi"
+
+
+@pytest.mark.asyncio
+async def test_graph_artist_endpoint(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://graph-artist.com")
+    exhibition = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="exhibition",
+        title="Museum Night",
+    )
+    article = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist_article",
+        title="Interview with Nora",
+    )
+    artist = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Nora Artist",
+        raw_data=json.dumps(
+            {
+                "artist_payload": {
+                    "exhibitions": [{"title": exhibition.title}],
+                    "articles": [{"title": article.title}],
+                }
+            }
+        ),
+    )
+
+    resp = await test_client.get(f"/api/graph/artist/{artist.id}")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["artist"]["id"] == artist.id
+    assert any(item["id"] == exhibition.id for item in payload["exhibitions"])
+    assert any(item["id"] == article.id for item in payload["articles"])
+
+
+@pytest.mark.asyncio
+async def test_export_artists_clean_endpoint(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://export-artist.com")
+    artist = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Export Artist",
+        bio="Bio",
+        raw_data=json.dumps(
+            {
+                "artist_payload": {
+                    "exhibitions": [{"title": "Show"}],
+                    "articles": [{"title": "Profile"}],
+                },
+                "provenance": {"artist_name": {"value": "Export Artist"}},
+            }
+        ),
+    )
+
+    list_resp = await test_client.get("/api/export/artists")
+    assert list_resp.status_code == 200
+    list_payload = list_resp.json()
+    assert list_payload["total"] >= 1
+    assert "provenance" not in list_payload["items"][0]
+
+    detail_resp = await test_client.get(f"/api/export/artists/{artist.id}", params={"include_provenance": "true"})
+    assert detail_resp.status_code == 200
+    detail_payload = detail_resp.json()
+    assert detail_payload["artist_name"] == "Export Artist"
+    assert "provenance" in detail_payload
+
+
+@pytest.mark.asyncio
+async def test_metrics_endpoint(test_client: AsyncClient):
+    resp = await test_client.get("/metrics")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert "total_artists" in payload
+    assert "avg_completeness" in payload
+    assert "conflicts_count" in payload

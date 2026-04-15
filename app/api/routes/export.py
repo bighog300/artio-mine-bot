@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,6 +12,48 @@ from app.db import crud
 from app.db.models import Record
 
 router = APIRouter(prefix="/export", tags=["export"])
+
+
+def _parse_raw_data(raw_data: str | None) -> dict:
+    if not raw_data:
+        return {}
+    try:
+        parsed = json.loads(raw_data)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+def _clean_artist_export(record: Record, include_provenance: bool = False) -> dict:
+    raw = _parse_raw_data(record.raw_data)
+    artist_payload = raw.get("artist_payload", {}) if isinstance(raw, dict) else {}
+    output = {
+        "id": record.id,
+        "artist_name": record.title or artist_payload.get("artist_name"),
+        "bio": record.bio or artist_payload.get("bio_full") or artist_payload.get("bio_short"),
+        "nationality": record.nationality or artist_payload.get("nationality"),
+        "website_url": record.website_url or artist_payload.get("website"),
+        "completeness_score": record.completeness_score,
+        "exhibitions": artist_payload.get("exhibitions", []),
+        "articles": artist_payload.get("articles", []),
+    }
+    if include_provenance:
+        output["provenance"] = raw.get("provenance") or raw.get("artist_payload_provenance") or {}
+    return output
+
+
+def _clean_exhibition_export(record: Record) -> dict:
+    return {
+        "id": record.id,
+        "title": record.title,
+        "description": record.description,
+        "start_date": record.start_date,
+        "end_date": record.end_date,
+        "venue_name": record.venue_name,
+        "venue_address": record.venue_address,
+        "artist_names": json.loads(record.artist_names or "[]"),
+        "source_url": record.source_url,
+    }
 
 
 @router.get("/preview", response_model=ExportPreviewResponse)
@@ -119,3 +162,58 @@ async def get_export_history(
         for r in records
     ]
     return {"items": items, "total": len(items), "skip": skip, "limit": limit}
+
+
+@router.get("/artists")
+async def export_artists(
+    source_id: str | None = None,
+    include_provenance: bool = False,
+    skip: int = 0,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+):
+    artists = await crud.list_records(
+        db,
+        source_id=source_id,
+        record_type="artist",
+        skip=skip,
+        limit=limit,
+    )
+    items = [_clean_artist_export(artist, include_provenance=include_provenance) for artist in artists]
+    total = await crud.count_records(db, source_id=source_id, record_type="artist")
+    return {"items": items, "total": total, "skip": skip, "limit": limit}
+
+
+@router.get("/artists/{record_id}")
+async def export_artist_by_id(
+    record_id: str,
+    include_provenance: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    artist = await crud.get_record(db, record_id)
+    if artist is None or artist.record_type != "artist":
+        raise HTTPException(status_code=404, detail="Artist not found")
+    return _clean_artist_export(artist, include_provenance=include_provenance)
+
+
+@router.get("/exhibitions")
+async def export_exhibitions(
+    source_id: str | None = None,
+    skip: int = 0,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+):
+    exhibitions = await crud.list_records(
+        db,
+        source_id=source_id,
+        record_type="exhibition",
+        skip=skip,
+        limit=limit,
+    )
+    total = await crud.count_records(db, source_id=source_id, record_type="exhibition")
+    return {
+        "items": [_clean_exhibition_export(item) for item in exhibitions],
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+    }

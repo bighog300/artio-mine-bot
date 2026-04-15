@@ -4,12 +4,24 @@ from datetime import UTC, datetime
 from typing import Any
 
 import structlog
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Image, Job, Page, Record, Source
+from app.db.models import EntityRelationship, Image, Job, Page, Record, Source
 
 logger = structlog.get_logger()
+
+
+def _extract_completeness_and_conflicts(raw_data: str | None) -> tuple[int, bool]:
+    if not raw_data:
+        return 0, False
+    try:
+        payload = json.loads(raw_data)
+    except json.JSONDecodeError:
+        return 0, False
+    completeness = payload.get("completeness_score", 0)
+    has_conflicts = bool(payload.get("conflicts", {}))
+    return int(completeness or 0), has_conflicts
 
 # ---------------------------------------------------------------------------
 # Source CRUD
@@ -237,6 +249,10 @@ async def create_record(
     for field in ("artist_names", "mediums", "collections", "confidence_reasons"):
         if field in kwargs and isinstance(kwargs[field], list):
             kwargs[field] = json.dumps(kwargs[field])
+    if "raw_data" in kwargs:
+        completeness, has_conflicts = _extract_completeness_and_conflicts(kwargs.get("raw_data"))
+        kwargs.setdefault("completeness_score", completeness)
+        kwargs.setdefault("has_conflicts", has_conflicts)
     record = Record(source_id=source_id, record_type=record_type, **kwargs)
     db.add(record)
     await db.commit()
@@ -329,6 +345,110 @@ async def list_records(
     return list(result.scalars().all())
 
 
+async def search_records(
+    db: AsyncSession,
+    *,
+    record_type: str,
+    query: str | None = None,
+    location: str | None = None,
+    min_completeness_score: int | None = None,
+    has_exhibitions: bool | None = None,
+    has_articles: bool | None = None,
+    has_conflicts: bool | None = None,
+    sort_by: str = "completeness",
+    skip: int = 0,
+    limit: int = 50,
+) -> list[Record]:
+    stmt = select(Record).where(Record.record_type == record_type)
+    if query:
+        query_filter = f"%{query}%"
+        stmt = stmt.where(
+            or_(
+                Record.title.ilike(query_filter),
+                Record.description.ilike(query_filter),
+                Record.bio.ilike(query_filter),
+            )
+        )
+    if location:
+        location_filter = f"%{location}%"
+        stmt = stmt.where(
+            or_(
+                Record.city.ilike(location_filter),
+                Record.country.ilike(location_filter),
+                Record.venue_name.ilike(location_filter),
+                Record.venue_address.ilike(location_filter),
+                Record.nationality.ilike(location_filter),
+            )
+        )
+    if min_completeness_score is not None:
+        stmt = stmt.where(Record.completeness_score >= min_completeness_score)
+    if has_conflicts is not None:
+        stmt = stmt.where(Record.has_conflicts.is_(has_conflicts))
+    if has_exhibitions is not None:
+        comparator = Record.raw_data.contains('"exhibitions"')
+        stmt = stmt.where(comparator if has_exhibitions else ~comparator)
+    if has_articles is not None:
+        comparator = Record.raw_data.contains('"articles"')
+        stmt = stmt.where(comparator if has_articles else ~comparator)
+
+    if sort_by == "alphabetical":
+        stmt = stmt.order_by(Record.title.asc().nullslast())
+    elif sort_by == "number_of_exhibitions":
+        stmt = stmt.order_by(Record.raw_data.desc().nullslast())
+    else:
+        stmt = stmt.order_by(Record.completeness_score.desc(), Record.title.asc().nullslast())
+
+    stmt = stmt.offset(skip).limit(limit)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def count_search_records(
+    db: AsyncSession,
+    *,
+    record_type: str,
+    query: str | None = None,
+    location: str | None = None,
+    min_completeness_score: int | None = None,
+    has_exhibitions: bool | None = None,
+    has_articles: bool | None = None,
+    has_conflicts: bool | None = None,
+) -> int:
+    stmt = select(func.count(Record.id)).where(Record.record_type == record_type)
+    if query:
+        query_filter = f"%{query}%"
+        stmt = stmt.where(
+            or_(
+                Record.title.ilike(query_filter),
+                Record.description.ilike(query_filter),
+                Record.bio.ilike(query_filter),
+            )
+        )
+    if location:
+        location_filter = f"%{location}%"
+        stmt = stmt.where(
+            or_(
+                Record.city.ilike(location_filter),
+                Record.country.ilike(location_filter),
+                Record.venue_name.ilike(location_filter),
+                Record.venue_address.ilike(location_filter),
+                Record.nationality.ilike(location_filter),
+            )
+        )
+    if min_completeness_score is not None:
+        stmt = stmt.where(Record.completeness_score >= min_completeness_score)
+    if has_conflicts is not None:
+        stmt = stmt.where(Record.has_conflicts.is_(has_conflicts))
+    if has_exhibitions is not None:
+        comparator = Record.raw_data.contains('"exhibitions"')
+        stmt = stmt.where(comparator if has_exhibitions else ~comparator)
+    if has_articles is not None:
+        comparator = Record.raw_data.contains('"articles"')
+        stmt = stmt.where(comparator if has_articles else ~comparator)
+    result = await db.execute(stmt)
+    return result.scalar_one()
+
+
 async def update_record(db: AsyncSession, record_id: str, **kwargs: Any) -> Record:
     record = await get_record(db, record_id)
     if record is None:
@@ -339,6 +459,10 @@ async def update_record(db: AsyncSession, record_id: str, **kwargs: Any) -> Reco
         ):
             value = json.dumps(value)
         setattr(record, key, value)
+    if "raw_data" in kwargs:
+        completeness, has_conflicts = _extract_completeness_and_conflicts(record.raw_data)
+        record.completeness_score = completeness
+        record.has_conflicts = has_conflicts
     record.updated_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(record)
@@ -567,6 +691,59 @@ async def list_records_for_artist_family(
         Record.source_id == source_id,
         Record.page_id.in_(page_ids),
         Record.record_type.in_(["exhibition", "artist_article", "artist_press", "artist_memory"]),
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def upsert_entity_relationship(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    from_record_id: str,
+    to_record_id: str,
+    relationship_type: str,
+    metadata: dict[str, Any] | None = None,
+) -> EntityRelationship:
+    stmt = select(EntityRelationship).where(
+        EntityRelationship.source_id == source_id,
+        EntityRelationship.from_record_id == from_record_id,
+        EntityRelationship.to_record_id == to_record_id,
+        EntityRelationship.relationship_type == relationship_type,
+    )
+    existing = (await db.execute(stmt)).scalar_one_or_none()
+    if existing:
+        if metadata is not None:
+            existing.metadata_json = json.dumps(metadata)
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+
+    rel = EntityRelationship(
+        source_id=source_id,
+        from_record_id=from_record_id,
+        to_record_id=to_record_id,
+        relationship_type=relationship_type,
+        metadata_json=json.dumps(metadata) if metadata is not None else None,
+    )
+    db.add(rel)
+    await db.commit()
+    await db.refresh(rel)
+    return rel
+
+
+async def list_relationships_for_record(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    record_id: str,
+) -> list[EntityRelationship]:
+    stmt = select(EntityRelationship).where(
+        EntityRelationship.source_id == source_id,
+        or_(
+            EntityRelationship.from_record_id == record_id,
+            EntityRelationship.to_record_id == record_id,
+        ),
     )
     result = await db.execute(stmt)
     return list(result.scalars().all())

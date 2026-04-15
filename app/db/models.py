@@ -139,6 +139,8 @@ class Record(Base):
     confidence_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     confidence_band: Mapped[str] = mapped_column(String, default="LOW", nullable=False)
     confidence_reasons: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    completeness_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    has_conflicts: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Admin fields
     admin_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -169,6 +171,8 @@ class Record(Base):
         Index("ix_records_status", "status"),
         Index("ix_records_record_type", "record_type"),
         Index("ix_records_confidence_band", "confidence_band"),
+        Index("ix_records_completeness_score", "completeness_score"),
+        Index("ix_records_source_record_type", "source_id", "record_type"),
     )
 
 
@@ -245,4 +249,30 @@ class Log(Base):
         Index("ix_logs_level", "level"),
         Index("ix_logs_service", "service"),
         Index("ix_logs_source_id", "source_id"),
+    )
+
+
+class EntityRelationship(Base):
+    __tablename__ = "entity_relationships"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
+    from_record_id: Mapped[str] = mapped_column(String, ForeignKey("records.id"), nullable=False)
+    to_record_id: Mapped[str] = mapped_column(String, ForeignKey("records.id"), nullable=False)
+    relationship_type: Mapped[str] = mapped_column(String, nullable=False)
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "source_id",
+            "from_record_id",
+            "to_record_id",
+            "relationship_type",
+            name="uq_entity_relationships_dedup",
+        ),
+        Index("ix_entity_relationships_source_id", "source_id"),
+        Index("ix_entity_relationships_from_record_id", "from_record_id"),
+        Index("ix_entity_relationships_to_record_id", "to_record_id"),
+        Index("ix_entity_relationships_type", "relationship_type"),
     )
