@@ -2,14 +2,17 @@ import asyncio
 import json
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query, Request
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.db.log_writer import delete_logs, list_logs, log_stream_manager
 
 router = APIRouter(prefix="/logs", tags=["logs"])
+logger = structlog.get_logger()
 
 
 @router.get("")
@@ -69,22 +72,35 @@ async def get_activity(
         "extraction_started",
         "pages_processed",
     }
-    # Limit before filtering to avoid expensive scans.
-    items, _ = await list_logs(db, source_id=source_id, skip=0, limit=min(limit * 5, 100))
-    activity = [
-        {
-            "id": log.id,
-            "timestamp": log.timestamp,
-            "level": log.level,
-            "service": log.service,
-            "source_id": log.source_id,
-            "message": log.message,
-            "context": log.context,
-        }
-        for log in items
-        if any(token in (log.message or "") for token in activity_tokens)
-    ]
-    return {"items": activity[:limit]}
+    try:
+        # Limit before filtering to avoid expensive scans.
+        items, _ = await list_logs(db, source_id=source_id, skip=0, limit=min(limit * 5, 100))
+        activity = [
+            {
+                "id": log.id,
+                "timestamp": log.timestamp,
+                "level": log.level,
+                "service": log.service,
+                "source_id": log.source_id,
+                "message": log.message,
+                "context": log.context,
+            }
+            for log in items
+            if any(token in (log.message or "") for token in activity_tokens)
+        ]
+        return {"items": activity[:limit]}
+    except SQLAlchemyError as exc:
+        logger.error(
+            "activity_logs_db_error",
+            limit=limit,
+            offset=0,
+            source_id=source_id,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Database error while loading activity logs. Check API logs for details.",
+        ) from exc
 
 
 @router.delete("")
