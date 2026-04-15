@@ -301,21 +301,22 @@ class PipelineRunner:
             self.db, page.id, page_type=classify_result.page_type, status="classified"
         )
 
-        if classify_result.page_type == "artist_directory_letter":
-            await self.handle_discovery_page(page, classify_result.page_type, source_hints=source_hints)
+        if classify_result.page_type in DISCOVERY_PAGE_TYPES:
+            await self.handle_discovery_page(
+                page,
+                classify_result.page_type,
+                source_hints=source_hints,
+            )
             return None
-        if classify_result.page_type == "artist_profile_hub":
-            await self.deepen_same_slug_children(page, source_hints=source_hints)
 
         if self._is_force_deepen(page.url, source_hints):
             await self.deepen_same_slug_children(page, source_hints=source_hints)
 
         if classify_result.page_type in ARTIST_RELATED_PAGE_TYPES:
-            final_status = "expanded" if classify_result.page_type == "artist_profile_hub" else "extracted"
             return await self.process_artist_related_page(
                 page,
                 classify_result.page_type,
-                final_status=final_status,
+                final_status="extracted",
             )
 
         record_type = DETAIL_PAGE_TYPES.get(classify_result.page_type)
@@ -616,14 +617,35 @@ class PipelineRunner:
         page_type: str,
         *,
         final_status: str = "extracted",
-    ) -> Record:
+    ) -> Record | None:
         family_key = derive_artist_family_key(page.url)
         if family_key is None:
             raise ValueError(f"Unable to derive artist family key for URL {page.url}")
 
         extracted_data: dict[str, Any] = {}
         if page_type in {"artist_profile", "artist_profile_hub", "artist_biography"}:
-            extracted_data = await self._extractors["artist"].extract(url=page.url, html=page.html or "")
+            try:
+                extracted_data = await self._extractors["artist"].extract(url=page.url, html=page.html or "")
+            except Exception as exc:
+                logger.error("extractor_error", page_id=page.id, record_type="artist", error=str(exc))
+                existing_error_record = await crud.get_record_by_page_and_type(
+                    self.db,
+                    source_id=page.source_id,
+                    page_id=page.id,
+                    record_type="artist",
+                )
+                if existing_error_record is None:
+                    await crud.create_record(
+                        self.db,
+                        source_id=page.source_id,
+                        record_type="artist",
+                        page_id=page.id,
+                        source_url=page.url,
+                        status="error",
+                        raw_error=str(exc),
+                    )
+                await crud.update_page(self.db, page.id, status="error", error_message=str(exc))
+                return None
 
         related_data = extract_artist_related_items(page_type, page.html or "", page.url)
 
