@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.api.rbac import require_permission
 from app.api.schemas import (
     SourceCreate,
     SourceDetailResponse,
@@ -19,8 +20,14 @@ logger = structlog.get_logger()
 
 
 @router.get("", response_model=dict)
-async def list_sources(skip: int = 0, limit: int = 50, db: AsyncSession = Depends(get_db)):
-    sources = await crud.list_sources(db, skip=skip, limit=limit)
+async def list_sources(
+    skip: int = 0,
+    limit: int = 50,
+    enabled: bool | None = None,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    sources = await crud.list_sources(db, skip=skip, limit=limit, enabled=enabled)
     total = len(sources)  # Simple count for now
 
     items = []
@@ -34,7 +41,11 @@ async def list_sources(skip: int = 0, limit: int = 50, db: AsyncSession = Depend
 
 
 @router.post("", response_model=SourceResponse, status_code=201)
-async def create_source(body: SourceCreate, db: AsyncSession = Depends(get_db)):
+async def create_source(
+    body: SourceCreate,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
     existing = await crud.get_source_by_url(db, body.url)
     if existing:
         raise HTTPException(status_code=409, detail="Source with this URL already exists")
@@ -45,6 +56,9 @@ async def create_source(body: SourceCreate, db: AsyncSession = Depends(get_db)):
             url=body.url,
             name=body.name,
             crawl_hints=json.dumps(body.crawl_hints) if body.crawl_hints is not None else None,
+            extraction_rules=json.dumps(body.extraction_rules) if body.extraction_rules is not None else None,
+            max_depth=body.max_depth,
+            enabled=body.enabled,
         )
         return source
     except IntegrityError as exc:
@@ -69,7 +83,11 @@ async def create_source(body: SourceCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{source_id}", response_model=SourceDetailResponse)
-async def get_source(source_id: str, db: AsyncSession = Depends(get_db)):
+async def get_source(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
     source = await crud.get_source(db, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -78,7 +96,10 @@ async def get_source(source_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.patch("/{source_id}", response_model=SourceResponse)
 async def update_source(
-    source_id: str, body: SourceUpdate, db: AsyncSession = Depends(get_db)
+    source_id: str,
+    body: SourceUpdate,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
 ):
     source = await crud.get_source(db, source_id)
     if not source:
@@ -86,13 +107,19 @@ async def update_source(
     kwargs = {k: v for k, v in body.model_dump().items() if v is not None}
     if "crawl_hints" in kwargs:
         kwargs["crawl_hints"] = json.dumps(kwargs["crawl_hints"])
+    if "extraction_rules" in kwargs:
+        kwargs["extraction_rules"] = json.dumps(kwargs["extraction_rules"])
     if kwargs:
         source = await crud.update_source(db, source_id, **kwargs)
     return source
 
 
 @router.delete("/{source_id}", status_code=204)
-async def delete_source(source_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_source(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
     source = await crud.get_source(db, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -100,7 +127,11 @@ async def delete_source(source_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{source_id}/jobs")
-async def list_source_jobs(source_id: str, db: AsyncSession = Depends(get_db)):
+async def list_source_jobs(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
     source = await crud.get_source(db, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
