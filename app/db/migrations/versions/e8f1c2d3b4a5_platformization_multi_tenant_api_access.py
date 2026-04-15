@@ -29,18 +29,40 @@ def upgrade() -> None:
     )
     op.create_index("ix_tenants_name", "tenants", ["name"], unique=False)
 
-    op.add_column("sources", sa.Column("tenant_id", sa.String(), nullable=False, server_default="public"))
-    op.add_column("pages", sa.Column("tenant_id", sa.String(), nullable=False, server_default="public"))
-    op.add_column("records", sa.Column("tenant_id", sa.String(), nullable=False, server_default="public"))
-    op.add_column("images", sa.Column("tenant_id", sa.String(), nullable=False, server_default="public"))
-    op.add_column("jobs", sa.Column("tenant_id", sa.String(), nullable=False, server_default="public"))
+    op.execute(
+        sa.text(
+            "INSERT INTO tenants (id, name, is_active, created_at, updated_at) "
+            "VALUES ('public', 'Public', true, now(), now()) "
+            "ON CONFLICT (id) DO NOTHING"
+        )
+    )
+
+    op.add_column("sources", sa.Column("tenant_id", sa.String(), nullable=True))
+    op.execute(sa.text("UPDATE sources SET tenant_id = 'public' WHERE tenant_id IS NULL"))
+    op.alter_column("sources", "tenant_id", nullable=False)
+    op.create_foreign_key(None, "sources", "tenants", ["tenant_id"], ["id"])
+
+    op.add_column("pages", sa.Column("tenant_id", sa.String(), nullable=True))
+    op.execute(sa.text("UPDATE pages SET tenant_id = 'public' WHERE tenant_id IS NULL"))
+    op.alter_column("pages", "tenant_id", nullable=False)
+
+    op.add_column("records", sa.Column("tenant_id", sa.String(), nullable=True))
+    op.execute(sa.text("UPDATE records SET tenant_id = 'public' WHERE tenant_id IS NULL"))
+    op.alter_column("records", "tenant_id", nullable=False)
+
+    op.add_column("images", sa.Column("tenant_id", sa.String(), nullable=True))
+    op.execute(sa.text("UPDATE images SET tenant_id = 'public' WHERE tenant_id IS NULL"))
+    op.alter_column("images", "tenant_id", nullable=False)
+
+    op.add_column("jobs", sa.Column("tenant_id", sa.String(), nullable=True))
+    op.execute(sa.text("UPDATE jobs SET tenant_id = 'public' WHERE tenant_id IS NULL"))
+    op.alter_column("jobs", "tenant_id", nullable=False)
 
     op.create_index("ix_pages_tenant_id", "pages", ["tenant_id"], unique=False)
     op.create_index("ix_records_tenant_id", "records", ["tenant_id"], unique=False)
     op.create_index("ix_images_tenant_id", "images", ["tenant_id"], unique=False)
     op.create_index("ix_jobs_tenant_id", "jobs", ["tenant_id"], unique=False)
 
-    op.create_foreign_key(None, "sources", "tenants", ["tenant_id"], ["id"])
     op.create_foreign_key(None, "pages", "tenants", ["tenant_id"], ["id"])
     op.create_foreign_key(None, "records", "tenants", ["tenant_id"], ["id"])
     op.create_foreign_key(None, "images", "tenants", ["tenant_id"], ["id"])
@@ -84,11 +106,6 @@ def upgrade() -> None:
     op.create_index("ix_api_usage_events_tenant_id", "api_usage_events", ["tenant_id"], unique=False)
     op.create_index("ix_api_usage_events_endpoint", "api_usage_events", ["endpoint"], unique=False)
     op.create_index("ix_api_usage_events_created_at", "api_usage_events", ["created_at"], unique=False)
-
-    op.execute(
-        "INSERT INTO tenants (id, name, is_active, created_at, updated_at) "
-        "VALUES ('public', 'public', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
-    )
 
 
 def downgrade() -> None:
