@@ -16,32 +16,59 @@ STRUCTURE_ANALYZER_PROMPT = """Analyze this website to find:
 3. Nested structure (detail pages under listings)
 4. Data locations (where to find bio, contact, images, etc.)
 
-Return ONLY JSON with keys:
-- crawl_targets: list of URL patterns to crawl
-- mining_map: map of page types to URL matching patterns and expected_fields
-- directory_structure: summary of navigation/index strategy
-- extraction_rules: map of page_type -> deterministic extraction strategy
-- confidence: integer 0-100
-
-Each extraction_rules entry MUST include:
-- css_selectors: map of field name -> CSS selector
-- regex_patterns: map of field name -> regex for text extraction
-- ai_fallback_rules: string describing when AI is allowed (for example: "Use AI only if CSS and regex confidence < 80")
-
-Example extraction_rules:
+Return ONLY JSON with this schema:
 {
-  "artist_profile": {
-    "css_selectors": {
-      "name": "h1.artist-name",
-      "bio": "div.biography",
-      "mediums": "ul.mediums li"
-    },
-    "regex_patterns": {
-      "email": "([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,})"
-    },
-    "ai_fallback_rules": "Use AI only if CSS selectors fail or confidence < 80"
-  }
-}"""
+  "crawl_targets": ["/artists/[letter]", ...],
+  "mining_map": {
+    "artist_profile": {
+      "url_pattern": "/artists/[name]",
+      "expected_fields": ["name", "bio", "mediums", "contact"]
+    }
+  },
+  "directory_structure": "...",
+  "extraction_rules": {
+    "artist_profile": {
+      "identifiers": ["URL matches /artists/[letter]/[name]", "Page has biography section"],
+      "extraction_method": "DETERMINISTIC",
+      "css_selectors": {
+        "name": "h1.artist-name",
+        "bio": "div.biography",
+        "mediums": "ul.mediums li",
+        "contact": "div.contact-info"
+      },
+      "regex_patterns": {
+        "birth_year": "Born (\\d{4})",
+        "email": "Email: ([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,})"
+      },
+      "fallback": "Use GenAI only if CSS fails",
+      "confidence": "HIGH - use simple extraction first",
+      "ai_context_hint": "This is an artist profile page. Look for: name, bio, mediums, contact info, images",
+      "expected_output_type": "artist_profile"
+    }
+  },
+  "crawler_optimizations": {
+    "recommended_batch_size": 10,
+    "rate_limit_ms": 1000,
+    "respect_robots_txt": true,
+    "detect_captcha": true
+  },
+  "ai_fallback_rules": {
+    "use_ai_when": [
+      "CSS selector fails to extract data",
+      "Page structure differs from expected pattern",
+      "Extraction confidence would be < 80%"
+    ],
+    "ai_context_hint": "Use the page_type and expected fields from extraction_rules",
+    "expected_output_type": "type-specific"
+  },
+  "confidence": 0
+}
+
+Rules:
+- Provide CSS selectors and regex patterns for each page type in extraction_rules.
+- Keep selector and regex values concise and practical for deterministic extraction.
+- AI fallback is allowed only when deterministic confidence is below 80.
+"""
 
 
 async def analyze_structure(url: str, html: str, ai_client: OpenAIClient) -> dict:

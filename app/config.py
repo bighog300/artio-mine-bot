@@ -85,6 +85,7 @@ class Settings(BaseSettings):
     max_ai_fallback_per_source: int = 50
     crawler_batch_size: int = 10
     crawler_rate_limit_ms: int = 1000
+    crawler_respect_robots_txt: bool = True
     crawler_use_ai_fallback: bool = True
     # None means "use environment-based default": True in dev, False in production.
     playwright_enabled: bool | None = None

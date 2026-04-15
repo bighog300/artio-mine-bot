@@ -174,14 +174,16 @@ class PipelineRunner:
         if source_exists is None:
             raise ValueError(f"Source {source_id} not found before crawl start")
         source = await crud.get_source(self.db, source_id)
-        structure_map: dict[str, Any] | None = None
-        if source and source.structure_map:
-            try:
-                structure_map = json.loads(source.structure_map)
-            except json.JSONDecodeError:
-                logger.warning("crawl_structure_map_invalid_json", source_id=source_id)
+        if source is None or not source.structure_map:
+            raise ValueError("Structure must be analyzed first via /analyze-structure endpoint")
 
-        if structure_map:
+        try:
+            structure_map = json.loads(source.structure_map)
+        except json.JSONDecodeError as exc:
+            logger.warning("crawl_structure_map_invalid_json", source_id=source_id, error=str(exc))
+            raise ValueError("Structure map JSON is invalid; re-run /analyze-structure endpoint") from exc
+
+        try:
             crawler = AutomatedCrawler(structure_map, self.db, self.ai_client)
             stats = await crawler.execute_crawl_plan(source_id)
             pages_crawled = max(int(stats.get("pages_crawled", 0)), 1)
@@ -191,6 +193,7 @@ class PipelineRunner:
             logger.info(
                 "crawl_stats",
                 source_id=source_id,
+                pages_crawled=stats.get("pages_crawled", 0),
                 deterministic_rate=round(deterministic_rate, 4),
                 ai_fallback_rate=round(ai_fallback_rate, 4),
                 failure_rate=round(failure_rate, 4),
@@ -198,6 +201,12 @@ class PipelineRunner:
                 cost=stats.get("cost", 0.0),
             )
             return stats
+        except Exception as exc:
+            logger.warning(
+                "automated_crawler_failed_falling_back",
+                source_id=source_id,
+                error=str(exc),
+            )
 
         if site_map is None:
             if source and source.site_map:
