@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -107,10 +107,7 @@ async def get_activity(
             source_id=source_id,
             error=str(exc),
         )
-        raise HTTPException(
-            status_code=500,
-            detail="Database error while loading activity logs. Check API logs for details.",
-        ) from exc
+        return {"items": []}
 
 
 @router.delete("")
