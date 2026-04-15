@@ -1,7 +1,9 @@
+import time
 from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings, validate_env
@@ -51,6 +53,41 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def track_public_api_usage(request, call_next):
+    if not request.url.path.startswith("/v1/"):
+        return await call_next(request)
+
+    started = time.perf_counter()
+    api_key = request.headers.get("X-API-Key")
+    if not api_key:
+        return JSONResponse(status_code=401, content={"detail": "Missing X-API-Key header"})
+
+    response = await call_next(request)
+
+    try:
+        from app.api.auth import hash_api_key
+        from app.db.database import AsyncSessionLocal
+        from app.db import crud
+
+        async with AsyncSessionLocal() as session:
+            key = await crud.get_api_key_by_hash(session, hash_api_key(api_key))
+            if key:
+                elapsed_ms = int((time.perf_counter() - started) * 1000)
+                await crud.create_api_usage_event(
+                    session,
+                    tenant_id=key.tenant_id,
+                    api_key_id=key.id,
+                    endpoint=request.url.path,
+                    method=request.method,
+                    status_code=response.status_code,
+                    response_time_ms=max(1, elapsed_ms),
+                )
+    except Exception:
+        logger.exception("usage_tracking_failed")
+    return response
+
+
 @app.get("/health")
 async def health():
     """Health check endpoint for monitoring and cold start detection.
@@ -77,7 +114,7 @@ async def health():
 
 
 # Include routers
-from app.api.routes import audit, export, graph, images, intelligence, logs, mine, operations, pages, records, review, search, sources, stats  # noqa: E402
+from app.api.routes import api_keys, audit, export, graph, images, intelligence, logs, mine, operations, pages, public_v1, records, review, search, sources, stats, usage  # noqa: E402
 from app.api.routes import metrics as metrics_routes  # noqa: E402
 from app.api.routes import settings as settings_routes  # noqa: E402
 
@@ -97,3 +134,6 @@ app.include_router(intelligence.router, prefix="/api")
 app.include_router(audit.router, prefix="/api")
 app.include_router(metrics_routes.router)
 app.include_router(operations.router, prefix="/api")
+app.include_router(api_keys.router, prefix="/api")
+app.include_router(usage.router, prefix="/api")
+app.include_router(public_v1.router)
