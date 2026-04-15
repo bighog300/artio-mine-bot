@@ -11,6 +11,12 @@ logger = structlog.get_logger()
 
 # URL patterns for rule-based classification
 URL_PATTERNS = [
+    (r"/artists/[a-zA-Z]/?$", "artist_directory_letter"),
+    (r"/[^/]+/about\.php/?$", "artist_biography"),
+    (r"/[^/]+/exhibitions\.php/?$", "artist_exhibitions"),
+    (r"/[^/]+/articles\.php/?$", "artist_articles"),
+    (r"/[^/]+/press(?:-reviews)?\.php/?$", "artist_press"),
+    (r"/[^/]+/memories\.php/?$", "artist_memories"),
     (r"/artist[s]?/[^/]+/?$", "artist_profile"),
     (r"/artist[s]?/?$", "artist_directory"),
     (r"/event[s]?/[^/]+/?$", "event_detail"),
@@ -74,6 +80,23 @@ def _classify_by_url(url: str) -> str | None:
     return None
 
 
+def _classify_by_content(html: str) -> str | None:
+    soup = BeautifulSoup(html, "lxml")
+    text = soup.get_text(separator=" ", strip=True).lower()
+    if "artist names starting with" in text:
+        return "artist_directory_letter"
+
+    hub_labels = {"biography", "exhibitions", "articles", "press reviews", "memories"}
+    nav_link_labels = {
+        a.get_text(strip=True).lower()
+        for a in soup.find_all("a", href=True)
+        if a.get_text(strip=True)
+    }
+    if hub_labels.issubset(nav_link_labels):
+        return "artist_profile_hub"
+    return None
+
+
 def _count_date_patterns(html: str) -> int:
     """Count date-like patterns in text as a signal for event/exhibition pages."""
     text = BeautifulSoup(html, "lxml").get_text()
@@ -120,7 +143,17 @@ async def classify_page(url: str, html: str, ai_client: OpenAIClient) -> Classif
             reasoning=f"URL pattern matched: {url_type}",
         )
 
-    # Rule 3: AI classification
+    # Rule 3: Content pattern matching
+    content_type = _classify_by_content(html)
+    if content_type:
+        logger.info("classify_content_pattern", url=url, page_type=content_type)
+        return ClassifyResult(
+            page_type=content_type,
+            confidence=80,
+            reasoning=f"Content pattern matched: {content_type}",
+        )
+
+    # Rule 4: AI classification
     try:
         preprocessed = _preprocess_for_classification(html)
         response = await ai_client.complete(

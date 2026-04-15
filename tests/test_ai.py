@@ -41,6 +41,25 @@ UNKNOWN_HTML = """
 <html><body><p>Login to your account</p><form><input type="password"></form></body></html>
 """
 
+ARTIST_DIRECTORY_HTML = """
+<html><body>
+<h1>Artist Names Starting with E</h1>
+<a href="/aliceelahi/">Alice Elahi</a>
+</body></html>
+"""
+
+ARTIST_HUB_HTML = """
+<html><body>
+<nav>
+  <a href="/aliceelahi/about.php">Biography</a>
+  <a href="/aliceelahi/exhibitions.php">Exhibitions</a>
+  <a href="/aliceelahi/articles.php">Articles</a>
+  <a href="/aliceelahi/press.php">Press Reviews</a>
+  <a href="/aliceelahi/memories.php">Memories</a>
+</nav>
+</body></html>
+"""
+
 
 @pytest.fixture
 def mock_ai_client():
@@ -87,6 +106,28 @@ async def test_classify_unknown(mock_ai_client):
         ai_client=mock_ai_client,
     )
     assert result.page_type == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_classify_artist_directory_letter_by_url(mock_ai_client):
+    result = await classify_page(
+        url="https://example.com/artists/E",
+        html=ARTIST_DIRECTORY_HTML,
+        ai_client=mock_ai_client,
+    )
+    assert result.page_type == "artist_directory_letter"
+    mock_ai_client.complete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_classify_artist_profile_hub_by_content(mock_ai_client):
+    result = await classify_page(
+        url="https://example.com/aliceelahi/",
+        html=ARTIST_HUB_HTML,
+        ai_client=mock_ai_client,
+    )
+    assert result.page_type == "artist_profile_hub"
+    mock_ai_client.complete.assert_not_called()
 
 
 @pytest.mark.asyncio

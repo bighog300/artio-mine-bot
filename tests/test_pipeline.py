@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import respx
 from httpx import Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud
@@ -376,3 +377,61 @@ async def test_image_collection(db_session: AsyncSession):
     assert len(images) >= 1
     types = {img.image_type for img in images}
     assert "profile" in types or "artwork" in types or "unknown" in types
+
+
+@pytest.mark.asyncio
+async def test_discovery_hub_deepens_child_pages(db_session: AsyncSession, mock_ai_client):
+    from app.ai.classifier import ClassifyResult
+    from app.crawler.fetcher import FetchResult
+    from app.pipeline.runner import PipelineRunner
+
+    source = await crud.create_source(db_session, url="https://example.com")
+    hub_page = await crud.create_page(
+        db_session,
+        source_id=source.id,
+        url="https://example.com/aliceelahi/",
+        original_url="https://example.com/aliceelahi/",
+        status="fetched",
+        html="<html><body><h1>Alice Elahi</h1></body></html>",
+    )
+
+    runner = PipelineRunner(db=db_session, ai_client=mock_ai_client)
+    classify_result = ClassifyResult(
+        page_type="artist_profile_hub",
+        confidence=85,
+        reasoning="hub nav links detected",
+    )
+
+    async def _mock_fetch(url: str):
+        return FetchResult(
+            url=url,
+            final_url=url,
+            html=f"<html><body><h1>{url}</h1></body></html>",
+            status_code=200,
+            method="httpx",
+        )
+
+    with patch("app.pipeline.runner.classify_page", new=AsyncMock(return_value=classify_result)):
+        with patch("app.pipeline.runner.fetch", new=AsyncMock(side_effect=_mock_fetch)):
+            await runner.run_extraction_for_page(hub_page)
+
+    refreshed_hub = await crud.get_page(db_session, hub_page.id)
+    assert refreshed_hub is not None
+    assert refreshed_hub.status == "expanded"
+
+    child_paths = [
+        "about.php",
+        "exhibitions.php",
+        "articles.php",
+        "press.php",
+        "memories.php",
+    ]
+    for child_path in child_paths:
+        child_url = f"https://example.com/aliceelahi/{child_path}"
+        result = await db_session.execute(
+            select(Page).where(Page.source_id == source.id, Page.url == child_url)
+        )
+        child_page = result.scalar_one_or_none()
+        assert child_page is not None
+        assert child_page.status == "fetched"
+        assert child_page.html is not None
