@@ -3,6 +3,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from app.extraction.completeness import compute_artist_completeness
+from app.extraction.provenance import utc_now_iso, values_conflict
 
 ARTIST_RELATED_PAGE_TYPES = {
     "artist_profile",
@@ -12,6 +13,19 @@ ARTIST_RELATED_PAGE_TYPES = {
     "artist_articles",
     "artist_press",
     "artist_memories",
+}
+
+
+PROVENANCE_FIELD_MAP = {
+    "artist_name": "name",
+    "bio_short": "bio",
+    "bio_full": "bio",
+    "website": "website_url",
+    "email": "email",
+    "nationality": "nationality",
+    "avatar_url": "avatar_url",
+    "birth_year": "birth_year",
+    "image_urls": "image_urls",
 }
 
 
@@ -48,43 +62,186 @@ def _pick_stronger(existing: Any, candidate: Any) -> Any:
     return existing
 
 
+def _source_entry(
+    *,
+    source_url: str,
+    source_page_id: str | None,
+    extraction_type: str,
+    timestamp: str,
+) -> dict[str, Any]:
+    return {
+        "source_url": source_url,
+        "source_page_id": source_page_id,
+        "extraction_type": extraction_type,
+        "page_type": extraction_type,
+        "timestamp": timestamp,
+    }
+
+
+def _append_provenance(
+    provenance: dict[str, Any],
+    *,
+    field: str,
+    value: Any,
+    source_url: str,
+    source_page_id: str | None,
+    extraction_type: str,
+    timestamp: str,
+) -> None:
+    node = provenance.setdefault(field, {"value": value, "sources": []})
+    node["value"] = value
+    sources = node.setdefault("sources", [])
+    source = _source_entry(
+        source_url=source_url,
+        source_page_id=source_page_id,
+        extraction_type=extraction_type,
+        timestamp=timestamp,
+    )
+    if not any(
+        s.get("source_url") == source_url
+        and s.get("source_page_id") == source_page_id
+        and s.get("extraction_type") == extraction_type
+        for s in sources
+    ):
+        sources.append(source)
+
+
+def _update_field_with_provenance(
+    payload: dict[str, Any],
+    provenance: dict[str, Any],
+    conflicts: dict[str, Any],
+    *,
+    field: str,
+    candidate: Any,
+    source_url: str,
+    source_page_id: str | None,
+    extraction_type: str,
+    timestamp: str,
+) -> None:
+    if candidate in (None, "", []):
+        return
+
+    existing = payload.get(field)
+    selected = _pick_stronger(existing, candidate)
+
+    if values_conflict(existing, candidate):
+        conflict_entries = conflicts.setdefault(field, [])
+        entries_by_value = {json.dumps(item.get("value"), sort_keys=True): item for item in conflict_entries}
+
+        for value, from_url, from_page_id in (
+            (existing, provenance.get(field, {}).get("sources", [{}])[0].get("source_url") if provenance.get(field) else source_url, provenance.get(field, {}).get("sources", [{}])[0].get("source_page_id") if provenance.get(field) else source_page_id),
+            (candidate, source_url, source_page_id),
+        ):
+            key = json.dumps(value, sort_keys=True)
+            if key not in entries_by_value:
+                entries_by_value[key] = {
+                    "value": value,
+                    "source": from_url,
+                    "source_url": from_url,
+                    "source_page_id": from_page_id,
+                    "extraction_type": extraction_type,
+                    "timestamp": timestamp,
+                    "selected": value == selected,
+                    "resolved": False,
+                }
+            else:
+                entries_by_value[key]["selected"] = value == selected
+
+        conflicts[field] = list(entries_by_value.values())
+
+    payload[field] = selected
+    _append_provenance(
+        provenance,
+        field=field,
+        value=selected,
+        source_url=source_url,
+        source_page_id=source_page_id,
+        extraction_type=extraction_type,
+        timestamp=timestamp,
+    )
+
+
 def merge_artist_payload(
     existing_raw_data: str | None,
     *,
     page_type: str,
     source_url: str,
+    source_page_id: str | None = None,
     extracted_data: dict[str, Any] | None,
     related_data: dict[str, Any] | None,
 ) -> dict[str, Any]:
     merged = _load_raw_data(existing_raw_data)
     source_pages = set(merged.get("source_pages", []))
     source_pages.add(source_url)
+    timestamp = utc_now_iso()
 
     merged.setdefault("merged_from", {})
     merged.setdefault("related", {})
+    conflicts = merged.setdefault("conflicts", {})
+    provenance = merged.setdefault("provenance", {})
 
     payload = dict(merged.get("artist_payload", {}))
     extracted_data = extracted_data or {}
     related_data = related_data or {}
 
     if extracted_data.get("name"):
-        payload["artist_name"] = _pick_stronger(payload.get("artist_name"), extracted_data.get("name"))
+        _update_field_with_provenance(
+            payload,
+            provenance,
+            conflicts,
+            field="artist_name",
+            candidate=extracted_data.get("name"),
+            source_url=source_url,
+            source_page_id=source_page_id,
+            extraction_type=page_type,
+            timestamp=timestamp,
+        )
+
     if extracted_data.get("bio"):
-        if page_type == "artist_biography":
-            payload["bio_full"] = _pick_stronger(payload.get("bio_full"), extracted_data.get("bio"))
-        else:
-            payload["bio_short"] = _pick_stronger(payload.get("bio_short"), extracted_data.get("bio"))
+        bio_field = "bio_full" if page_type == "artist_biography" else "bio_short"
+        _update_field_with_provenance(
+            payload,
+            provenance,
+            conflicts,
+            field=bio_field,
+            candidate=extracted_data.get("bio"),
+            source_url=source_url,
+            source_page_id=source_page_id,
+            extraction_type=page_type,
+            timestamp=timestamp,
+        )
+
     for field, dest in (
         ("website_url", "website"),
         ("email", "email"),
         ("nationality", "nationality"),
         ("avatar_url", "avatar_url"),
+        ("birth_year", "birth_year"),
     ):
-        payload[dest] = _pick_stronger(payload.get(dest), extracted_data.get(field))
+        _update_field_with_provenance(
+            payload,
+            provenance,
+            conflicts,
+            field=dest,
+            candidate=extracted_data.get(field),
+            source_url=source_url,
+            source_page_id=source_page_id,
+            extraction_type=page_type,
+            timestamp=timestamp,
+        )
 
     image_urls = list(dict.fromkeys((payload.get("image_urls") or []) + (extracted_data.get("image_urls") or [])))
     if image_urls:
         payload["image_urls"] = image_urls
+        _append_provenance(
+            provenance,
+            field="image_urls",
+            value=image_urls,
+            source_url=source_url,
+            source_page_id=source_page_id,
+            extraction_type=page_type,
+            timestamp=timestamp,
+        )
 
     for field in ("exhibitions", "articles", "press", "memories"):
         items = related_data.get(field) or []
@@ -101,13 +258,33 @@ def merge_artist_payload(
                 deduped.append(item)
             payload[field] = deduped
             merged["related"][field] = deduped
+            _append_provenance(
+                provenance,
+                field=field,
+                value=deduped,
+                source_url=source_url,
+                source_page_id=source_page_id,
+                extraction_type=page_type,
+                timestamp=timestamp,
+            )
 
     merged["artist_payload"] = payload
     merged["source_pages"] = sorted(source_pages)
     merged["merged_from"][source_url] = {
         "page_type": page_type,
+        "source_page_id": source_page_id,
+        "timestamp": timestamp,
         "extracted_data": extracted_data,
         "related_data": related_data,
+    }
+
+    # Compatibility extension: nested payload representation retaining existing flat keys.
+    merged["artist_payload_provenance"] = {
+        field: {
+            "value": payload.get(field),
+            "sources": provenance.get(field, {}).get("sources", []),
+        }
+        for field in payload
     }
 
     score, missing_fields = compute_artist_completeness(

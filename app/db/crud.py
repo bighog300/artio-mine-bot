@@ -525,3 +525,48 @@ async def list_jobs(
     stmt = stmt.order_by(Job.created_at.desc())
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def list_pages_for_artist_family(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    family_key: str,
+) -> list[Page]:
+    _, slug = family_key.split("::", 1)
+    stmt = select(Page).where(
+        Page.source_id == source_id,
+        Page.url.contains(f"/{slug}"),
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def list_artist_records(
+    db: AsyncSession,
+    *,
+    source_id: str | None = None,
+    limit: int = 1000,
+) -> list[Record]:
+    stmt = select(Record).where(Record.record_type == "artist").limit(limit)
+    if source_id:
+        stmt = stmt.where(Record.source_id == source_id)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def list_records_for_artist_family(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    page_ids: list[str],
+) -> list[Record]:
+    if not page_ids:
+        return []
+    stmt = select(Record).where(
+        Record.source_id == source_id,
+        Record.page_id.in_(page_ids),
+        Record.record_type.in_(["exhibition", "artist_article", "artist_press", "artist_memory"]),
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
