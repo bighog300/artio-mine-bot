@@ -6,6 +6,7 @@ import structlog
 from bs4 import BeautifulSoup
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.db import crud
 from app.db.models import Source, SourceMappingSample, SourceMappingVersion
@@ -270,15 +271,17 @@ class SourceMapperService:
         return title or None
 
     async def _resolve_sample(self, draft_id: str, sample_page_id: str) -> SourceMappingSample | None:
+        stmt = select(SourceMappingSample).options(selectinload(SourceMappingSample.page_type))
         if sample_page_id == "default":
-            result = await self.db.execute(
-                select(SourceMappingSample).where(SourceMappingSample.mapping_version_id == draft_id)
-            )
+            result = await self.db.execute(stmt.where(SourceMappingSample.mapping_version_id == draft_id))
             return result.scalars().first()
-        return await crud.get_source_mapping_sample(self.db, sample_page_id)
+        result = await self.db.execute(stmt.where(SourceMappingSample.id == sample_page_id))
+        return result.scalar_one_or_none()
 
     async def _list_samples_for_draft(self, draft_id: str) -> list[SourceMappingSample]:
         result = await self.db.execute(
-            select(SourceMappingSample).where(SourceMappingSample.mapping_version_id == draft_id)
+            select(SourceMappingSample)
+            .options(selectinload(SourceMappingSample.page_type))
+            .where(SourceMappingSample.mapping_version_id == draft_id)
         )
         return list(result.scalars().all())

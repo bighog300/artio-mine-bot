@@ -295,7 +295,11 @@ async def approve_or_reject_rows(
         row_map = {row.id: row for row in rows}
         low_confidence = [
             row_id for row_id in body.row_ids
-            if row_id in row_map and float(row_map[row_id].confidence_score or 0.0) < LOW_CONFIDENCE_THRESHOLD
+            if (
+                row_id in row_map
+                and float(row_map[row_id].confidence_score or 0.0) < LOW_CONFIDENCE_THRESHOLD
+                and row_map[row_id].status == "proposed"
+            )
         ]
         if low_confidence:
             raise HTTPException(
