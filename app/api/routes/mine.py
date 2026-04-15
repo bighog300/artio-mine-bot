@@ -294,15 +294,37 @@ async def get_mining_status(source_id: str, db: AsyncSession = Depends(get_db)):
             current_job = JobSummary.model_validate(job)
             break
 
-    pages_crawled = await crud.count_pages(db, source_id=source_id, status="fetched")
+    page_counts = await crud.count_pages_by_status(db, source_id=source_id)
+    pages_crawled = page_counts.get("fetched", 0)
+    pages_classified = page_counts.get("classified", 0)
+    pages_skipped = page_counts.get("skipped", 0)
+    pages_error = page_counts.get("error", 0)
+    pages_eligible = page_counts.get("fetched", 0) + page_counts.get("classified", 0)
+
     records_extracted = await crud.count_records(db, source_id=source_id)
+    record_counts = await crud.count_records_by_type(db, source_id=source_id)
+    records_by_type = {
+        "artist": record_counts.get("artist", 0),
+        "event": record_counts.get("event", 0),
+        "exhibition": record_counts.get("exhibition", 0),
+        "venue": record_counts.get("venue", 0),
+        "artwork": record_counts.get("artwork", 0),
+    }
+    images_count = await crud.count_images(db, source_id=source_id)
+
     total_pages = source.total_pages or 1
     percent = min(int((pages_crawled / total_pages) * 100), 100) if total_pages > 0 else 0
 
     progress = MineStatusProgress(
         pages_crawled=pages_crawled,
         pages_total_estimated=total_pages,
+        pages_eligible_for_extraction=pages_eligible,
+        pages_classified=pages_classified,
+        pages_skipped=pages_skipped,
+        pages_error=pages_error,
         records_extracted=records_extracted,
+        records_by_type=records_by_type,
+        images_collected=images_count,
         percent_complete=percent,
     )
 

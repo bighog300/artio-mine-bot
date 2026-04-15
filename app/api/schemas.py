@@ -79,7 +79,13 @@ class MineStartResponse(BaseModel):
 class MineStatusProgress(BaseModel):
     pages_crawled: int
     pages_total_estimated: int
+    pages_eligible_for_extraction: int
+    pages_classified: int
+    pages_skipped: int
+    pages_error: int
     records_extracted: int
+    records_by_type: dict[str, int]
+    images_collected: int
     percent_complete: int
 
 

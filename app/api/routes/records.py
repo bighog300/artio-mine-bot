@@ -111,6 +111,33 @@ async def get_record(record_id: str, db: AsyncSession = Depends(get_db)):
     )
 
 
+@router.get("/{record_id}/adjacent")
+async def get_adjacent_records(
+    record_id: str,
+    source_id: str | None = None,
+    status: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    # NOTE: O(n) lookup over the filtered record list.
+    # This is intentionally simple for current dataset sizes.
+    records = await crud.list_records(
+        db,
+        source_id=source_id,
+        status=status,
+        skip=0,
+        limit=10000,
+    )
+    record_ids = [record.id for record in records]
+    try:
+        idx = record_ids.index(record_id)
+    except ValueError:
+        return {"prev_id": None, "next_id": None}
+    return {
+        "prev_id": record_ids[idx - 1] if idx > 0 else None,
+        "next_id": record_ids[idx + 1] if idx < len(record_ids) - 1 else None,
+    }
+
+
 @router.patch("/{record_id}")
 async def update_record(
     record_id: str, body: RecordUpdate, db: AsyncSession = Depends(get_db)

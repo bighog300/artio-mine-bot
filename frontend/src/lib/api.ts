@@ -62,6 +62,10 @@ export interface Job {
   job_type: string;
   status: string;
   message?: string;
+  attempts?: number;
+  started_at?: string | null;
+  completed_at?: string | null;
+  error_message?: string | null;
 }
 
 export interface MiningStatus {
@@ -76,7 +80,13 @@ export interface MiningStatus {
   progress?: {
     pages_crawled: number;
     pages_total_estimated: number;
+    pages_eligible_for_extraction: number;
+    pages_classified: number;
+    pages_skipped: number;
+    pages_error: number;
     records_extracted: number;
+    records_by_type: Record<string, number>;
+    images_collected: number;
     percent_complete: number;
   } | null;
 }
@@ -270,6 +280,11 @@ export interface LogFilters {
   limit?: number;
 }
 
+export interface AdjacentRecordResponse {
+  prev_id: string | null;
+  next_id: string | null;
+}
+
 // ─── API Functions ────────────────────────────────────────────────────────────
 
 // Sources
@@ -278,6 +293,9 @@ export const getSources = (): Promise<PaginatedResponse<Source>> =>
 
 export const getSource = (id: string): Promise<Source> =>
   api.get(`/sources/${id}`).then((r) => r.data);
+
+export const getSourceJobs = (sourceId: string): Promise<{ items: Job[] }> =>
+  api.get(`/sources/${sourceId}/jobs`).then((r) => r.data);
 
 export const createSource = (data: CreateSourceInput): Promise<Source> =>
   api.post("/sources", data).then((r) => r.data);
@@ -321,6 +339,12 @@ export const getRecords = (params: RecordFilters): Promise<PaginatedResponse<Art
 export const getRecord = (id: string): Promise<ArtRecord> =>
   api.get(`/records/${id}`).then((r) => r.data);
 
+export const getAdjacentRecords = (
+  id: string,
+  params?: { source_id?: string; status?: string }
+): Promise<AdjacentRecordResponse> =>
+  api.get(`/records/${id}/adjacent`, { params }).then((r) => r.data);
+
 export const updateRecord = (id: string, data: Partial<ArtRecord>): Promise<ArtRecord> =>
   api.patch(`/records/${id}`, data).then((r) => r.data);
 
@@ -357,6 +381,12 @@ export const getStats = (): Promise<GlobalStats> =>
 // Logs
 export const getLogs = (params: LogFilters): Promise<PaginatedResponse<LogEntry>> =>
   api.get("/logs", { params }).then((r) => r.data);
+
+export const getActivityFeed = (params?: {
+  source_id?: string;
+  limit?: number;
+}): Promise<{ items: LogEntry[] }> =>
+  api.get("/logs/activity", { params }).then((r) => r.data);
 
 export const deleteLogs = (
   olderThanDays: number,

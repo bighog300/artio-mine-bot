@@ -5,6 +5,7 @@ import { Sources } from "@/pages/Sources";
 import { SourceDetail } from "@/pages/SourceDetail";
 import { Records } from "@/pages/Records";
 import { RecordDetail } from "@/pages/RecordDetail";
+import { Pages } from "@/pages/Pages";
 import { Images } from "@/pages/Images";
 import { Export } from "@/pages/Export";
 import { Settings } from "@/pages/Settings";
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="/sources/:id" element={<SourceDetail />} />
           <Route path="/records" element={<Records />} />
           <Route path="/records/:id" element={<RecordDetail />} />
+          <Route path="/pages" element={<Pages />} />
           <Route path="/images" element={<Images />} />
           <Route path="/export" element={<Export />} />
           <Route path="/logs" element={<Logs />} />

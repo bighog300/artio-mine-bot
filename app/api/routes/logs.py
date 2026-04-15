@@ -55,6 +55,38 @@ async def get_logs(
     }
 
 
+@router.get("/activity")
+async def get_activity(
+    limit: int = Query(default=20, ge=1, le=100),
+    source_id: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    activity_tokens = {
+        "record_created",
+        "pipeline_complete",
+        "pipeline_error",
+        "crawl_stage_error",
+        "extraction_started",
+        "pages_processed",
+    }
+    # Limit before filtering to avoid expensive scans.
+    items, _ = await list_logs(db, source_id=source_id, skip=0, limit=min(limit * 5, 100))
+    activity = [
+        {
+            "id": log.id,
+            "timestamp": log.timestamp,
+            "level": log.level,
+            "service": log.service,
+            "source_id": log.source_id,
+            "message": log.message,
+            "context": log.context,
+        }
+        for log in items
+        if any(token in (log.message or "") for token in activity_tokens)
+    ]
+    return {"items": activity[:limit]}
+
+
 @router.delete("")
 async def purge_logs(
     older_than_days: int = Query(default=30, ge=0),

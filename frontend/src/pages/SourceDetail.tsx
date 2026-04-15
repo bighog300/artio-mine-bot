@@ -1,11 +1,21 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getSource, startMining, pauseMining, deleteSource, getPages, getRecords, getMiningStatus } from "@/lib/api";
+import {
+  getSource,
+  startMining,
+  pauseMining,
+  deleteSource,
+  getPages,
+  getRecords,
+  getMiningStatus,
+  getSourceJobs,
+} from "@/lib/api";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { ConfidenceBadge } from "@/components/shared/ConfidenceBadge";
 import { RecordTypeBadge } from "@/components/shared/RecordTypeBadge";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatDuration, diffSeconds } from "@/lib/utils";
+import { PipelineProgress } from "@/components/pipeline/PipelineProgress";
 
 export function SourceDetail() {
   const { id } = useParams<{ id: string }>();
@@ -13,6 +23,7 @@ export function SourceDetail() {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<"overview" | "pages" | "records" | "jobs">("overview");
   const [startFeedback, setStartFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const previousRecordsRef = useRef<number | null>(null);
 
   const { data: source, isLoading } = useQuery({
     queryKey: ["source", id],
@@ -44,12 +55,20 @@ export function SourceDetail() {
     enabled: activeTab === "records" && !!id,
   });
 
+  const { data: jobs } = useQuery({
+    queryKey: ["source-jobs", id],
+    queryFn: () => getSourceJobs(id!),
+    enabled: activeTab === "jobs" && !!id,
+    refetchInterval: 5000,
+  });
+
   const startMutation = useMutation({
     mutationFn: () => startMining(id!),
     onSuccess: () => {
       setStartFeedback({ type: "success", message: "Mining queued successfully." });
       queryClient.invalidateQueries({ queryKey: ["source", id] });
       queryClient.invalidateQueries({ queryKey: ["mine-status", id] });
+      queryClient.invalidateQueries({ queryKey: ["source-jobs", id] });
     },
     onError: (e: Error) => {
       setStartFeedback({ type: "error", message: e.message });
@@ -66,12 +85,22 @@ export function SourceDetail() {
     onSuccess: () => navigate("/sources"),
   });
 
+  useEffect(() => {
+    const latest = miningStatus?.progress?.records_extracted;
+    if (typeof latest !== "number") return;
+    if (previousRecordsRef.current === null) {
+      previousRecordsRef.current = latest;
+    }
+  }, [miningStatus?.progress?.records_extracted]);
+
   if (isLoading) return <div className="p-6 text-gray-400">Loading...</div>;
   if (!source) return <div className="p-6 text-red-500">Source not found</div>;
 
   const siteMap = source.site_map ? JSON.parse(source.site_map) : null;
-
   const tabs = ["overview", "pages", "records", "jobs"] as const;
+  const previousCount = previousRecordsRef.current ?? miningStatus?.progress?.records_extracted ?? 0;
+  const recordsDelta = Math.max(0, (miningStatus?.progress?.records_extracted ?? 0) - previousCount);
+  previousRecordsRef.current = miningStatus?.progress?.records_extracted ?? previousCount;
 
   return (
     <div className="space-y-4">
@@ -117,7 +146,6 @@ export function SourceDetail() {
         </div>
       )}
 
-      {/* Tabs */}
       <div className="border-b">
         <div className="flex gap-4">
           {tabs.map((tab) => (
@@ -136,40 +164,18 @@ export function SourceDetail() {
         </div>
       </div>
 
-      {/* Overview */}
       {activeTab === "overview" && (
         <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-4">
-            <div className="bg-white border rounded p-4">
-              <div className="text-sm text-gray-500">Status</div>
-              <div className="mt-1"><StatusBadge status={miningStatus?.status ?? source.status} /></div>
-            </div>
-            <div className="bg-white border rounded p-4">
-              <div className="text-sm text-gray-500">Pages Crawled</div>
-              <div className="text-2xl font-bold mt-1">{miningStatus?.progress?.pages_crawled ?? source.total_pages}</div>
-            </div>
-            <div className="bg-white border rounded p-4">
-              <div className="text-sm text-gray-500">Records Extracted</div>
-              <div className="text-2xl font-bold mt-1">{miningStatus?.progress?.records_extracted ?? source.total_records}</div>
-            </div>
+          <div className="bg-white border rounded p-4">
+            <div className="text-sm text-gray-500">Status</div>
+            <div className="mt-1"><StatusBadge status={miningStatus?.status ?? source.status} /></div>
           </div>
-          <div className="bg-white border rounded p-4 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-500">Mining Progress</div>
-              <div className="text-sm font-medium">{miningStatus?.progress?.percent_complete ?? 0}%</div>
-            </div>
-            <div className="w-full bg-gray-100 rounded-full h-2">
-              <div
-                className="h-2 rounded-full bg-blue-600 transition-all"
-                style={{ width: `${miningStatus?.progress?.percent_complete ?? 0}%` }}
-              />
-            </div>
-            {miningStatus?.current_job && (
-              <div className="text-xs text-gray-500">
-                Current job: {miningStatus.current_job.job_type} ({miningStatus.current_job.status})
-              </div>
-            )}
-          </div>
+
+          <PipelineProgress
+            sourceStatus={miningStatus?.status ?? source.status}
+            progress={miningStatus?.progress ?? null}
+            recordsDelta={recordsDelta}
+          />
 
           {siteMap && (
             <div className="bg-white border rounded p-4">
@@ -195,7 +201,6 @@ export function SourceDetail() {
         </div>
       )}
 
-      {/* Pages tab */}
       {activeTab === "pages" && (
         <div className="bg-white border rounded overflow-hidden">
           <table className="w-full text-sm">
@@ -221,7 +226,6 @@ export function SourceDetail() {
         </div>
       )}
 
-      {/* Records tab */}
       {activeTab === "records" && (
         <div className="grid grid-cols-3 gap-3">
           {records?.items.map((record) => (
@@ -240,9 +244,41 @@ export function SourceDetail() {
         </div>
       )}
 
-      {/* Jobs tab */}
       {activeTab === "jobs" && (
-        <div className="text-gray-400 text-center p-6">Jobs view — run a mining operation to see jobs.</div>
+        <div className="bg-white border rounded overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="text-left p-3 font-medium text-gray-600">Type</th>
+                <th className="text-left p-3 font-medium text-gray-600">Status</th>
+                <th className="text-left p-3 font-medium text-gray-600">Started</th>
+                <th className="text-left p-3 font-medium text-gray-600">Duration</th>
+                <th className="text-left p-3 font-medium text-gray-600">Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(jobs?.items ?? []).map((job) => {
+                const durationSeconds = job.started_at && job.completed_at
+                  ? diffSeconds(job.started_at, job.completed_at)
+                  : null;
+                return (
+                  <tr key={job.id} className="border-t">
+                    <td className="p-3">{job.job_type}</td>
+                    <td className="p-3"><StatusBadge status={job.status} /></td>
+                    <td className="p-3 text-gray-600">{job.started_at ? formatDate(job.started_at) : "—"}</td>
+                    <td className="p-3 text-gray-600">{durationSeconds !== null ? formatDuration(durationSeconds) : "—"}</td>
+                    <td className="p-3 text-red-600 text-xs">{job.error_message ?? "—"}</td>
+                  </tr>
+                );
+              })}
+              {(!jobs || jobs.items.length === 0) && (
+                <tr>
+                  <td colSpan={5} className="text-center text-gray-400 p-6">No jobs yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

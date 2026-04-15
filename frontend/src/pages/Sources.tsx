@@ -10,6 +10,8 @@ export function Sources() {
   const [showDialog, setShowDialog] = useState(false);
   const [urlInput, setUrlInput] = useState("");
   const [nameInput, setNameInput] = useState("");
+  const [maxPages, setMaxPages] = useState<number | "">("");
+  const [maxDepth, setMaxDepth] = useState<number | "">("");
   const [error, setError] = useState<string | null>(null);
   const [startFeedback, setStartFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
@@ -21,7 +23,10 @@ export function Sources() {
   const createMutation = useMutation({
     mutationFn: async () => {
       const source = await createSource({ url: urlInput, name: nameInput || undefined });
-      await startMining(source.id);
+      await startMining(source.id, {
+        max_pages: typeof maxPages === "number" ? maxPages : undefined,
+        max_depth: typeof maxDepth === "number" ? maxDepth : undefined,
+      });
       return source;
     },
     onSuccess: () => {
@@ -29,6 +34,8 @@ export function Sources() {
       setShowDialog(false);
       setUrlInput("");
       setNameInput("");
+      setMaxPages("");
+      setMaxDepth("");
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -169,6 +176,32 @@ export function Sources() {
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
+              <details className="text-sm text-gray-500 cursor-pointer">
+                <summary>Advanced options</summary>
+                <div className="mt-2 space-y-2">
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Max pages (default: 500)</label>
+                    <input
+                      type="number"
+                      value={maxPages}
+                      onChange={(e) => setMaxPages(e.target.value === "" ? "" : Number(e.target.value))}
+                      min={1}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Max depth (default: 3)</label>
+                    <input
+                      type="number"
+                      value={maxDepth}
+                      onChange={(e) => setMaxDepth(e.target.value === "" ? "" : Number(e.target.value))}
+                      min={1}
+                      max={10}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                    />
+                  </div>
+                </div>
+              </details>
             </div>
             <div className="flex gap-2 mt-4">
               <button
