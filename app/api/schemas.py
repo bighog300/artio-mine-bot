@@ -405,3 +405,34 @@ class JobResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Review
+# ---------------------------------------------------------------------------
+
+class ConflictResolveRequest(BaseModel):
+    field: str
+    selected_value: Any
+
+
+class ArtistReviewListItem(BaseModel):
+    id: str
+    source_id: str
+    title: str | None = None
+    completeness_score: int = 0
+    missing_fields: list[str] = []
+    has_conflicts: bool = False
+    conflict_fields: list[str] = []
+
+
+class ArtistReviewResponse(BaseModel):
+    id: str
+    source_id: str
+    title: str | None = None
+    canonical_fields: dict[str, Any] = {}
+    completeness_score: int = 0
+    missing_fields: list[str] = []
+    provenance: dict[str, Any] = {}
+    conflicts: dict[str, Any] = {}
+    related: dict[str, list[dict[str, Any]]] = {}

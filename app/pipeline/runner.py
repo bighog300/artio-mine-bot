@@ -35,6 +35,7 @@ from app.extraction.artist_merge import (
     merge_artist_payload,
 )
 from app.extraction.artist_related import extract_artist_related_items
+from app.metrics import metrics
 from app.pipeline.image_collector import collect_images
 
 worker_log_processor = configure_structlog_for_service("worker")
@@ -243,6 +244,8 @@ class PipelineRunner:
             records_created=stats.records_created,
             records_failed=stats.records_failed,
         )
+        metrics.increment("pages_processed", stats.pages_processed)
+        metrics.increment("records_created", stats.records_created)
         total_records = await crud.count_records(self.db, source_id=source_id)
         await crud.update_source(self.db, source_id, total_records=total_records)
         return stats
@@ -355,6 +358,7 @@ class PipelineRunner:
                 record_id=existing_record.id,
                 record_type=record_type,
             )
+            metrics.increment("duplicate_items_skipped")
             return None
 
         try:
@@ -454,6 +458,7 @@ class PipelineRunner:
             confidence_score=score,
             confidence_band=band,
         )
+        metrics.increment("records_created")
 
         await crud.update_page(
             self.db, page.id, status="extracted", extracted_at=datetime.now(UTC)
@@ -489,8 +494,9 @@ class PipelineRunner:
         else:
             return
         await crud.update_page(self.db, page.id, status="expanded")
+        metrics.increment("pages_expanded")
         logger.info(
-            "discovery_page_expanded",
+            "directory_expanded",
             source_id=page.source_id,
             page_id=page.id,
             url=page.url,
@@ -534,6 +540,7 @@ class PipelineRunner:
                     status="pending",
                     depth=max(page.depth + 1, child_page.depth),
                 )
+                metrics.increment("pages_expanded")
 
     async def deepen_same_slug_children(
         self, page: Page, *, source_hints: dict[str, Any] | None = None
@@ -557,6 +564,7 @@ class PipelineRunner:
                     status="pending",
                     depth=max(page.depth + 1, child_page.depth),
                 )
+                metrics.increment("pages_deepened")
 
             result = await fetch(child_url)
             if result.error:
@@ -587,6 +595,20 @@ class PipelineRunner:
                 status="fetched",
                 depth=max(page.depth + 1, child_page.depth),
             )
+            logger.info(
+                "child_pages_fetched",
+                source_id=page.source_id,
+                parent_page_id=page.id,
+                page_id=child_page.id,
+                url=child_url,
+            )
+        logger.info(
+            "hub_deepened",
+            source_id=page.source_id,
+            page_id=page.id,
+            url=page.url,
+            suffix_count=len(suffixes),
+        )
 
     async def process_artist_related_page(
         self,
@@ -615,10 +637,28 @@ class PipelineRunner:
             existing_raw_data=existing_raw,
             page_type=page_type,
             source_url=page.url,
+            source_page_id=page.id,
             extracted_data=extracted_data,
             related_data=related_data,
         )
         merged_payload["artist_family_key"] = family_key
+        logger.info(
+            "enrichment_merged",
+            source_id=page.source_id,
+            page_id=page.id,
+            family_key=family_key,
+            page_type=page_type,
+        )
+        metrics.increment("records_enriched")
+        metrics.observe_completeness(merged_payload.get("completeness_score", 0))
+        if merged_payload.get("conflicts"):
+            logger.info(
+                "conflicts_detected",
+                source_id=page.source_id,
+                page_id=page.id,
+                family_key=family_key,
+                conflict_fields=sorted(list(merged_payload.get("conflicts", {}).keys())),
+            )
 
         artist_kwargs: dict[str, Any] = {
             "page_id": existing_artist.page_id if existing_artist else page.id,
@@ -658,6 +698,13 @@ class PipelineRunner:
             page=page,
             related_data=related_data,
         )
+        logger.info(
+            "completeness_calculated",
+            source_id=page.source_id,
+            page_id=page.id,
+            completeness_score=merged_payload.get("completeness_score", 0),
+            missing_fields=merged_payload.get("missing_fields", []),
+        )
 
         await crud.update_page(
             self.db,
@@ -693,6 +740,7 @@ class PipelineRunner:
                     item_fingerprint=fingerprint,
                 )
                 if existing is not None:
+                    metrics.increment("duplicate_items_skipped")
                     continue
                 await crud.create_record(
                     self.db,
@@ -708,6 +756,38 @@ class PipelineRunner:
                     confidence_band="MEDIUM",
                     confidence_reasons=json.dumps(["Deterministic related-item extraction"]),
                 )
+                metrics.increment("records_created")
+                logger.info(
+                    "child_pages_created",
+                    source_id=source_id,
+                    page_id=page.id,
+                    record_type=record_type,
+                    fingerprint=fingerprint,
+                )
+
+    async def rerun_artist_family(self, source_id: str, family_key: str) -> dict[str, Any]:
+        pages = await crud.list_pages_for_artist_family(
+            self.db,
+            source_id=source_id,
+            family_key=family_key,
+        )
+        rerun_count = 0
+        for page in pages:
+            if page.page_type in ARTIST_RELATED_PAGE_TYPES:
+                await crud.update_page(
+                    self.db,
+                    page.id,
+                    status="classified",
+                    error_message=None,
+                )
+                final_status = "expanded" if page.page_type == "artist_profile_hub" else "extracted"
+                await self.process_artist_related_page(
+                    page=page,
+                    page_type=page.page_type,
+                    final_status=final_status,
+                )
+                rerun_count += 1
+        return {"family_key": family_key, "pages_reprocessed": rerun_count}
 
     async def _get_crawl_hints(self, source_id: str) -> dict[str, Any]:
         cached = self._crawl_hints_cache.get(source_id)
