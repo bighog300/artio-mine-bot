@@ -85,3 +85,56 @@ async def test_activity_logs_endpoint_db_error_fallback(test_client: AsyncClient
     response = await test_client.get("/api/logs/activity")
     assert response.status_code == 200
     assert response.json() == {"items": []}
+
+
+@pytest.mark.asyncio
+async def test_activity_logs_endpoint_unexpected_error_fallback(test_client: AsyncClient, monkeypatch: pytest.MonkeyPatch):
+    async def _broken_list_logs(*args, **kwargs):
+        raise RuntimeError("unexpected crash")
+
+    monkeypatch.setattr(logs_routes, "list_logs", _broken_list_logs)
+
+    response = await test_client.get("/api/logs/activity")
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
+
+
+@pytest.mark.asyncio
+async def test_duplicate_reviews_endpoint_db_error_fallback(test_client: AsyncClient, monkeypatch: pytest.MonkeyPatch):
+    async def _broken_list_duplicate_reviews(*args, **kwargs):
+        raise SQLAlchemyError("duplicate_reviews table missing")
+
+    monkeypatch.setattr(crud, "list_duplicate_reviews", _broken_list_duplicate_reviews)
+
+    response = await test_client.get("/api/duplicates/reviews", params={"status": "pending", "skip": 0, "limit": 20})
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "total": 0, "skip": 0, "limit": 20}
+
+
+@pytest.mark.asyncio
+async def test_duplicate_reviews_endpoint_uses_total_count(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://dup-total.example")
+    left = await crud.create_record(db_session, source_id=source.id, record_type="artist", title="Alice")
+    middle = await crud.create_record(db_session, source_id=source.id, record_type="artist", title="Alicia")
+    right = await crud.create_record(db_session, source_id=source.id, record_type="artist", title="Alise")
+
+    await crud.upsert_duplicate_review(
+        db_session,
+        left_record_id=left.id,
+        right_record_id=middle.id,
+        similarity_score=90,
+        reason="name similarity",
+    )
+    await crud.upsert_duplicate_review(
+        db_session,
+        left_record_id=left.id,
+        right_record_id=right.id,
+        similarity_score=85,
+        reason="embedding similarity",
+    )
+
+    response = await test_client.get("/api/duplicates/reviews", params={"status": "pending", "skip": 0, "limit": 1})
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["items"]) == 1
+    assert payload["total"] == 2

@@ -7,7 +7,9 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
 
 from app.ai.embeddings import cosine_similarity, create_embedding
 from app.api.deps import get_db
@@ -17,6 +19,7 @@ from app.db.models import EntityRelationship, Record
 from app.metrics import metrics
 
 router = APIRouter(tags=["intelligence"])
+logger = structlog.get_logger()
 
 
 class MergeArtistsRequest(BaseModel):
@@ -307,27 +310,38 @@ async def list_duplicate_reviews(
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
 ):
-    reviews = await crud.list_duplicate_reviews(db, status=status, skip=skip, limit=limit)
-    items: list[dict[str, object]] = []
-    for review in reviews:
-        left = await crud.get_record(db, review.left_record_id)
-        right = await crud.get_record(db, review.right_record_id)
-        items.append(
-            {
-                "id": review.id,
-                "left_id": review.left_record_id,
-                "left_name": left.title if left else None,
-                "right_id": review.right_record_id,
-                "right_name": right.title if right else None,
-                "similarity_score": review.similarity_score / 100,
-                "reason": review.reason,
-                "status": review.status,
-                "reviewed_by": review.reviewed_by,
-                "reviewed_at": review.reviewed_at,
-                "merge_target_id": review.merge_target_id,
-            }
+    try:
+        reviews = await crud.list_duplicate_reviews(db, status=status, skip=skip, limit=limit)
+        total = await crud.count_duplicate_reviews(db, status=status)
+        items: list[dict[str, object]] = []
+        for review in reviews:
+            left = await crud.get_record(db, review.left_record_id)
+            right = await crud.get_record(db, review.right_record_id)
+            items.append(
+                {
+                    "id": review.id,
+                    "left_id": review.left_record_id,
+                    "left_name": left.title if left else None,
+                    "right_id": review.right_record_id,
+                    "right_name": right.title if right else None,
+                    "similarity_score": review.similarity_score / 100,
+                    "reason": review.reason,
+                    "status": review.status,
+                    "reviewed_by": review.reviewed_by,
+                    "reviewed_at": review.reviewed_at,
+                    "merge_target_id": review.merge_target_id,
+                }
+            )
+        return {"items": items, "total": total, "skip": skip, "limit": limit}
+    except SQLAlchemyError as exc:
+        logger.error(
+            "duplicate_reviews_db_error",
+            status=status,
+            skip=skip,
+            limit=limit,
+            error=str(exc),
         )
-    return {"items": items, "total": len(items), "skip": skip, "limit": limit}
+        return {"items": [], "total": 0, "skip": skip, "limit": limit}
 
 
 @router.post("/merge/artists")

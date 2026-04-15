@@ -12,6 +12,7 @@ export function Dashboard() {
     queryKey: ["activity-feed"],
     queryFn: () => getActivityFeed({ limit: 20 }),
     refetchInterval: 10000,
+    retry: false,
   });
   const { data: jobs } = useQuery({ queryKey: ["jobs", "dashboard"], queryFn: () => getJobs({ limit: 200 }) });
   const { data: queues } = useQuery({ queryKey: ["queues"], queryFn: getQueues });
