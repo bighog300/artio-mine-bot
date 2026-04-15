@@ -121,6 +121,57 @@ async def test_full_pipeline_happy_path(db_session: AsyncSession, mock_ai_client
 
 
 @pytest.mark.asyncio
+async def test_artist_profile_reuses_existing_page_artist_record(db_session: AsyncSession, mock_ai_client):
+    from app.pipeline.runner import PipelineRunner
+
+    source = await crud.create_source(db_session, url="https://example.com", name="Reuse Artist")
+    page = await crud.create_page(
+        db_session,
+        source_id=source.id,
+        url="https://example.com/artists/john",
+        original_url="https://example.com/artists/john",
+        status="classified",
+        page_type="artist_profile",
+        html="<html><body><p>John Doe</p></body></html>",
+    )
+
+    existing = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        page_id=page.id,
+        source_url=page.url,
+        status="pending",
+        title="John Doe",
+        raw_data=json.dumps({"seed": True}),
+    )
+
+    runner = PipelineRunner(db=db_session, ai_client=mock_ai_client)
+    with patch.object(
+        runner._extractors["artist"],
+        "extract",
+        new=AsyncMock(
+            return_value={
+                "name": "John Doe",
+                "bio": "Abstract painter from Johannesburg.",
+                "nationality": "South African",
+                "birth_year": 1975,
+                "image_urls": ["https://example.com/portrait.jpg"],
+                "mediums": ["oil"],
+                "collections": [],
+            }
+        ),
+    ):
+        record = await runner.process_artist_related_page(page, "artist_profile")
+
+    assert record is not None
+    assert record.id == existing.id
+    artists = await crud.list_records(db_session, source_id=source.id, record_type="artist", limit=10)
+    assert len(artists) == 1
+    assert artists[0].id == existing.id
+
+
+@pytest.mark.asyncio
 async def test_full_pipeline_runs_extraction_even_if_crawl_fails(
     db_session: AsyncSession, mock_ai_client
 ):
