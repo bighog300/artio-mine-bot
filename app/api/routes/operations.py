@@ -153,7 +153,12 @@ async def get_queues(
     oldest_pending_age = 0
     for job in jobs:
         if job.status in {"queued", "pending"}:
-            oldest_pending_age = max(oldest_pending_age, int((now - job.created_at).total_seconds()))
+            created_at = job.created_at
+            if created_at is None:
+                continue
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=UTC)
+            oldest_pending_age = max(oldest_pending_age, int((now - created_at).total_seconds()))
 
     paused_sources = await crud.list_sources(db, skip=0, limit=1000, enabled=True)
     paused_count = len([s for s in paused_sources if getattr(s, "queue_paused", False)])

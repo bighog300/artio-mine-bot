@@ -74,7 +74,17 @@ async def get_activity(
     }
     try:
         # Limit before filtering to avoid expensive scans.
-        items, _ = await list_logs(db, source_id=source_id, skip=0, limit=min(limit * 5, 100))
+        items, _ = await list_logs(
+            db,
+            source_id=source_id,
+            level=None,
+            service=None,
+            search=None,
+            date_from=None,
+            date_to=None,
+            skip=0,
+            limit=min(limit * 5, 100),
+        )
         activity = [
             {
                 "id": log.id,
