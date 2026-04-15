@@ -81,6 +81,35 @@ def _draft_progress(draft) -> tuple[int, str | None]:
     return progress, stage
 
 
+def _serialize_draft_summary(draft, page_types: list, rows: list) -> MappingDraftSummary:
+    approved_count = sum(1 for row in rows if row.status == "approved")
+    needs_review_count = sum(1 for row in rows if row.status in {"proposed", "needs_review"})
+    changed_count = sum(1 for row in rows if row.status == "changed_from_published")
+    scan_progress_percent, scan_stage = _draft_progress(draft)
+
+    payload = MappingDraftSummary.model_validate(draft).model_dump(
+        exclude={
+            "page_type_count",
+            "mapping_count",
+            "approved_count",
+            "needs_review_count",
+            "changed_from_published_count",
+            "scan_progress_percent",
+            "scan_stage",
+        }
+    )
+    payload.update(
+        page_type_count=len(page_types),
+        mapping_count=len(rows),
+        approved_count=approved_count,
+        needs_review_count=needs_review_count,
+        changed_from_published_count=changed_count,
+        scan_progress_percent=scan_progress_percent,
+        scan_stage=scan_stage,
+    )
+    return MappingDraftSummary(**payload)
+
+
 @router.post("", response_model=MappingDraftSummary, status_code=201)
 async def create_mapping_draft(
     source_id: str,
@@ -118,20 +147,7 @@ async def create_mapping_draft(
         source_id=source_id,
         details={"draft_id": draft.id, "scan_mode": body.scan_mode},
     )
-    approved_count = sum(1 for row in rows if row.status == "approved")
-    needs_review_count = sum(1 for row in rows if row.status in {"proposed", "needs_review"})
-    changed_count = sum(1 for row in rows if row.status == "changed_from_published")
-    scan_progress_percent, scan_stage = _draft_progress(draft)
-    return MappingDraftSummary(
-        **MappingDraftSummary.model_validate(draft).model_dump(),
-        page_type_count=len(page_types),
-        mapping_count=len(rows),
-        approved_count=approved_count,
-        needs_review_count=needs_review_count,
-        changed_from_published_count=changed_count,
-        scan_progress_percent=scan_progress_percent,
-        scan_stage=scan_stage,
-    )
+    return _serialize_draft_summary(draft, page_types, rows)
 
 
 @router.post("/{draft_id}/scan", response_model=MappingScanResponse, status_code=202)
@@ -162,20 +178,7 @@ async def get_scan_status_and_results(
     draft = await _get_draft_or_404(db, source_id, draft_id)
     page_types = await crud.list_source_mapping_page_types(db, draft.id)
     rows = await crud.list_source_mapping_rows(db, source_id, draft.id, skip=0, limit=1000)
-    approved_count = sum(1 for row in rows if row.status == "approved")
-    needs_review_count = sum(1 for row in rows if row.status in {"proposed", "needs_review"})
-    changed_count = sum(1 for row in rows if row.status == "changed_from_published")
-    scan_progress_percent, scan_stage = _draft_progress(draft)
-    return MappingDraftSummary(
-        **MappingDraftSummary.model_validate(draft).model_dump(),
-        page_type_count=len(page_types),
-        mapping_count=len(rows),
-        approved_count=approved_count,
-        needs_review_count=needs_review_count,
-        changed_from_published_count=changed_count,
-        scan_progress_percent=scan_progress_percent,
-        scan_stage=scan_stage,
-    )
+    return _serialize_draft_summary(draft, page_types, rows)
 
 
 @router.get("/{draft_id}/rows", response_model=dict)
