@@ -42,6 +42,7 @@ export interface Source {
   total_records: number;
   last_crawled_at: string | null;
   created_at: string;
+  error_message?: string | null;
   site_map?: string | null;
   crawl_intent?: string;
   max_depth?: number | null;
@@ -74,6 +75,13 @@ export interface MineOptions {
   max_depth?: number;
   max_pages?: number;
   sections?: string[];
+}
+
+export interface MineStartResponse {
+  job_id: string;
+  source_id: string;
+  status: string;
+  message: string;
 }
 
 export interface Job {
@@ -426,7 +434,7 @@ export const retryFailedSource = (sourceId: string): Promise<{ source_id: string
   api.post(`/sources/${sourceId}/actions/retry-failed`).then((r) => r.data);
 
 // Mining
-export const startMining = (sourceId: string, opts?: MineOptions): Promise<Job> =>
+export const startMining = (sourceId: string, opts?: MineOptions): Promise<MineStartResponse> =>
   api.post(`/mine/${sourceId}/start`, opts ?? {}).then((r) => r.data);
 
 export const getMiningStatus = (sourceId: string): Promise<MiningStatus> =>

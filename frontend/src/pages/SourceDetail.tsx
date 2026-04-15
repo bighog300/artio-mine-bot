@@ -8,14 +8,15 @@ import {
   getRecords,
   getSource,
   getSourceJobs,
+  mapSite,
   pauseSource,
   resumeSource,
   retryFailedSource,
-  startDiscovery,
-  startFullMining,
+  startMining,
   stopSource,
   updateSource,
 } from "@/lib/api";
+import { MiningProgress } from "@/components/shared/MiningProgress";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 
 export function SourceDetail() {
@@ -26,7 +27,17 @@ export function SourceDetail() {
   const [message, setMessage] = useState<string | null>(null);
 
   const { data: source, isLoading } = useQuery({ queryKey: ["source", id], queryFn: () => getSource(id!), enabled: !!id });
-  const { data: miningStatus } = useQuery({ queryKey: ["mine-status", id], queryFn: () => getMiningStatus(id!), enabled: !!id, refetchInterval: 5000 });
+  const { data: miningStatus } = useQuery({
+    queryKey: ["mine-status", id],
+    queryFn: () => getMiningStatus(id!),
+    enabled: !!id,
+    refetchInterval: (query) => {
+      const current = query.state.data;
+      const currentStatus = current?.status;
+      if (!currentStatus) return 3000;
+      return ["done", "error", "paused", "stopped"].includes(currentStatus) ? false : 3000;
+    },
+  });
   const { data: pages } = useQuery({ queryKey: ["pages", id], queryFn: () => getPages({ source_id: id, limit: 50 }), enabled: activeTab === "pages" && !!id });
   const { data: records } = useQuery({ queryKey: ["records", id], queryFn: () => getRecords({ source_id: id, limit: 50 }), enabled: activeTab === "records" && !!id });
   const { data: jobs } = useQuery({ queryKey: ["source-jobs", id], queryFn: () => getSourceJobs(id!), enabled: !!id, refetchInterval: 5000 });
@@ -41,8 +52,8 @@ export function SourceDetail() {
   const actionMutation = useMutation({
     mutationFn: async (action: "discovery" | "full" | "pause" | "resume" | "stop" | "retry") => {
       if (!id) return;
-      if (action === "discovery") return startDiscovery(id);
-      if (action === "full") return startFullMining(id);
+      if (action === "discovery") return mapSite(id);
+      if (action === "full") return startMining(id);
       if (action === "pause") return pauseSource(id);
       if (action === "resume") return resumeSource(id);
       if (action === "stop") return stopSource(id);
@@ -110,7 +121,15 @@ export function SourceDetail() {
           <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate("retry")}>Retry Failed</button>
           <button className="px-2 py-1 border border-red-300 text-red-600 rounded" onClick={() => { if (confirm("Delete this source and all data?")) deleteMutation.mutate(); }}>Delete</button>
         </div>
-        {miningStatus?.progress && <p className="mt-3 text-xs text-gray-500">Progress: {miningStatus.progress.percent_complete}% · Crawled {miningStatus.progress.pages_crawled} pages · Extracted {miningStatus.progress.records_extracted} records.</p>}
+        <div className="mt-3">
+          <MiningProgress
+            status={miningStatus?.status ?? source.status}
+            progress={miningStatus?.progress}
+            errorMessage={source.error_message}
+            onRetry={() => actionMutation.mutate("full")}
+            retryPending={actionMutation.isPending}
+          />
+        </div>
       </div>
 
       <div className="border-b">

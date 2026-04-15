@@ -6,11 +6,11 @@ import {
   createSource,
   deleteSource,
   getSources,
+  mapSite,
   pauseSource,
   resumeSource,
   retryFailedSource,
-  startDiscovery,
-  startFullMining,
+  startMining,
   stopSource,
   type CreateSourceInput,
 } from "@/lib/api";
@@ -56,9 +56,9 @@ export function Sources() {
     mutationFn: async ({ action }: { action: "start-discovery" | "start-full" }) => {
       const source = await createSource(form);
       if (action === "start-discovery") {
-        await startDiscovery(source.id);
+        await mapSite(source.id);
       } else {
-        await startFullMining(source.id);
+        await startMining(source.id);
       }
       return source;
     },
@@ -81,9 +81,9 @@ export function Sources() {
     mutationFn: async ({ sourceId, action }: { sourceId: string; action: SourceAction }) => {
       switch (action) {
         case "start-discovery":
-          return startDiscovery(sourceId);
+          return mapSite(sourceId);
         case "start-full":
-          return startFullMining(sourceId);
+          return startMining(sourceId);
         case "pause":
           return pauseSource(sourceId);
         case "resume":
@@ -147,8 +147,20 @@ export function Sources() {
                 <td className="p-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <button onClick={() => navigate(`/sources/${source.id}`)} className="p-1 text-gray-500 hover:text-blue-600" title="View"><Eye size={16} /></button>
-                    <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "start-discovery" })} className="px-2 py-1 border rounded text-xs">Start Discovery</button>
-                    <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "start-full" })} className="px-2 py-1 border rounded text-xs">Start Full Mining</button>
+                    <button
+                      disabled={actionMutation.isPending}
+                      onClick={() => actionMutation.mutate({ sourceId: source.id, action: "start-discovery" })}
+                      className="px-2 py-1 border rounded text-xs disabled:opacity-60"
+                    >
+                      {actionMutation.isPending ? "Loading..." : "Start Discovery"}
+                    </button>
+                    <button
+                      disabled={actionMutation.isPending}
+                      onClick={() => actionMutation.mutate({ sourceId: source.id, action: "start-full" })}
+                      className="px-2 py-1 border rounded text-xs disabled:opacity-60"
+                    >
+                      {actionMutation.isPending ? "Loading..." : "Start Full Mining"}
+                    </button>
                     <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "pause" })} className="p-1 text-gray-500 hover:text-amber-600" title="Pause"><Pause size={16} /></button>
                     <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "resume" })} className="p-1 text-gray-500 hover:text-green-600" title="Resume"><Play size={16} /></button>
                     <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "stop" })} className="p-1 text-gray-500 hover:text-red-600" title="Stop"><Square size={16} /></button>
