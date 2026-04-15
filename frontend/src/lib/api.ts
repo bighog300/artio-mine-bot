@@ -71,6 +71,74 @@ export interface UpdateSourceInput extends Partial<CreateSourceInput> {
   queue_paused?: boolean;
 }
 
+export interface CreateMappingDraftInput {
+  scan_mode?: string;
+  allowed_paths?: string[];
+  blocked_paths?: string[];
+  max_pages?: number;
+  max_depth?: number;
+  sample_pages_per_type?: number;
+}
+
+export interface MappingDraftSummary {
+  id: string;
+  source_id: string;
+  version_number: number;
+  status: string;
+  scan_status: string;
+  page_type_count: number;
+  mapping_count: number;
+  approved_count: number;
+  needs_review_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MappingPageType {
+  id: string;
+  key: string;
+  label: string;
+  sample_count: number;
+  confidence_score: number;
+}
+
+export interface MappingRow {
+  id: string;
+  mapping_version_id: string;
+  page_type_id: string | null;
+  selector: string;
+  extraction_mode: string;
+  sample_value: string | null;
+  destination_entity: string;
+  destination_field: string;
+  category_target: string | null;
+  confidence_score: number;
+  status: string;
+  is_required: boolean;
+  is_enabled: boolean;
+  sort_order: number;
+  transforms: string[];
+  rationale: string[];
+}
+
+export interface MappingPreviewResponse {
+  sample_page_id: string;
+  page_url: string;
+  page_type_key: string | null;
+  extractions: Array<{
+    mapping_row_id: string;
+    source_selector: string;
+    raw_value: string | null;
+    normalized_value: string | null;
+    destination_entity: string;
+    destination_field: string;
+    category_target: string | null;
+    confidence_score: number;
+    warning: string | null;
+  }>;
+  record_preview: Record<string, string>;
+}
+
 export interface MineOptions {
   max_depth?: number;
   max_pages?: number;
@@ -432,6 +500,51 @@ export const stopSource = (sourceId: string): Promise<{ source_id: string; statu
 
 export const retryFailedSource = (sourceId: string): Promise<{ source_id: string; status: string }> =>
   api.post(`/sources/${sourceId}/actions/retry-failed`).then((r) => r.data);
+
+export const createSourceMappingDraft = (
+  sourceId: string,
+  data: CreateMappingDraftInput
+): Promise<MappingDraftSummary> => api.post(`/sources/${sourceId}/mapping-drafts`, data).then((r) => r.data);
+
+export const getSourceMappingDraft = (
+  sourceId: string,
+  draftId: string
+): Promise<MappingDraftSummary> => api.get(`/sources/${sourceId}/mapping-drafts/${draftId}`).then((r) => r.data);
+
+export const getSourceMappingRows = (
+  sourceId: string,
+  draftId: string
+): Promise<PaginatedResponse<MappingRow>> =>
+  api.get(`/sources/${sourceId}/mapping-drafts/${draftId}/rows`).then((r) => r.data);
+
+export const updateSourceMappingRow = (
+  sourceId: string,
+  draftId: string,
+  rowId: string,
+  data: Partial<MappingRow>
+): Promise<MappingRow> =>
+  api.patch(`/sources/${sourceId}/mapping-drafts/${draftId}/rows/${rowId}`, data).then((r) => r.data);
+
+export const applySourceMappingAction = (
+  sourceId: string,
+  draftId: string,
+  rowIds: string[],
+  action: "approve" | "reject" | "disable" | "enable" | "needs_review"
+): Promise<{ updated: number; action: string }> =>
+  api.post(`/sources/${sourceId}/mapping-drafts/${draftId}/rows/actions`, { row_ids: rowIds, action }).then((r) => r.data);
+
+export const getSourceMappingPageTypes = (
+  sourceId: string,
+  draftId: string
+): Promise<PaginatedResponse<MappingPageType>> =>
+  api.get(`/sources/${sourceId}/mapping-drafts/${draftId}/page-types`).then((r) => r.data);
+
+export const getSourceMappingPreview = (
+  sourceId: string,
+  draftId: string,
+  samplePageId: string
+): Promise<MappingPreviewResponse> =>
+  api.post(`/sources/${sourceId}/mapping-drafts/${draftId}/preview`, { sample_page_id: samplePageId }).then((r) => r.data);
 
 // Mining
 export const startMining = (sourceId: string, opts?: MineOptions): Promise<MineStartResponse> =>

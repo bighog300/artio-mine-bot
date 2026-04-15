@@ -21,11 +21,25 @@ from app.db.models import (
     Page,
     Record,
     ScheduledJob,
-    Tenant,
     Source,
+    SourceMappingPageType,
+    SourceMappingRow,
+    SourceMappingSample,
+    SourceMappingSampleResult,
+    SourceMappingSampleRun,
+    SourceMappingVersion,
+    Tenant,
 )
 
 logger = structlog.get_logger()
+
+MAPPING_ALLOWED_FIELDS: dict[str, set[str]] = {
+    "artist": {"title", "description", "bio", "nationality", "birth_year", "website_url", "instagram_url", "email"},
+    "event": {"title", "description", "start_date", "end_date", "venue_name", "venue_address", "ticket_url", "price_text"},
+    "exhibition": {"title", "description", "start_date", "end_date", "venue_name", "venue_address", "curator"},
+    "venue": {"title", "description", "address", "city", "country", "phone", "opening_hours"},
+    "artwork": {"title", "description", "medium", "year", "dimensions", "price"},
+}
 
 
 def _extract_completeness_and_conflicts(raw_data: str | None) -> tuple[int, bool]:
@@ -279,6 +293,277 @@ async def retry_failed_jobs_for_source(db: AsyncSession, source_id: str) -> int:
         job.attempts = int(job.attempts or 0) + 1
     await db.commit()
     return len(rows)
+
+
+# ---------------------------------------------------------------------------
+# Source Mapper CRUD
+# ---------------------------------------------------------------------------
+
+
+async def create_source_mapping_version(
+    db: AsyncSession,
+    source_id: str,
+    *,
+    tenant_id: str = "public",
+    scan_options: dict[str, Any] | None = None,
+    created_by: str | None = None,
+) -> SourceMappingVersion:
+    source = await get_source(db, source_id)
+    if source is None:
+        raise ValueError(f"Source {source_id} not found")
+    current = await db.execute(
+        select(func.max(SourceMappingVersion.version_number)).where(SourceMappingVersion.source_id == source_id)
+    )
+    next_version = int(current.scalar_one_or_none() or 0) + 1
+    mapping_version = SourceMappingVersion(
+        source_id=source_id,
+        tenant_id=tenant_id,
+        version_number=next_version,
+        status="draft",
+        scan_status="completed",
+        scan_options_json=json.dumps(scan_options or {}),
+        created_by=created_by,
+    )
+    db.add(mapping_version)
+    source.mapping_status = "draft"
+    source.last_mapping_scan_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(mapping_version)
+    return mapping_version
+
+
+async def get_source_mapping_version(db: AsyncSession, source_id: str, draft_id: str) -> SourceMappingVersion | None:
+    result = await db.execute(
+        select(SourceMappingVersion).where(
+            SourceMappingVersion.id == draft_id,
+            SourceMappingVersion.source_id == source_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def list_source_mapping_rows(
+    db: AsyncSession,
+    source_id: str,
+    draft_id: str,
+    *,
+    page_type_key: str | None = None,
+    status: str | None = None,
+    destination_entity: str | None = None,
+    min_confidence: float | None = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> list[SourceMappingRow]:
+    stmt = (
+        select(SourceMappingRow)
+        .join(SourceMappingVersion, SourceMappingRow.mapping_version_id == SourceMappingVersion.id)
+        .where(SourceMappingVersion.source_id == source_id, SourceMappingVersion.id == draft_id)
+    )
+    if page_type_key:
+        stmt = stmt.join(SourceMappingPageType, SourceMappingRow.page_type_id == SourceMappingPageType.id).where(
+            SourceMappingPageType.key == page_type_key
+        )
+    if status:
+        stmt = stmt.where(SourceMappingRow.status == status)
+    if destination_entity:
+        stmt = stmt.where(SourceMappingRow.destination_entity == destination_entity)
+    if min_confidence is not None:
+        stmt = stmt.where(SourceMappingRow.confidence_score >= min_confidence)
+    result = await db.execute(stmt.offset(skip).limit(limit))
+    return list(result.scalars().all())
+
+
+async def list_source_mapping_page_types(db: AsyncSession, draft_id: str) -> list[SourceMappingPageType]:
+    result = await db.execute(
+        select(SourceMappingPageType).where(SourceMappingPageType.mapping_version_id == draft_id)
+    )
+    return list(result.scalars().all())
+
+
+async def update_source_mapping_row(
+    db: AsyncSession,
+    source_id: str,
+    draft_id: str,
+    row_id: str,
+    **kwargs: Any,
+) -> SourceMappingRow:
+    result = await db.execute(
+        select(SourceMappingRow)
+        .join(SourceMappingVersion, SourceMappingRow.mapping_version_id == SourceMappingVersion.id)
+        .where(SourceMappingVersion.source_id == source_id, SourceMappingVersion.id == draft_id, SourceMappingRow.id == row_id)
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        raise ValueError("Mapping row not found")
+    if "destination_entity" in kwargs and kwargs["destination_entity"] is not None:
+        entity = kwargs["destination_entity"]
+        field = kwargs.get("destination_field", row.destination_field)
+        if entity not in MAPPING_ALLOWED_FIELDS or field not in MAPPING_ALLOWED_FIELDS[entity]:
+            raise ValueError(f"Invalid destination '{entity}.{field}'")
+    if "destination_field" in kwargs and kwargs["destination_field"] is not None and "destination_entity" not in kwargs:
+        if row.destination_entity not in MAPPING_ALLOWED_FIELDS or kwargs["destination_field"] not in MAPPING_ALLOWED_FIELDS[row.destination_entity]:
+            raise ValueError(f"Invalid destination '{row.destination_entity}.{kwargs['destination_field']}'")
+    for key, value in kwargs.items():
+        if key == "transforms" and value is not None:
+            row.transforms_json = json.dumps(value)
+        elif key == "rationale" and value is not None:
+            row.confidence_reasons_json = json.dumps(value)
+        elif hasattr(row, key):
+            setattr(row, key, value)
+    row.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+async def set_source_mapping_rows_status(
+    db: AsyncSession,
+    source_id: str,
+    draft_id: str,
+    row_ids: list[str],
+    *,
+    status: str | None = None,
+    is_enabled: bool | None = None,
+) -> int:
+    rows = await list_source_mapping_rows(db, source_id, draft_id, skip=0, limit=max(len(row_ids), 1_000))
+    row_map = {row.id: row for row in rows}
+    now = datetime.now(UTC)
+    updated = 0
+    for row_id in row_ids:
+        row = row_map.get(row_id)
+        if row is None:
+            continue
+        if status is not None:
+            row.status = status
+        if is_enabled is not None:
+            row.is_enabled = is_enabled
+        row.updated_at = now
+        updated += 1
+    if updated > 0:
+        await db.commit()
+    return updated
+
+
+async def create_source_mapping_page_type(
+    db: AsyncSession,
+    draft_id: str,
+    *,
+    key: str,
+    label: str,
+    sample_count: int = 0,
+    confidence_score: float = 0.0,
+) -> SourceMappingPageType:
+    page_type = SourceMappingPageType(
+        mapping_version_id=draft_id,
+        key=key,
+        label=label,
+        sample_count=sample_count,
+        confidence_score=confidence_score,
+    )
+    db.add(page_type)
+    await db.commit()
+    await db.refresh(page_type)
+    return page_type
+
+
+async def create_source_mapping_sample(
+    db: AsyncSession,
+    draft_id: str,
+    *,
+    page_type_id: str | None,
+    url: str,
+    title: str | None = None,
+    html_snapshot: str | None = None,
+) -> SourceMappingSample:
+    sample = SourceMappingSample(
+        mapping_version_id=draft_id,
+        page_type_id=page_type_id,
+        url=url,
+        title=title,
+        html_snapshot=html_snapshot,
+    )
+    db.add(sample)
+    await db.commit()
+    await db.refresh(sample)
+    return sample
+
+
+async def create_source_mapping_row(
+    db: AsyncSession,
+    draft_id: str,
+    *,
+    page_type_id: str | None,
+    selector: str,
+    sample_value: str | None,
+    destination_entity: str,
+    destination_field: str,
+    confidence_score: float = 0.5,
+    status: str = "proposed",
+    rationale: list[str] | None = None,
+) -> SourceMappingRow:
+    row = SourceMappingRow(
+        mapping_version_id=draft_id,
+        page_type_id=page_type_id,
+        selector=selector,
+        sample_value=sample_value,
+        destination_entity=destination_entity,
+        destination_field=destination_field,
+        confidence_score=confidence_score,
+        status=status,
+        confidence_reasons_json=json.dumps(rationale or []),
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+async def get_source_mapping_sample(db: AsyncSession, sample_id: str) -> SourceMappingSample | None:
+    result = await db.execute(select(SourceMappingSample).where(SourceMappingSample.id == sample_id))
+    return result.scalar_one_or_none()
+
+
+async def create_source_mapping_sample_run(
+    db: AsyncSession,
+    draft_id: str,
+    *,
+    sample_count: int,
+    created_by: str | None = None,
+    status: str = "completed",
+    summary: dict[str, Any] | None = None,
+) -> SourceMappingSampleRun:
+    sample_run = SourceMappingSampleRun(
+        mapping_version_id=draft_id,
+        sample_count=sample_count,
+        status=status,
+        created_by=created_by,
+        completed_at=datetime.now(UTC) if status == "completed" else None,
+        summary_json=json.dumps(summary or {}),
+    )
+    db.add(sample_run)
+    await db.commit()
+    await db.refresh(sample_run)
+    return sample_run
+
+
+async def create_source_mapping_sample_result(
+    db: AsyncSession,
+    sample_run_id: str,
+    *,
+    sample_id: str | None = None,
+    record_preview: dict[str, Any] | None = None,
+    review_status: str = "pending",
+) -> SourceMappingSampleResult:
+    result = SourceMappingSampleResult(
+        sample_run_id=sample_run_id,
+        sample_id=sample_id,
+        record_preview_json=json.dumps(record_preview or {}),
+        review_status=review_status,
+    )
+    db.add(result)
+    await db.commit()
+    await db.refresh(result)
+    return result
 
 
 # ---------------------------------------------------------------------------

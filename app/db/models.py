@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -55,6 +56,14 @@ class Source(Base):
     created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
     last_crawled_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    active_mapping_version_id: Mapped[str | None] = mapped_column(
+        String,
+        ForeignKey("source_mapping_versions.id"),
+        nullable=True,
+    )
+    mapping_status: Mapped[str] = mapped_column(String, default="none", nullable=False)
+    last_mapping_scan_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    last_mapping_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     pages: Mapped[list["Page"]] = relationship("Page", back_populates="source", cascade="all, delete-orphan")
     records: Mapped[list["Record"]] = relationship("Record", back_populates="source", cascade="all, delete-orphan")
@@ -64,6 +73,17 @@ class Source(Base):
         "ScheduledJob",
         back_populates="source",
         cascade="all, delete-orphan",
+    )
+    mapping_versions: Mapped[list["SourceMappingVersion"]] = relationship(
+        "SourceMappingVersion",
+        back_populates="source",
+        cascade="all, delete-orphan",
+        foreign_keys="SourceMappingVersion.source_id",
+    )
+    active_mapping_version: Mapped["SourceMappingVersion | None"] = relationship(
+        "SourceMappingVersion",
+        foreign_keys=[active_mapping_version_id],
+        post_update=True,
     )
 
 
@@ -257,6 +277,175 @@ class Job(Base):
         Index("ix_jobs_source_id", "source_id"),
         Index("ix_jobs_status", "status"),
     )
+
+
+class SourceMappingVersion(Base):
+    __tablename__ = "source_mapping_versions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
+    source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="draft")
+    scan_status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    scan_options_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    summary_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    published_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
+
+    source: Mapped["Source"] = relationship(
+        "Source",
+        back_populates="mapping_versions",
+        foreign_keys=[source_id],
+    )
+    page_types: Mapped[list["SourceMappingPageType"]] = relationship(
+        "SourceMappingPageType",
+        back_populates="mapping_version",
+        cascade="all, delete-orphan",
+    )
+    rows: Mapped[list["SourceMappingRow"]] = relationship(
+        "SourceMappingRow",
+        back_populates="mapping_version",
+        cascade="all, delete-orphan",
+    )
+    samples: Mapped[list["SourceMappingSample"]] = relationship(
+        "SourceMappingSample",
+        back_populates="mapping_version",
+        cascade="all, delete-orphan",
+    )
+    sample_runs: Mapped[list["SourceMappingSampleRun"]] = relationship(
+        "SourceMappingSampleRun",
+        back_populates="mapping_version",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("source_id", "version_number", name="uq_source_mapping_versions_source_version"),
+        Index("ix_source_mapping_versions_source_id", "source_id"),
+        Index("ix_source_mapping_versions_source_status", "source_id", "status"),
+    )
+
+
+class SourceMappingPageType(Base):
+    __tablename__ = "source_mapping_page_types"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    mapping_version_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("source_mapping_versions.id"),
+        nullable=False,
+    )
+    key: Mapped[str] = mapped_column(String, nullable=False)
+    label: Mapped[str] = mapped_column(String, nullable=False)
+    sample_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    confidence_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    classifier_signals_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+
+    mapping_version: Mapped["SourceMappingVersion"] = relationship("SourceMappingVersion", back_populates="page_types")
+    samples: Mapped[list["SourceMappingSample"]] = relationship("SourceMappingSample", back_populates="page_type")
+    rows: Mapped[list["SourceMappingRow"]] = relationship("SourceMappingRow", back_populates="page_type")
+
+    __table_args__ = (
+        UniqueConstraint("mapping_version_id", "key", name="uq_source_mapping_page_types_version_key"),
+        Index("ix_source_mapping_page_types_version_id", "mapping_version_id"),
+    )
+
+
+class SourceMappingSample(Base):
+    __tablename__ = "source_mapping_samples"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    mapping_version_id: Mapped[str] = mapped_column(String, ForeignKey("source_mapping_versions.id"), nullable=False)
+    page_id: Mapped[str | None] = mapped_column(String, ForeignKey("pages.id"), nullable=True)
+    page_type_id: Mapped[str | None] = mapped_column(String, ForeignKey("source_mapping_page_types.id"), nullable=True)
+    url: Mapped[str] = mapped_column(String, nullable=False)
+    title: Mapped[str | None] = mapped_column(String, nullable=True)
+    html_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dom_summary_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    structured_data_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+
+    mapping_version: Mapped["SourceMappingVersion"] = relationship("SourceMappingVersion", back_populates="samples")
+    page_type: Mapped["SourceMappingPageType | None"] = relationship("SourceMappingPageType", back_populates="samples")
+
+    __table_args__ = (
+        Index("ix_source_mapping_samples_mapping_version_id", "mapping_version_id"),
+        Index("ix_source_mapping_samples_page_type_id", "page_type_id"),
+    )
+
+
+class SourceMappingRow(Base):
+    __tablename__ = "source_mapping_rows"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    mapping_version_id: Mapped[str] = mapped_column(String, ForeignKey("source_mapping_versions.id"), nullable=False)
+    page_type_id: Mapped[str | None] = mapped_column(String, ForeignKey("source_mapping_page_types.id"), nullable=True)
+    selector: Mapped[str] = mapped_column(String, nullable=False)
+    pattern_type: Mapped[str] = mapped_column(String, nullable=False, default="css")
+    extraction_mode: Mapped[str] = mapped_column(String, nullable=False, default="text")
+    attribute_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    sample_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    destination_entity: Mapped[str] = mapped_column(String, nullable=False)
+    destination_field: Mapped[str] = mapped_column(String, nullable=False)
+    category_target: Mapped[str | None] = mapped_column(String, nullable=True)
+    transforms_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    confidence_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    confidence_reasons_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    status: Mapped[str] = mapped_column(String, nullable=False, default="proposed")
+    is_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
+
+    mapping_version: Mapped["SourceMappingVersion"] = relationship("SourceMappingVersion", back_populates="rows")
+    page_type: Mapped["SourceMappingPageType | None"] = relationship("SourceMappingPageType", back_populates="rows")
+
+    __table_args__ = (
+        Index("ix_source_mapping_rows_mapping_version_id", "mapping_version_id"),
+        Index("ix_source_mapping_rows_mapping_version_status", "mapping_version_id", "status"),
+        Index("ix_source_mapping_rows_mapping_version_destination_entity", "mapping_version_id", "destination_entity"),
+        Index("ix_source_mapping_rows_page_type_destination", "page_type_id", "destination_entity", "destination_field"),
+    )
+
+
+class SourceMappingSampleRun(Base):
+    __tablename__ = "source_mapping_sample_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    mapping_version_id: Mapped[str] = mapped_column(String, ForeignKey("source_mapping_versions.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="queued")
+    sample_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    summary_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    mapping_version: Mapped["SourceMappingVersion"] = relationship("SourceMappingVersion", back_populates="sample_runs")
+    results: Mapped[list["SourceMappingSampleResult"]] = relationship(
+        "SourceMappingSampleResult",
+        back_populates="sample_run",
+        cascade="all, delete-orphan",
+    )
+
+
+class SourceMappingSampleResult(Base):
+    __tablename__ = "source_mapping_sample_results"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    sample_run_id: Mapped[str] = mapped_column(String, ForeignKey("source_mapping_sample_runs.id"), nullable=False)
+    sample_id: Mapped[str | None] = mapped_column(String, ForeignKey("source_mapping_samples.id"), nullable=True)
+    record_preview_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    review_status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    review_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
+
+    sample_run: Mapped["SourceMappingSampleRun"] = relationship("SourceMappingSampleRun", back_populates="results")
 
 
 class Tenant(Base):
