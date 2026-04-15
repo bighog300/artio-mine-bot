@@ -558,27 +558,44 @@ export const stopSource = (sourceId: string): Promise<{ source_id: string; statu
 export const retryFailedSource = (sourceId: string): Promise<{ source_id: string; status: string }> =>
   api.post(`/sources/${sourceId}/actions/retry-failed`).then((r) => r.data);
 
+const sourceMappingDraftPath = (sourceId: string, draftId?: string): string =>
+  draftId ? `/sources/${sourceId}/mapping-drafts/${draftId}` : `/sources/${sourceId}/mapping-drafts`;
+
+const sourceMappingRowsActionPayload = (
+  rowIds: string[],
+  action: "approve" | "reject" | "ignore" | "disable" | "enable" | "needs_review" | "move_destination",
+  opts?: {
+    destination_entity?: string;
+    destination_field?: string;
+    force_low_confidence?: boolean;
+  }
+) => ({
+  row_ids: rowIds,
+  action,
+  ...opts,
+});
+
 export const createSourceMappingDraft = (
   sourceId: string,
   data: CreateMappingDraftInput
-): Promise<MappingDraftSummary> => api.post(`/sources/${sourceId}/mapping-drafts`, data).then((r) => r.data);
+): Promise<MappingDraftSummary> => api.post(sourceMappingDraftPath(sourceId), data).then((r) => r.data);
 
 export const getSourceMappingDraft = (
   sourceId: string,
   draftId: string
-): Promise<MappingDraftSummary> => api.get(`/sources/${sourceId}/mapping-drafts/${draftId}`).then((r) => r.data);
+): Promise<MappingDraftSummary> => api.get(sourceMappingDraftPath(sourceId, draftId)).then((r) => r.data);
 
 export const startSourceMappingScan = (
   sourceId: string,
   draftId: string
 ): Promise<MappingScanResponse> =>
-  api.post(`/sources/${sourceId}/mapping-drafts/${draftId}/scan`).then((r) => r.data);
+  api.post(`${sourceMappingDraftPath(sourceId, draftId)}/scan`).then((r) => r.data);
 
 export const getSourceMappingRows = (
   sourceId: string,
   draftId: string
 ): Promise<PaginatedResponse<MappingRow>> =>
-  api.get(`/sources/${sourceId}/mapping-drafts/${draftId}/rows`).then((r) => r.data);
+  api.get(`${sourceMappingDraftPath(sourceId, draftId)}/rows`).then((r) => r.data);
 
 export const updateSourceMappingRow = (
   sourceId: string,
@@ -591,7 +608,7 @@ export const updateSourceMappingRow = (
     >
   >
 ): Promise<MappingRow> =>
-  api.patch(`/sources/${sourceId}/mapping-drafts/${draftId}/rows/${rowId}`, data).then((r) => r.data);
+  api.patch(`${sourceMappingDraftPath(sourceId, draftId)}/rows/${rowId}`, data).then((r) => r.data);
 
 export const applySourceMappingAction = (
   sourceId: string,
@@ -604,48 +621,44 @@ export const applySourceMappingAction = (
     force_low_confidence?: boolean;
   }
 ): Promise<{ updated: number; action: string }> =>
-  api.post(`/sources/${sourceId}/mapping-drafts/${draftId}/rows/actions`, {
-    row_ids: rowIds,
-    action,
-    ...opts,
-  }).then((r) => r.data);
+  api.post(`${sourceMappingDraftPath(sourceId, draftId)}/rows/actions`, sourceMappingRowsActionPayload(rowIds, action, opts)).then((r) => r.data);
 
 export const getSourceMappingPageTypes = (
   sourceId: string,
   draftId: string
 ): Promise<PaginatedResponse<MappingPageType>> =>
-  api.get(`/sources/${sourceId}/mapping-drafts/${draftId}/page-types`).then((r) => r.data);
+  api.get(`${sourceMappingDraftPath(sourceId, draftId)}/page-types`).then((r) => r.data);
 
 export const getSourceMappingPreview = (
   sourceId: string,
   draftId: string,
   samplePageId: string
 ): Promise<MappingPreviewResponse> =>
-  api.post(`/sources/${sourceId}/mapping-drafts/${draftId}/preview`, { sample_page_id: samplePageId }).then((r) => r.data);
+  api.post(`${sourceMappingDraftPath(sourceId, draftId)}/preview`, { sample_page_id: samplePageId }).then((r) => r.data);
 
 export const getSourceMappingVersions = (
   sourceId: string
 ): Promise<PaginatedResponse<MappingVersion>> =>
-  api.get(`/sources/${sourceId}/mapping-drafts`).then((r) => r.data);
+  api.get(sourceMappingDraftPath(sourceId)).then((r) => r.data);
 
 export const publishSourceMappingDraft = (
   sourceId: string,
   draftId: string
 ): Promise<{ id: string; source_id: string; status: string; published_at: string; published_by: string | null }> =>
-  api.post(`/sources/${sourceId}/mapping-drafts/${draftId}/publish`).then((r) => r.data);
+  api.post(`${sourceMappingDraftPath(sourceId, draftId)}/publish`).then((r) => r.data);
 
 export const getSourceMappingDiff = (
   sourceId: string,
   draftId: string
 ): Promise<MappingDiffSummary> =>
-  api.get(`/sources/${sourceId}/mapping-drafts/${draftId}/diff`).then((r) => r.data);
+  api.get(`${sourceMappingDraftPath(sourceId, draftId)}/diff`).then((r) => r.data);
 
 export const startSourceMappingSampleRun = (
   sourceId: string,
   draftId: string,
   payload: { page_type_keys?: string[]; sample_count?: number }
 ): Promise<MappingSampleRunResponse> =>
-  api.post(`/sources/${sourceId}/mapping-drafts/${draftId}/sample-run`, payload).then((r) => r.data);
+  api.post(`${sourceMappingDraftPath(sourceId, draftId)}/sample-run`, payload).then((r) => r.data);
 
 export const getSourceMappingSampleRun = (
   sourceId: string,
@@ -653,7 +666,7 @@ export const getSourceMappingSampleRun = (
   sampleRunId: string,
   reviewStatus?: string
 ): Promise<MappingSampleRunResultResponse> =>
-  api.get(`/sources/${sourceId}/mapping-drafts/${draftId}/sample-run/${sampleRunId}`, {
+  api.get(`${sourceMappingDraftPath(sourceId, draftId)}/sample-run/${sampleRunId}`, {
     params: reviewStatus ? { review_status: reviewStatus } : {},
   }).then((r) => r.data);
 
@@ -664,7 +677,7 @@ export const updateSourceMappingSampleRunResult = (
   resultId: string,
   payload: { review_status?: string; review_notes?: string }
 ): Promise<MappingSampleRunResult> =>
-  api.patch(`/sources/${sourceId}/mapping-drafts/${draftId}/sample-run/${sampleRunId}/results/${resultId}`, payload).then((r) => r.data);
+  api.patch(`${sourceMappingDraftPath(sourceId, draftId)}/sample-run/${sampleRunId}/results/${resultId}`, payload).then((r) => r.data);
 
 export const rollbackSourceMappingVersion = (
   sourceId: string,
