@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.deps import get_db
 from app.config import settings, validate_env
 
 logger = structlog.get_logger()
@@ -67,10 +68,12 @@ async def track_public_api_usage(request, call_next):
 
     try:
         from app.api.auth import hash_api_key
-        from app.db.database import AsyncSessionLocal
         from app.db import crud
 
-        async with AsyncSessionLocal() as session:
+        db_provider = request.app.dependency_overrides.get(get_db, get_db)
+        db_gen = db_provider()
+        session = await anext(db_gen)
+        try:
             key = await crud.get_api_key_by_hash(session, hash_api_key(api_key))
             if key:
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
@@ -83,6 +86,8 @@ async def track_public_api_usage(request, call_next):
                     status_code=response.status_code,
                     response_time_ms=max(1, elapsed_ms),
                 )
+        finally:
+            await db_gen.aclose()
     except Exception:
         logger.exception("usage_tracking_failed")
     return response
