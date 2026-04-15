@@ -3,6 +3,7 @@ import { Layout } from "@/components/shared/Layout";
 import { Dashboard } from "@/pages/Dashboard";
 import { Sources } from "@/pages/Sources";
 import { SourceDetail } from "@/pages/SourceDetail";
+import { SourceMapping } from "@/pages/SourceMapping";
 import { Records } from "@/pages/Records";
 import { RecordDetail } from "@/pages/RecordDetail";
 import { Pages } from "@/pages/Pages";
@@ -26,6 +27,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/sources" element={<Sources />} />
           <Route path="/sources/:id" element={<SourceDetail />} />
+          <Route path="/sources/:id/mapping" element={<SourceMapping />} />
           <Route path="/records" element={<Records />} />
           <Route path="/admin-review" element={<AdminReview />} />
           <Route path="/duplicates" element={<DuplicateResolution />} />

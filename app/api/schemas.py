@@ -110,6 +110,101 @@ class SourceActionResponse(BaseModel):
     queued_jobs: int = 0
 
 
+class MappingDraftCreateRequest(BaseModel):
+    scan_mode: str = "standard"
+    allowed_paths: list[str] = []
+    blocked_paths: list[str] = []
+    max_pages: int = 50
+    max_depth: int = 3
+    sample_pages_per_type: int = 5
+
+
+class MappingDraftSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    source_id: str
+    version_number: int
+    status: str
+    scan_status: str
+    created_at: datetime
+    updated_at: datetime
+    published_at: datetime | None = None
+    page_type_count: int = 0
+    mapping_count: int = 0
+    approved_count: int = 0
+    needs_review_count: int = 0
+
+
+class MappingPageTypeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    key: str
+    label: str
+    sample_count: int
+    confidence_score: float
+
+
+class MappingRowResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    mapping_version_id: str
+    page_type_id: str | None
+    selector: str
+    extraction_mode: str
+    sample_value: str | None
+    destination_entity: str
+    destination_field: str
+    category_target: str | None
+    confidence_score: float
+    status: str
+    is_required: bool
+    is_enabled: bool
+    sort_order: int
+    transforms: list[str] = []
+    rationale: list[str] = []
+
+
+class MappingRowUpdateRequest(BaseModel):
+    destination_entity: str | None = None
+    destination_field: str | None = None
+    category_target: str | None = None
+    status: str | None = None
+    is_enabled: bool | None = None
+    is_required: bool | None = None
+    sort_order: int | None = None
+    transforms: list[str] | None = None
+    rationale: list[str] | None = None
+
+
+class MappingRowActionRequest(BaseModel):
+    row_ids: list[str]
+    action: str
+
+
+class MappingPreviewRequest(BaseModel):
+    sample_page_id: str
+
+
+class MappingExtractionPreview(BaseModel):
+    mapping_row_id: str
+    source_selector: str
+    raw_value: str | None
+    normalized_value: str | None
+    destination_entity: str
+    destination_field: str
+    category_target: str | None
+    confidence_score: float
+    warning: str | None = None
+
+
+class MappingPreviewResponse(BaseModel):
+    sample_page_id: str
+    page_url: str
+    page_type_key: str | None
+    extractions: list[MappingExtractionPreview]
+    record_preview: dict[str, Any]
+
+
 # ---------------------------------------------------------------------------
 # Mining
 # ---------------------------------------------------------------------------

@@ -23,7 +23,7 @@ export function SourceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<"overview" | "pages" | "records" | "jobs" | "settings">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "pages" | "records" | "jobs" | "settings" | "mapping">("overview");
   const [message, setMessage] = useState<string | null>(null);
 
   const { data: source, isLoading } = useQuery({ queryKey: ["source", id], queryFn: () => getSource(id!), enabled: !!id });
@@ -97,7 +97,7 @@ export function SourceDetail() {
   if (isLoading) return <div className="p-6 text-gray-400">Loading...</div>;
   if (!source) return <div className="p-6 text-red-500">Source not found</div>;
 
-  const tabs = ["overview", "pages", "records", "jobs", "settings"] as const;
+  const tabs = ["overview", "pages", "records", "jobs", "mapping", "settings"] as const;
 
   return (
     <div className="space-y-4">
@@ -154,6 +154,15 @@ export function SourceDetail() {
 
       {activeTab === "records" && (
         <div className="bg-white border rounded p-4 text-sm">{records?.items.length ?? 0} records found.</div>
+      )}
+
+      {activeTab === "mapping" && (
+        <div className="bg-white border rounded p-4 text-sm space-y-3">
+          <p>Configure AI Source Mapper scans, mappings, and preview output for this source.</p>
+          <button className="px-3 py-2 bg-blue-600 text-white rounded" onClick={() => navigate(`/sources/${id}/mapping`)}>
+            Open Mapping Workspace
+          </button>
+        </div>
       )}
 
       {activeTab === "jobs" && (
