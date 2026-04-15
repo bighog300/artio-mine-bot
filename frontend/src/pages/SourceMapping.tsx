@@ -16,6 +16,7 @@ import {
   rollbackSourceMappingVersion,
   startSourceMappingSampleRun,
   startSourceMappingScan,
+  updateSourceMappingSampleRunResult,
   updateSourceMappingRow,
 } from "@/lib/api";
 import { MappingMatrix } from "@/components/source-mapper/MappingMatrix";
@@ -153,6 +154,20 @@ export function SourceMapping() {
     onError: (e: Error) => setMessage(e.message),
   });
 
+  const moderateSampleResultMutation = useMutation({
+    mutationFn: ({
+      resultId,
+      payload,
+    }: {
+      resultId: string;
+      payload: { review_status?: string; review_notes?: string };
+    }) => updateSourceMappingSampleRunResult(id!, draftId!, sampleRunId!, resultId, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["source-mapping-sample-run", id, draftId, sampleRunId] });
+    },
+    onError: (e: Error) => setMessage(e.message),
+  });
+
   const rollbackMutation = useMutation({
     mutationFn: (versionId: string) => rollbackSourceMappingVersion(id!, versionId),
     onSuccess: (payload) => {
@@ -211,7 +226,12 @@ export function SourceMapping() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <PageTypeSidebar pageTypes={pageTypes?.items ?? []} />
         <MappingPreviewPanel preview={preview} />
-        <SampleRunReview sampleRun={sampleRun} onStart={() => sampleRunMutation.mutate()} loading={sampleRunMutation.isPending} />
+        <SampleRunReview
+          sampleRun={sampleRun}
+          onStart={() => sampleRunMutation.mutate()}
+          loading={sampleRunMutation.isPending}
+          onModerateResult={(resultId, payload) => moderateSampleResultMutation.mutate({ resultId, payload })}
+        />
       </div>
 
       {selectedCount > 0 && (

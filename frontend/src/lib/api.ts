@@ -184,6 +184,7 @@ export interface MappingSampleRunResult {
   sample_run_id: string;
   sample_id: string | null;
   review_status: string;
+  review_notes?: string | null;
   record_preview: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -649,9 +650,21 @@ export const startSourceMappingSampleRun = (
 export const getSourceMappingSampleRun = (
   sourceId: string,
   draftId: string,
-  sampleRunId: string
+  sampleRunId: string,
+  reviewStatus?: string
 ): Promise<MappingSampleRunResultResponse> =>
-  api.get(`/sources/${sourceId}/mapping-drafts/${draftId}/sample-run/${sampleRunId}`).then((r) => r.data);
+  api.get(`/sources/${sourceId}/mapping-drafts/${draftId}/sample-run/${sampleRunId}`, {
+    params: reviewStatus ? { review_status: reviewStatus } : {},
+  }).then((r) => r.data);
+
+export const updateSourceMappingSampleRunResult = (
+  sourceId: string,
+  draftId: string,
+  sampleRunId: string,
+  resultId: string,
+  payload: { review_status?: string; review_notes?: string }
+): Promise<MappingSampleRunResult> =>
+  api.patch(`/sources/${sourceId}/mapping-drafts/${draftId}/sample-run/${sampleRunId}/results/${resultId}`, payload).then((r) => r.data);
 
 export const rollbackSourceMappingVersion = (
   sourceId: string,
