@@ -576,3 +576,35 @@ async def test_discovery_hub_deepens_child_pages(db_session: AsyncSession, mock_
         assert child_page is not None
         assert child_page.status == "fetched"
         assert child_page.html is not None
+
+
+@pytest.mark.asyncio
+async def test_classify_page_with_structure_uses_pattern_without_ai(db_session: AsyncSession, mock_ai_client):
+    from app.pipeline.runner import PipelineRunner
+
+    runner = PipelineRunner(db=db_session, ai_client=mock_ai_client)
+    structure_map = {
+        "mining_map": {
+            "artist_profile": {
+                "url_pattern": "/artists/[letter]/[name]",
+                "expected_fields": ["name", "bio"],
+            }
+        }
+    }
+
+    result = runner.classify_page_with_structure(
+        "https://example.com/artists/a/john-doe", structure_map
+    )
+    assert result is not None
+    assert result["page_type"] == "artist_profile"
+    assert result["expected_fields"] == ["name", "bio"]
+
+
+@pytest.mark.asyncio
+async def test_matches_pattern_url_tokens(db_session: AsyncSession, mock_ai_client):
+    from app.pipeline.runner import PipelineRunner
+
+    runner = PipelineRunner(db=db_session, ai_client=mock_ai_client)
+    assert runner._matches_pattern_url("https://example.com/artists/b/jane", "/artists/[letter]/[name]")
+    assert runner._matches_pattern_url("https://example.com/artworks/123", "/artworks/[id]")
+    assert not runner._matches_pattern_url("https://example.com/artists/jane", "/artists/[letter]/[name]")

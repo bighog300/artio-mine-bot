@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -226,10 +227,11 @@ class PipelineRunner:
                 statuses=status_counts,
             )
         stats = ExtractionStats()
+        structure_map = await self._get_structure_map(source_id)
 
         for page in pages:
             try:
-                record = await self.run_extraction_for_page(page)
+                record = await self.run_extraction_for_page(page, structure_map=structure_map)
                 if record:
                     stats.records_created += 1
                 stats.pages_processed += 1
@@ -250,7 +252,12 @@ class PipelineRunner:
         await crud.update_source(self.db, source_id, total_records=total_records)
         return stats
 
-    async def run_extraction_for_page(self, page: Page) -> Record | None:
+    async def run_extraction_for_page(
+        self,
+        page: Page,
+        *,
+        structure_map: dict[str, Any] | None = None,
+    ) -> Record | None:
         """Classify page, extract record, score confidence, store in DB."""
         if settings.environment == "production":
             raise RuntimeError("This task must run in a worker environment, not Vercel.")
@@ -275,6 +282,7 @@ class PipelineRunner:
             return None
 
         forced_page_type = self._get_page_role_override(page.url, source_hints)
+        expected_fields: list[str] | None = None
         if forced_page_type is not None:
             classify_result = type(
                 "ForcedClassifyResult",
@@ -286,9 +294,22 @@ class PipelineRunner:
                 },
             )()
         else:
-            classify_result = await classify_page(
-                url=page.url, html=page.html, ai_client=self.ai_client
-            )
+            structured = self.classify_page_with_structure(page.url, structure_map)
+            if structured is not None:
+                classify_result = type(
+                    "StructuredClassifyResult",
+                    (),
+                    {
+                        "page_type": structured["page_type"],
+                        "confidence": 100,
+                        "reasoning": "structure_map.pattern_match",
+                    },
+                )()
+                expected_fields = structured.get("expected_fields") or None
+            else:
+                classify_result = await classify_page(
+                    url=page.url, html=page.html, ai_client=self.ai_client
+                )
         logger.info(
             "page_classification_result",
             source_id=page.source_id,
@@ -363,7 +384,8 @@ class PipelineRunner:
             return None
 
         try:
-            data = await extractor.extract(url=page.url, html=page.html)
+            context = {"expected_fields": expected_fields, "page_type": classify_result.page_type} if expected_fields else None
+            data = await extractor.extract(url=page.url, html=page.html, context=context)
         except Exception as exc:
             logger.error("extractor_error", page_id=page.id, record_type=record_type, error=str(exc))
             existing_error_record = await crud.get_record_by_page_and_type(
@@ -810,6 +832,46 @@ class PipelineRunner:
                 )
                 rerun_count += 1
         return {"family_key": family_key, "pages_reprocessed": rerun_count}
+
+    async def _get_structure_map(self, source_id: str) -> dict[str, Any] | None:
+        source = await crud.get_source(self.db, source_id)
+        if source is None or not source.structure_map:
+            return None
+        try:
+            return json.loads(source.structure_map)
+        except json.JSONDecodeError:
+            logger.warning("source_structure_invalid_json", source_id=source_id)
+            return None
+
+    def classify_page_with_structure(
+        self,
+        url: str,
+        structure_map: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if not structure_map:
+            return None
+        mining_map = structure_map.get("mining_map", {})
+        for page_type, config in mining_map.items():
+            pattern = config.get("url_pattern")
+            if not pattern:
+                continue
+            if self._matches_pattern_url(url, pattern):
+                return {"page_type": page_type, "expected_fields": config.get("expected_fields", [])}
+        return None
+
+    def _matches_pattern_url(self, url: str, pattern: str) -> bool:
+        parsed_url = urlparse(url)
+        escaped = re.escape(pattern)
+        token_map = {
+            re.escape("[letter]"): r"[a-z]",
+            re.escape("[number]"): r"\d+",
+            re.escape("[page]"): r"\d+",
+            re.escape("[name]"): r"[^/]+",
+            re.escape("[id]"): r"[^/]+",
+        }
+        for token, regex in token_map.items():
+            escaped = escaped.replace(token, regex)
+        return re.search(f"{escaped}$", parsed_url.path, flags=re.IGNORECASE) is not None
 
     async def _get_crawl_hints(self, source_id: str) -> dict[str, Any]:
         cached = self._crawl_hints_cache.get(source_id)

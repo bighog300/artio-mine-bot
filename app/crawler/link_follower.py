@@ -1,3 +1,4 @@
+import json
 import asyncio
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlparse
@@ -10,10 +11,32 @@ from app.config import settings
 from app.crawler.fetcher import FetchResult, fetch
 from app.crawler.robots import RobotsChecker
 from app.crawler.site_mapper import SiteMap
+from app.crawler.site_structure_analyzer import _generate_urls_from_pattern
 from app.db import crud
 
 logger = structlog.get_logger()
 TERMINAL_PAGE_STATUSES = {"extracted", "skipped"}
+
+
+def _seed_structure_targets(queue: "CrawlQueue", root_url: str, structure_map: str | None) -> int:
+    """Seed crawl queue from saved structure map targets."""
+    if not structure_map:
+        return 0
+    try:
+        payload = json.loads(structure_map)
+    except json.JSONDecodeError:
+        return 0
+
+    seeded = 0
+    for target in payload.get("crawl_targets", []):
+        pattern = target.get("url_pattern")
+        if not pattern:
+            continue
+        urls = _generate_urls_from_pattern(root_url, pattern, limit=target.get("estimated_pages", 100))
+        for generated_url in urls:
+            if queue.add(generated_url, depth=0):
+                seeded += 1
+    return seeded
 
 
 @dataclass
@@ -114,9 +137,11 @@ async def crawl_source(
         raise ValueError(f"Source {source_id} not found before crawl page storage")
     root_url = source.url or site_map.root_url
 
-    # Seed queue with section URLs
-    for section in site_map.sections:
-        queue.add(section.url, depth=0)
+    # Prefer structure-driven crawl targets when available.
+    seeded_from_structure = _seed_structure_targets(queue, root_url, source.structure_map)
+    if seeded_from_structure == 0:
+        for section in site_map.sections:
+            queue.add(section.url, depth=0)
 
     # Always seed from root URL to guarantee at least one crawl target.
     if root_url:

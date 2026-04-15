@@ -1,6 +1,6 @@
 import json
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -602,3 +602,47 @@ async def test_related_artists_and_ask_endpoint(test_client: AsyncClient, db_ses
     ask_payload = ask_resp.json()
     assert ask_payload["results"]
     assert ask_payload["intent"] in {"artist_similarity", "semantic_lookup"}
+
+
+@pytest.mark.asyncio
+async def test_analyze_source_structure_endpoint_cached(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(
+        db_session,
+        url="https://cached-structure.com",
+        name="Cached",
+    )
+    await crud.update_source(
+        db_session,
+        source.id,
+        structure_status="analyzed",
+        structure_map=json.dumps({"crawl_targets": [], "mining_map": {}}),
+    )
+
+    resp = await test_client.post(f"/api/sources/{source.id}/analyze-structure")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["status"] == "cached"
+    assert "structure" in payload
+
+
+@pytest.mark.asyncio
+async def test_analyze_source_structure_endpoint_runs_analysis(test_client: AsyncClient):
+    create_resp = await test_client.post(
+        "/api/sources", json={"url": "https://analyze-structure.com", "name": "Analyze"}
+    )
+    source_id = create_resp.json()["id"]
+
+    fake_fetch = SimpleNamespace(html="<html><nav><a href='/artists'>Artists</a></nav></html>", error=None)
+    structure_payload = {
+        "crawl_targets": [{"url_pattern": "/artists/[letter]", "estimated_pages": 26}],
+        "mining_map": {"artist_profile": {"url_pattern": "/artists/[letter]/[name]", "expected_fields": ["name", "bio"]}},
+    }
+
+    with patch("app.crawler.fetcher.fetch", new=AsyncMock(return_value=fake_fetch)):
+        with patch("app.crawler.site_structure_analyzer.analyze_structure", new=AsyncMock(return_value=structure_payload)):
+            resp = await test_client.post(f"/api/sources/{source_id}/analyze-structure")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["status"] == "analyzed"
+    assert payload["structure"]["crawl_targets"][0]["url_pattern"] == "/artists/[letter]"

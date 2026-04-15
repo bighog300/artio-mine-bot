@@ -10,13 +10,13 @@ class VenueExtractor(BaseExtractor):
     record_type = "venue"
     system_prompt = VENUE_EXTRACTOR_PROMPT
 
-    async def extract(self, url: str, html: str) -> dict:
+    async def extract(self, url: str, html: str, context: dict | None = None) -> dict:
         preprocessed = self.preprocess_html(html)
         image_urls = self.extract_image_urls(html, url)
 
         response = await self.ai_client.complete(
             system_prompt=self.system_prompt,
-            user_content=f"URL: {url}\n\nHTML:\n{preprocessed}",
+            user_content=self._build_user_content(url, preprocessed, context=context),
             response_format={"type": "json_object"},
         )
 
