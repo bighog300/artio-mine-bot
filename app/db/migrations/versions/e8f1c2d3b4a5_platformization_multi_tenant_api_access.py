@@ -22,7 +22,7 @@ def upgrade() -> None:
         "tenants",
         sa.Column("id", sa.String(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
@@ -54,7 +54,7 @@ def upgrade() -> None:
         sa.Column("key_prefix", sa.String(length=12), nullable=False),
         sa.Column("key_hash", sa.String(length=128), nullable=False),
         sa.Column("permissions_json", sa.Text(), nullable=False, server_default='["read"]'),
-        sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("usage_count", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True),
@@ -87,7 +87,7 @@ def upgrade() -> None:
 
     op.execute(
         "INSERT INTO tenants (id, name, is_active, created_at, updated_at) "
-        "VALUES ('public', 'public', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        "VALUES ('public', 'public', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
     )
 
 
