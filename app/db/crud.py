@@ -7,6 +7,7 @@ import structlog
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.embeddings import cosine_similarity, create_embedding
 from app.db.models import EntityRelationship, Image, Job, Page, Record, Source
 
 logger = structlog.get_logger()
@@ -22,6 +23,37 @@ def _extract_completeness_and_conflicts(raw_data: str | None) -> tuple[int, bool
     completeness = payload.get("completeness_score", 0)
     has_conflicts = bool(payload.get("conflicts", {}))
     return int(completeness or 0), has_conflicts
+
+
+def _record_text_for_embedding(record_type: str, values: dict[str, Any]) -> str:
+    segments: list[str] = []
+    if record_type == "artist":
+        for key in ("title", "bio", "nationality", "city", "country", "description"):
+            value = values.get(key)
+            if value:
+                segments.append(str(value))
+        for key in ("mediums", "collections"):
+            value = values.get(key)
+            if isinstance(value, list):
+                segments.extend(str(item) for item in value)
+    elif record_type == "exhibition":
+        for key in ("title", "description", "venue_name", "venue_address", "city", "country"):
+            value = values.get(key)
+            if value:
+                segments.append(str(value))
+    elif record_type in {"artist_article", "article"}:
+        for key in ("title", "description", "source_url"):
+            value = values.get(key)
+            if value:
+                segments.append(str(value))
+    return " ".join(segments)
+
+
+def _build_embedding_payload(record_type: str, values: dict[str, Any]) -> str | None:
+    text = _record_text_for_embedding(record_type, values)
+    if not text.strip():
+        return None
+    return json.dumps(create_embedding(text))
 
 # ---------------------------------------------------------------------------
 # Source CRUD
@@ -245,6 +277,10 @@ async def count_pages_by_status(db: AsyncSession, source_id: str) -> dict[str, i
 async def create_record(
     db: AsyncSession, source_id: str, record_type: str, **kwargs: Any
 ) -> Record:
+    embedding_payload = _build_embedding_payload(record_type, kwargs)
+    if embedding_payload is not None:
+        kwargs["embedding_vector"] = embedding_payload
+        kwargs["embedding_updated_at"] = datetime.now(UTC)
     # Serialize list fields to JSON strings
     for field in ("artist_names", "mediums", "collections", "confidence_reasons"):
         if field in kwargs and isinstance(kwargs[field], list):
@@ -453,12 +489,18 @@ async def update_record(db: AsyncSession, record_id: str, **kwargs: Any) -> Reco
     record = await get_record(db, record_id)
     if record is None:
         raise ValueError(f"Record {record_id} not found")
+    updated_values: dict[str, Any] = {}
     for key, value in kwargs.items():
         if key in ("artist_names", "mediums", "collections", "confidence_reasons") and isinstance(
             value, list
         ):
             value = json.dumps(value)
         setattr(record, key, value)
+        updated_values[key] = value
+    embedding_payload = _build_embedding_payload(record.record_type, {**record.__dict__, **updated_values})
+    if embedding_payload is not None:
+        record.embedding_vector = embedding_payload
+        record.embedding_updated_at = datetime.now(UTC)
     if "raw_data" in kwargs:
         completeness, has_conflicts = _extract_completeness_and_conflicts(record.raw_data)
         record.completeness_score = completeness
@@ -694,6 +736,22 @@ async def list_records_for_artist_family(
     )
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+def parse_embedding(embedding_value: str | None) -> list[float]:
+    if not embedding_value:
+        return []
+    try:
+        parsed = json.loads(embedding_value)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [float(item) for item in parsed]
+
+
+def embedding_similarity(left: Record, right: Record) -> float:
+    return cosine_similarity(parse_embedding(left.embedding_vector), parse_embedding(right.embedding_vector))
 
 
 async def upsert_entity_relationship(

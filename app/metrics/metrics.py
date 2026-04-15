@@ -11,6 +11,8 @@ class RuntimeMetrics:
     records_created: int = 0
     records_enriched: int = 0
     duplicate_items_skipped: int = 0
+    semantic_queries: int = 0
+    merge_actions: int = 0
     completeness_total: float = 0.0
     completeness_samples: int = 0
 
@@ -42,6 +44,8 @@ def snapshot() -> dict[str, float | int]:
         "records_created": _METRICS.records_created,
         "records_enriched": _METRICS.records_enriched,
         "duplicate_items_skipped": _METRICS.duplicate_items_skipped,
+        "semantic_queries": _METRICS.semantic_queries,
+        "merge_actions": _METRICS.merge_actions,
         "average_completeness": _METRICS.average_completeness,
     }
 

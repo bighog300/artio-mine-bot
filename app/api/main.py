@@ -77,7 +77,7 @@ async def health():
 
 
 # Include routers
-from app.api.routes import export, graph, images, logs, mine, pages, records, review, search, sources, stats  # noqa: E402
+from app.api.routes import export, graph, images, intelligence, logs, mine, pages, records, review, search, sources, stats  # noqa: E402
 from app.api.routes import metrics as metrics_routes  # noqa: E402
 from app.api.routes import settings as settings_routes  # noqa: E402
 
@@ -93,4 +93,5 @@ app.include_router(settings_routes.router, prefix="/api")
 app.include_router(review.router, prefix="/api")
 app.include_router(search.router, prefix="/api")
 app.include_router(graph.router, prefix="/api")
+app.include_router(intelligence.router, prefix="/api")
 app.include_router(metrics_routes.router)
