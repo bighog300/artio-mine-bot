@@ -1,7 +1,9 @@
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.routes import logs as logs_routes
 from app.db import crud
 
 
@@ -71,3 +73,15 @@ async def test_activity_logs_endpoint(test_client: AsyncClient):
     response = await test_client.get("/api/logs/activity")
     assert response.status_code == 200
     assert "items" in response.json()
+
+
+@pytest.mark.asyncio
+async def test_activity_logs_endpoint_db_error_fallback(test_client: AsyncClient, monkeypatch: pytest.MonkeyPatch):
+    async def _broken_list_logs(*args, **kwargs):
+        raise SQLAlchemyError("logs table missing")
+
+    monkeypatch.setattr(logs_routes, "list_logs", _broken_list_logs)
+
+    response = await test_client.get("/api/logs/activity")
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
