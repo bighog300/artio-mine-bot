@@ -100,9 +100,42 @@ async def test_activity_logs_endpoint_unexpected_error_fallback(test_client: Asy
 
 
 @pytest.mark.asyncio
+async def test_activity_logs_endpoint_handles_non_string_messages(test_client: AsyncClient, monkeypatch: pytest.MonkeyPatch):
+    class _FakeLog:
+        id = "log-1"
+        timestamp = "2026-01-01T00:00:00Z"
+        level = "info"
+        service = "api"
+        source_id = None
+        message = 42
+        context = None
+
+    async def _fake_list_logs(*args, **kwargs):
+        return ([_FakeLog()], 1)
+
+    monkeypatch.setattr(logs_routes, "list_logs", _fake_list_logs)
+
+    response = await test_client.get("/api/logs/activity")
+    assert response.status_code == 200
+    assert response.json() == {"items": []}
+
+
+@pytest.mark.asyncio
 async def test_duplicate_reviews_endpoint_db_error_fallback(test_client: AsyncClient, monkeypatch: pytest.MonkeyPatch):
     async def _broken_list_duplicate_reviews(*args, **kwargs):
         raise SQLAlchemyError("duplicate_reviews table missing")
+
+    monkeypatch.setattr(crud, "list_duplicate_reviews", _broken_list_duplicate_reviews)
+
+    response = await test_client.get("/api/duplicates/reviews", params={"status": "pending", "skip": 0, "limit": 20})
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "total": 0, "skip": 0, "limit": 20}
+
+
+@pytest.mark.asyncio
+async def test_duplicate_reviews_endpoint_unexpected_error_fallback(test_client: AsyncClient, monkeypatch: pytest.MonkeyPatch):
+    async def _broken_list_duplicate_reviews(*args, **kwargs):
+        raise RuntimeError("unexpected duplicate review failure")
 
     monkeypatch.setattr(crud, "list_duplicate_reviews", _broken_list_duplicate_reviews)
 

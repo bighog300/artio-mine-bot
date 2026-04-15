@@ -3,10 +3,12 @@ import { decideDuplicate, getDuplicateReviews } from "@/lib/api";
 
 export function DuplicateResolution() {
   const queryClient = useQueryClient();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["duplicate-reviews"],
     queryFn: () => getDuplicateReviews("pending"),
     retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   const decideMutation = useMutation({
@@ -41,7 +43,8 @@ export function DuplicateResolution() {
                 </td>
               </tr>
             ))}
-            {!isLoading && (data?.items.length ?? 0) === 0 && <tr><td colSpan={4} className="p-4 text-gray-500">No candidates.</td></tr>}
+            {isError && <tr><td colSpan={4} className="p-4 text-amber-700">Duplicate review service is temporarily unavailable.</td></tr>}
+            {!isError && !isLoading && (data?.items.length ?? 0) === 0 && <tr><td colSpan={4} className="p-4 text-gray-500">No candidates.</td></tr>}
           </tbody>
         </table>
       </div>

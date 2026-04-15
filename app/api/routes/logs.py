@@ -72,6 +72,10 @@ async def get_activity(
         "extraction_started",
         "pages_processed",
     }
+    def _is_activity_message(message: object) -> bool:
+        text = message if isinstance(message, str) else str(message or "")
+        return any(token in text for token in activity_tokens)
+
     try:
         # Limit before filtering to avoid expensive scans.
         items, _ = await list_logs(
@@ -85,19 +89,21 @@ async def get_activity(
             skip=0,
             limit=min(limit * 5, 100),
         )
-        activity = [
-            {
-                "id": log.id,
-                "timestamp": log.timestamp,
-                "level": log.level,
-                "service": log.service,
-                "source_id": log.source_id,
-                "message": log.message,
-                "context": log.context,
-            }
-            for log in items
-            if any(token in (log.message or "") for token in activity_tokens)
-        ]
+        activity = []
+        for log in items:
+            if not _is_activity_message(log.message):
+                continue
+            activity.append(
+                {
+                    "id": log.id,
+                    "timestamp": log.timestamp,
+                    "level": log.level,
+                    "service": log.service,
+                    "source_id": log.source_id,
+                    "message": log.message if isinstance(log.message, str) else str(log.message),
+                    "context": log.context,
+                }
+            )
         return {"items": activity[:limit]}
     except SQLAlchemyError as exc:
         logger.error(
