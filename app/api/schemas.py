@@ -133,6 +133,7 @@ class MappingDraftSummary(BaseModel):
     mapping_count: int = 0
     approved_count: int = 0
     needs_review_count: int = 0
+    changed_from_published_count: int = 0
 
 
 class MappingPageTypeResponse(BaseModel):
@@ -162,6 +163,8 @@ class MappingRowResponse(BaseModel):
     sort_order: int
     transforms: list[str] = []
     rationale: list[str] = []
+    confidence_band: str = "LOW"
+    low_confidence_blocked: bool = False
 
 
 class MappingRowUpdateRequest(BaseModel):
@@ -179,6 +182,9 @@ class MappingRowUpdateRequest(BaseModel):
 class MappingRowActionRequest(BaseModel):
     row_ids: list[str]
     action: str
+    destination_entity: str | None = None
+    destination_field: str | None = None
+    force_low_confidence: bool = False
 
 
 class MappingPreviewRequest(BaseModel):
@@ -203,6 +209,38 @@ class MappingPreviewResponse(BaseModel):
     page_type_key: str | None
     extractions: list[MappingExtractionPreview]
     record_preview: dict[str, Any]
+    source_snippet: str | None = None
+    category_preview: dict[str, Any] = {}
+    warnings: list[str] = []
+
+
+class MappingVersionDiffSummary(BaseModel):
+    added: int
+    removed: int
+    changed: int
+    unchanged: int
+
+
+class MappingVersionListItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    source_id: str
+    version_number: int
+    status: str
+    scan_status: str
+    created_at: datetime
+    updated_at: datetime
+    published_at: datetime | None = None
+    created_by: str | None = None
+    published_by: str | None = None
+
+
+class MappingVersionPublishResponse(BaseModel):
+    id: str
+    source_id: str
+    status: str
+    published_at: datetime
+    published_by: str | None = None
 
 
 # ---------------------------------------------------------------------------

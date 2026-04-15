@@ -342,6 +342,15 @@ async def get_source_mapping_version(db: AsyncSession, source_id: str, draft_id:
     return result.scalar_one_or_none()
 
 
+async def list_source_mapping_versions(db: AsyncSession, source_id: str) -> list[SourceMappingVersion]:
+    result = await db.execute(
+        select(SourceMappingVersion)
+        .where(SourceMappingVersion.source_id == source_id)
+        .order_by(SourceMappingVersion.version_number.desc())
+    )
+    return list(result.scalars().all())
+
+
 async def list_source_mapping_rows(
     db: AsyncSession,
     source_id: str,
@@ -416,6 +425,60 @@ async def update_source_mapping_row(
     return row
 
 
+async def clone_published_mapping_to_draft(
+    db: AsyncSession,
+    source_id: str,
+    *,
+    created_by: str | None = None,
+) -> SourceMappingVersion:
+    source = await get_source(db, source_id)
+    if source is None:
+        raise ValueError(f"Source {source_id} not found")
+    if not source.active_mapping_version_id:
+        raise ValueError("No active published mapping exists")
+
+    published = await get_source_mapping_version(db, source_id, source.active_mapping_version_id)
+    if published is None or published.status != "published":
+        raise ValueError("No active published mapping exists")
+
+    draft = await create_source_mapping_version(
+        db,
+        source_id,
+        tenant_id=published.tenant_id,
+        scan_options=json.loads(published.scan_options_json or "{}"),
+        created_by=created_by,
+    )
+
+    src_page_types = await list_source_mapping_page_types(db, published.id)
+    page_type_map: dict[str, str] = {}
+    for src in src_page_types:
+        cloned = await create_source_mapping_page_type(
+            db,
+            draft.id,
+            key=src.key,
+            label=src.label,
+            sample_count=src.sample_count,
+            confidence_score=src.confidence_score,
+        )
+        page_type_map[src.id] = cloned.id
+
+    src_rows = await list_source_mapping_rows(db, source_id, published.id, skip=0, limit=2_000)
+    for row in src_rows:
+        await create_source_mapping_row(
+            db,
+            draft.id,
+            page_type_id=page_type_map.get(row.page_type_id) if row.page_type_id else None,
+            selector=row.selector,
+            sample_value=row.sample_value,
+            destination_entity=row.destination_entity,
+            destination_field=row.destination_field,
+            confidence_score=row.confidence_score,
+            status="changed_from_published",
+            rationale=json.loads(row.confidence_reasons_json or "[]"),
+        )
+    return draft
+
+
 async def set_source_mapping_rows_status(
     db: AsyncSession,
     source_id: str,
@@ -442,6 +505,53 @@ async def set_source_mapping_rows_status(
     if updated > 0:
         await db.commit()
     return updated
+
+
+async def publish_source_mapping_version(
+    db: AsyncSession,
+    source_id: str,
+    draft_id: str,
+    *,
+    published_by: str | None = None,
+) -> SourceMappingVersion:
+    source = await get_source(db, source_id)
+    if source is None:
+        raise ValueError(f"Source {source_id} not found")
+    draft = await get_source_mapping_version(db, source_id, draft_id)
+    if draft is None:
+        raise ValueError("Mapping draft not found")
+    if draft.status == "published":
+        return draft
+
+    approved_count = await db.execute(
+        select(func.count(SourceMappingRow.id)).where(
+            SourceMappingRow.mapping_version_id == draft_id,
+            SourceMappingRow.status == "approved",
+            SourceMappingRow.is_enabled.is_(True),
+        )
+    )
+    if int(approved_count.scalar_one() or 0) == 0:
+        raise RuntimeError("Cannot publish without approved mapping rows")
+
+    now = datetime.now(UTC)
+    previous_active_id = source.active_mapping_version_id
+    if previous_active_id:
+        previous_active = await get_source_mapping_version(db, source_id, previous_active_id)
+        if previous_active is not None and previous_active.id != draft_id and previous_active.status == "published":
+            previous_active.status = "superseded"
+            previous_active.updated_at = now
+
+    draft.status = "published"
+    draft.scan_status = "completed"
+    draft.published_at = now
+    draft.published_by = published_by
+    draft.updated_at = now
+    source.active_mapping_version_id = draft.id
+    source.mapping_status = "published"
+    source.updated_at = now
+    await db.commit()
+    await db.refresh(draft)
+    return draft
 
 
 async def create_source_mapping_page_type(
