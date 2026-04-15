@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.embeddings import cosine_similarity, create_embedding
 from app.api.deps import get_db
+from app.api.rbac import require_permission
 from app.db import crud
 from app.db.models import EntityRelationship, Record
 from app.metrics import metrics
@@ -330,7 +331,11 @@ async def list_duplicate_reviews(
 
 
 @router.post("/merge/artists")
-async def merge_artists(payload: MergeArtistsRequest, db: AsyncSession = Depends(get_db)):
+async def merge_artists(
+    payload: MergeArtistsRequest,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("merge")),
+):
     primary = await crud.get_record(db, payload.primary_id)
     secondary = await crud.get_record(db, payload.secondary_id)
     if primary is None or secondary is None:
@@ -373,7 +378,27 @@ async def merge_artists(payload: MergeArtistsRequest, db: AsyncSession = Depends
 
     merged_record = await crud.update_record(db, primary.id, **merged_values)
 
-    relationships = await crud.list_relationships_for_record(db, source_id=secondary.source_id, record_id=secondary.id)
+    relationships = await crud.list_relationships_for_record(
+        db,
+        source_id=secondary.source_id,
+        record_id=secondary.id,
+    )
+    relationships_snapshot = [
+        {
+            "source_id": rel.source_id,
+            "from_record_id": rel.from_record_id,
+            "to_record_id": rel.to_record_id,
+            "relationship_type": rel.relationship_type,
+            "metadata_json": _parse_json(rel.metadata_json),
+        }
+        for rel in relationships
+    ]
+    merge_history = await crud.create_merge_history(
+        db,
+        primary_record=primary,
+        secondary_record=secondary,
+        relationships_snapshot=relationships_snapshot,
+    )
     for rel in relationships:
         from_id = merged_record.id if rel.from_record_id == secondary.id else rel.from_record_id
         to_id = merged_record.id if rel.to_record_id == secondary.id else rel.to_record_id
@@ -402,6 +427,7 @@ async def merge_artists(payload: MergeArtistsRequest, db: AsyncSession = Depends
     )
 
     return {
+        "merge_id": merge_history.id,
         "merged_id": merged_record.id,
         "removed_id": payload.secondary_id,
         "status": "merged",
@@ -409,7 +435,11 @@ async def merge_artists(payload: MergeArtistsRequest, db: AsyncSession = Depends
 
 
 @router.post("/duplicates/decision")
-async def decide_duplicate(payload: DuplicateDecisionRequest, db: AsyncSession = Depends(get_db)):
+async def decide_duplicate(
+    payload: DuplicateDecisionRequest,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("merge")),
+):
     allowed_decisions = {"merge", "ignore", "not_duplicate", "reviewed"}
     if payload.decision not in allowed_decisions:
         raise HTTPException(status_code=400, detail="Invalid decision")

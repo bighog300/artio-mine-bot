@@ -34,12 +34,19 @@ class SourceCreate(BaseModel):
     url: str
     name: str | None = None
     crawl_hints: dict[str, Any] | None = None
+    extraction_rules: dict[str, Any] | None = None
+    max_depth: int | None = None
+    enabled: bool = True
 
 
 class SourceUpdate(BaseModel):
     name: str | None = None
     status: str | None = None
     crawl_hints: dict[str, Any] | None = None
+    extraction_rules: dict[str, Any] | None = None
+    max_depth: int | None = None
+    enabled: bool | None = None
+    health_status: str | None = None
 
 
 class SourceResponse(BaseModel):
@@ -53,11 +60,25 @@ class SourceResponse(BaseModel):
     last_crawled_at: datetime | None
     created_at: datetime
     crawl_hints: dict[str, Any] | None = None
+    extraction_rules: dict[str, Any] | None = None
+    max_depth: int | None = None
+    enabled: bool = True
+    health_status: str = "unknown"
     stats: SourceStats | None = None
 
     @field_validator("crawl_hints", mode="before")
     @classmethod
     def parse_crawl_hints(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except Exception:
+                return None
+        return v
+
+    @field_validator("extraction_rules", mode="before")
+    @classmethod
+    def parse_extraction_rules(cls, v):
         if isinstance(v, str):
             try:
                 return json.loads(v)

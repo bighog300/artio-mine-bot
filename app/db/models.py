@@ -36,6 +36,10 @@ class Source(Base):
     status: Mapped[str] = mapped_column(String, default="pending", nullable=False)
     site_map: Mapped[str | None] = mapped_column(Text, nullable=True)
     crawl_hints: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extraction_rules: Mapped[str | None] = mapped_column(Text, nullable=True)
+    max_depth: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    health_status: Mapped[str] = mapped_column(String, default="unknown", nullable=False)
     total_pages: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     total_records: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -47,6 +51,11 @@ class Source(Base):
     records: Mapped[list["Record"]] = relationship("Record", back_populates="source", cascade="all, delete-orphan")
     jobs: Mapped[list["Job"]] = relationship("Job", back_populates="source", cascade="all, delete-orphan")
     logs: Mapped[list["Log"]] = relationship("Log", back_populates="source")
+    schedules: Mapped[list["ScheduledJob"]] = relationship(
+        "ScheduledJob",
+        back_populates="source",
+        cascade="all, delete-orphan",
+    )
 
 
 class Page(Base):
@@ -323,4 +332,62 @@ class AuditAction(Base):
         Index("ix_audit_actions_created_at", "created_at"),
         Index("ix_audit_actions_record_id", "record_id"),
         Index("ix_audit_actions_source_id", "source_id"),
+    )
+
+
+class ScheduledJob(Base):
+    __tablename__ = "scheduled_jobs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    source_id: Mapped[str | None] = mapped_column(String, ForeignKey("sources.id"), nullable=True)
+    job_type: Mapped[str] = mapped_column(String, nullable=False)
+    cron_expr: Mapped[str] = mapped_column(String, nullable=False)
+    payload: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_run_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
+
+    source: Mapped["Source | None"] = relationship("Source", back_populates="schedules")
+
+    __table_args__ = (
+        Index("ix_scheduled_jobs_source_id", "source_id"),
+        Index("ix_scheduled_jobs_job_type", "job_type"),
+        Index("ix_scheduled_jobs_enabled", "enabled"),
+    )
+
+
+class MetricSnapshot(Base):
+    __tablename__ = "metric_snapshots"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    bucket_date: Mapped[str] = mapped_column(String, nullable=False)
+    metrics_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("bucket_date", name="uq_metric_snapshots_bucket_date"),
+        Index("ix_metric_snapshots_bucket_date", "bucket_date"),
+    )
+
+
+class MergeHistory(Base):
+    __tablename__ = "merge_history"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    primary_record_id: Mapped[str] = mapped_column(String, nullable=False)
+    secondary_record_id: Mapped[str] = mapped_column(String, nullable=False)
+    source_id: Mapped[str | None] = mapped_column(String, ForeignKey("sources.id"), nullable=True)
+    primary_snapshot: Mapped[str] = mapped_column(Text, nullable=False)
+    secondary_snapshot: Mapped[str] = mapped_column(Text, nullable=False)
+    relationships_snapshot: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    rolled_back: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    rollback_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+
+    __table_args__ = (
+        Index("ix_merge_history_primary_record_id", "primary_record_id"),
+        Index("ix_merge_history_secondary_record_id", "secondary_record_id"),
+        Index("ix_merge_history_source_id", "source_id"),
     )

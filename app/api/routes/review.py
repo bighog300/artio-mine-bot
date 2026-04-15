@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.client import OpenAIClient
 from app.api.deps import get_db
+from app.api.rbac import require_permission
 from app.api.schemas import ConflictResolveRequest
 from app.db import crud
 from app.extraction.artist_merge import derive_artist_family_key
@@ -35,7 +36,11 @@ async def _get_artist_or_404(db: AsyncSession, artist_id: str):
 
 
 @router.get("/artists/{artist_id}")
-async def get_review_artist(artist_id: str, db: AsyncSession = Depends(get_db)):
+async def get_review_artist(
+    artist_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
     artist = await _get_artist_or_404(db, artist_id)
     payload = _parse_raw(artist.raw_data)
     family_key = payload.get("artist_family_key") or derive_artist_family_key(artist.source_url or "")
@@ -90,6 +95,7 @@ async def list_review_artists(
     missing_field: str | None = None,
     source_id: str | None = None,
     db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
 ):
     artists = await crud.list_artist_records(db, source_id=source_id)
     items = []
@@ -128,6 +134,7 @@ async def resolve_artist_conflict(
     artist_id: str,
     body: ConflictResolveRequest,
     db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("merge")),
 ):
     artist = await _get_artist_or_404(db, artist_id)
     payload = _parse_raw(artist.raw_data)
@@ -165,7 +172,11 @@ async def resolve_artist_conflict(
 
 
 @router.post("/artists/{artist_id}/rerun")
-async def rerun_artist(artist_id: str, db: AsyncSession = Depends(get_db)):
+async def rerun_artist(
+    artist_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("rerun")),
+):
     artist = await _get_artist_or_404(db, artist_id)
     payload = _parse_raw(artist.raw_data)
     family_key = payload.get("artist_family_key") or derive_artist_family_key(artist.source_url or "")

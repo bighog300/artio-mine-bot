@@ -8,7 +8,19 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.embeddings import cosine_similarity, create_embedding
-from app.db.models import AuditAction, DuplicateReview, EntityRelationship, Image, Job, Page, Record, Source
+from app.db.models import (
+    AuditAction,
+    DuplicateReview,
+    EntityRelationship,
+    Image,
+    Job,
+    MergeHistory,
+    MetricSnapshot,
+    Page,
+    Record,
+    ScheduledJob,
+    Source,
+)
 
 logger = structlog.get_logger()
 
@@ -59,6 +71,26 @@ def _build_embedding_payload(record_type: str, values: dict[str, Any]) -> str | 
 def _ordered_pair(left_record_id: str, right_record_id: str) -> tuple[str, str]:
     return (left_record_id, right_record_id) if left_record_id <= right_record_id else (right_record_id, left_record_id)
 
+
+def serialize_record_snapshot(record: Record) -> dict[str, Any]:
+    fields = [
+        "id", "source_id", "page_id", "record_type", "status", "title", "description", "source_url",
+        "start_date", "end_date", "venue_name", "venue_address", "artist_names", "ticket_url", "is_free",
+        "price_text", "curator", "bio", "nationality", "birth_year", "mediums", "collections", "website_url",
+        "instagram_url", "email", "avatar_url", "address", "city", "country", "phone", "opening_hours",
+        "medium", "year", "dimensions", "price", "raw_data", "raw_error", "extraction_model",
+        "extraction_provider", "embedding_vector", "confidence_score", "confidence_band", "confidence_reasons",
+        "completeness_score", "has_conflicts", "admin_notes", "primary_image_id", "exported_at",
+    ]
+    snapshot: dict[str, Any] = {}
+    for field in fields:
+        value = getattr(record, field)
+        if isinstance(value, datetime):
+            snapshot[field] = value.isoformat()
+        else:
+            snapshot[field] = value
+    return snapshot
+
 # ---------------------------------------------------------------------------
 # Source CRUD
 # ---------------------------------------------------------------------------
@@ -69,8 +101,18 @@ async def create_source(
     url: str,
     name: str | None = None,
     crawl_hints: str | None = None,
+    extraction_rules: str | None = None,
+    max_depth: int | None = None,
+    enabled: bool = True,
 ) -> Source:
-    source = Source(url=url, name=name, crawl_hints=crawl_hints)
+    source = Source(
+        url=url,
+        name=name,
+        crawl_hints=crawl_hints,
+        extraction_rules=extraction_rules,
+        max_depth=max_depth,
+        enabled=enabled,
+    )
     db.add(source)
     await db.commit()
     await db.refresh(source)
@@ -104,8 +146,16 @@ async def wait_for_source(
     return None
 
 
-async def list_sources(db: AsyncSession, skip: int = 0, limit: int = 50) -> list[Source]:
-    result = await db.execute(select(Source).offset(skip).limit(limit))
+async def list_sources(
+    db: AsyncSession,
+    skip: int = 0,
+    limit: int = 50,
+    enabled: bool | None = None,
+) -> list[Source]:
+    stmt = select(Source)
+    if enabled is not None:
+        stmt = stmt.where(Source.enabled == enabled)
+    result = await db.execute(stmt.offset(skip).limit(limit))
     return list(result.scalars().all())
 
 
@@ -685,14 +735,18 @@ async def update_job_status(
 
 
 async def list_jobs(
-    db: AsyncSession, source_id: str | None = None, status: str | None = None
+    db: AsyncSession,
+    source_id: str | None = None,
+    status: str | None = None,
+    skip: int = 0,
+    limit: int = 100,
 ) -> list[Job]:
     stmt = select(Job)
     if source_id:
         stmt = stmt.where(Job.source_id == source_id)
     if status:
         stmt = stmt.where(Job.status == status)
-    stmt = stmt.order_by(Job.created_at.desc())
+    stmt = stmt.order_by(Job.created_at.desc()).offset(skip).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
 
@@ -954,3 +1008,105 @@ async def count_audit_actions(db: AsyncSession, *, action_type: str | None = Non
         stmt = stmt.where(AuditAction.action_type == action_type)
     result = await db.execute(stmt)
     return result.scalar_one()
+
+
+async def create_scheduled_job(
+    db: AsyncSession,
+    *,
+    source_id: str | None,
+    job_type: str,
+    cron_expr: str,
+    payload: dict[str, Any] | None = None,
+    enabled: bool = True,
+) -> ScheduledJob:
+    scheduled = ScheduledJob(
+        source_id=source_id,
+        job_type=job_type,
+        cron_expr=cron_expr,
+        payload=json.dumps(payload or {}),
+        enabled=enabled,
+    )
+    db.add(scheduled)
+    await db.commit()
+    await db.refresh(scheduled)
+    return scheduled
+
+
+async def list_scheduled_jobs(db: AsyncSession, *, source_id: str | None = None) -> list[ScheduledJob]:
+    stmt = select(ScheduledJob).order_by(ScheduledJob.created_at.desc())
+    if source_id:
+        stmt = stmt.where(ScheduledJob.source_id == source_id)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def upsert_metric_snapshot(
+    db: AsyncSession,
+    *,
+    bucket_date: str,
+    metrics: dict[str, Any],
+) -> MetricSnapshot:
+    existing = (
+        await db.execute(select(MetricSnapshot).where(MetricSnapshot.bucket_date == bucket_date))
+    ).scalar_one_or_none()
+    if existing:
+        existing.metrics_json = json.dumps(metrics)
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+
+    snapshot = MetricSnapshot(bucket_date=bucket_date, metrics_json=json.dumps(metrics))
+    db.add(snapshot)
+    await db.commit()
+    await db.refresh(snapshot)
+    return snapshot
+
+
+async def list_metric_snapshots(
+    db: AsyncSession,
+    *,
+    since_date: str | None = None,
+    limit: int = 30,
+) -> list[MetricSnapshot]:
+    stmt = select(MetricSnapshot).order_by(MetricSnapshot.bucket_date.desc())
+    if since_date:
+        stmt = stmt.where(MetricSnapshot.bucket_date >= since_date)
+    stmt = stmt.limit(limit)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def create_merge_history(
+    db: AsyncSession,
+    *,
+    primary_record: Record,
+    secondary_record: Record,
+    relationships_snapshot: list[dict[str, Any]],
+) -> MergeHistory:
+    history = MergeHistory(
+        primary_record_id=primary_record.id,
+        secondary_record_id=secondary_record.id,
+        source_id=primary_record.source_id,
+        primary_snapshot=json.dumps(serialize_record_snapshot(primary_record)),
+        secondary_snapshot=json.dumps(serialize_record_snapshot(secondary_record)),
+        relationships_snapshot=json.dumps(relationships_snapshot),
+    )
+    db.add(history)
+    await db.commit()
+    await db.refresh(history)
+    return history
+
+
+async def get_merge_history(db: AsyncSession, merge_id: str) -> MergeHistory | None:
+    return (await db.execute(select(MergeHistory).where(MergeHistory.id == merge_id))).scalar_one_or_none()
+
+
+async def mark_merge_history_rolled_back(db: AsyncSession, merge_id: str) -> MergeHistory:
+    history = await get_merge_history(db, merge_id)
+    if history is None:
+        raise ValueError("Merge history not found")
+    history.rolled_back = True
+    history.rollback_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(history)
+    return history
