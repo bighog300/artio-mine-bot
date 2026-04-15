@@ -210,6 +210,16 @@ async def count_pages_in_statuses(db: AsyncSession, source_id: str, statuses: li
     return result.scalar_one()
 
 
+async def count_pages_by_status(db: AsyncSession, source_id: str) -> dict[str, int]:
+    stmt = (
+        select(Page.status, func.count(Page.id))
+        .where(Page.source_id == source_id)
+        .group_by(Page.status)
+    )
+    result = await db.execute(stmt)
+    return {status: count for status, count in result.all()}
+
+
 # ---------------------------------------------------------------------------
 # Record CRUD
 # ---------------------------------------------------------------------------
@@ -318,15 +328,30 @@ async def bulk_approve(db: AsyncSession, source_id: str, min_confidence: int = 7
 
 
 async def count_records(
-    db: AsyncSession, source_id: str | None = None, status: str | None = None
+    db: AsyncSession,
+    source_id: str | None = None,
+    status: str | None = None,
+    record_type: str | None = None,
 ) -> int:
     stmt = select(func.count(Record.id))
     if source_id:
         stmt = stmt.where(Record.source_id == source_id)
     if status:
         stmt = stmt.where(Record.status == status)
+    if record_type:
+        stmt = stmt.where(Record.record_type == record_type)
     result = await db.execute(stmt)
     return result.scalar_one()
+
+
+async def count_records_by_type(db: AsyncSession, source_id: str) -> dict[str, int]:
+    stmt = (
+        select(Record.record_type, func.count(Record.id))
+        .where(Record.source_id == source_id)
+        .group_by(Record.record_type)
+    )
+    result = await db.execute(stmt)
+    return {record_type: count for record_type, count in result.all()}
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +388,16 @@ async def list_images(
     stmt = stmt.offset(skip).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def count_images(db: AsyncSession, source_id: str | None = None, record_id: str | None = None) -> int:
+    stmt = select(func.count(Image.id))
+    if source_id:
+        stmt = stmt.where(Image.source_id == source_id)
+    if record_id:
+        stmt = stmt.where(Image.record_id == record_id)
+    result = await db.execute(stmt)
+    return result.scalar_one()
 
 
 async def set_primary_image(db: AsyncSession, record_id: str, image_id: str) -> Record:

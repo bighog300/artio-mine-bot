@@ -44,3 +44,19 @@ export function truncate(str: string, length: number): string {
   if (str.length <= length) return str;
   return str.slice(0, length) + "...";
 }
+
+export function formatDuration(seconds: number): string {
+  const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 0;
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${remainingSeconds}s` : `${remainingSeconds}s`;
+}
+
+export function diffSeconds(a: string, b: string): number {
+  return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 1000);
+}
+
+export function formatLogMessage(msg: string): string {
+  if (!msg) return "";
+  return msg.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+}

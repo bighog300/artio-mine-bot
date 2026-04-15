@@ -89,3 +89,26 @@ async def delete_source(source_id: str, db: AsyncSession = Depends(get_db)):
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
     await crud.delete_source(db, source_id)
+
+
+@router.get("/{source_id}/jobs")
+async def list_source_jobs(source_id: str, db: AsyncSession = Depends(get_db)):
+    source = await crud.get_source(db, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    jobs = await crud.list_jobs(db, source_id=source_id)
+    return {
+        "items": [
+            {
+                "id": job.id,
+                "source_id": job.source_id,
+                "job_type": job.job_type,
+                "status": job.status,
+                "attempts": job.attempts,
+                "started_at": job.started_at,
+                "completed_at": job.completed_at,
+                "error_message": job.error_message,
+            }
+            for job in jobs
+        ]
+    }
