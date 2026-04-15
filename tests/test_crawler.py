@@ -5,6 +5,7 @@ import respx
 from httpx import Response
 
 from app.crawler.fetcher import FetchResult, fetch
+from app.crawler.automated_crawler import AutomatedCrawler
 from app.crawler.link_follower import CrawlQueue, _extract_links
 from app.crawler.robots import RobotsChecker
 from app.crawler.site_mapper import _extract_nav_links
@@ -226,3 +227,125 @@ def test_extract_nav_html_only_returns_nav_and_header_content():
     assert "Artists" in result
     assert "Events" in result
     assert "Hidden" not in result
+
+
+def test_extract_deterministic_css():
+    crawler = AutomatedCrawler(
+        structure_map={
+            "extraction_rules": {
+                "artist_profile": {
+                    "css_selectors": {
+                        "name": "h1.artist-name",
+                        "bio": "div.biography",
+                    }
+                }
+            }
+        },
+        db=MagicMock(),
+    )
+    html = """
+    <html><body>
+      <h1 class="artist-name">Jane Doe</h1>
+      <div class="biography">Painter and sculptor.</div>
+    </body></html>
+    """
+    extracted = crawler._extract_deterministic(html, "artist_profile", "https://example.com/artists/jane-doe")
+    assert extracted["data"]["name"] == "Jane Doe"
+    assert extracted["data"]["bio"] == "Painter and sculptor."
+    assert extracted["method"] == "deterministic"
+    assert extracted["confidence"] == 100
+
+
+def test_extract_deterministic_regex():
+    crawler = AutomatedCrawler(
+        structure_map={
+            "extraction_rules": {
+                "artist_profile": {
+                    "regex_patterns": {
+                        "email": r"Email:\s*([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})",
+                    }
+                }
+            }
+        },
+        db=MagicMock(),
+    )
+    html = "<html><body><p>Email: artist@example.com</p></body></html>"
+    extracted = crawler._extract_deterministic(html, "artist_profile", "https://example.com/artists/jane-doe")
+    assert extracted["data"]["email"] == "artist@example.com"
+    assert extracted["confidence"] == 100
+
+
+@pytest.mark.asyncio
+async def test_extract_with_fallback():
+    ai_client = AsyncMock()
+    ai_client.complete = AsyncMock(return_value={"data": {"name": "Fallback Artist"}, "confidence": 88})
+    crawler = AutomatedCrawler(
+        structure_map={
+            "extraction_rules": {
+                "artist_profile": {"css_selectors": {"name": "h1.missing"}}
+            }
+        },
+        db=MagicMock(),
+        ai_client=ai_client,
+    )
+    extracted = crawler._extract_deterministic(
+        "<html><body><h1>Missing class</h1></body></html>",
+        "artist_profile",
+        "https://example.com/artists/jane-doe",
+    )
+    assert extracted["confidence"] < 80
+    fallback = await crawler._extract_with_ai("<html>content</html>", "artist_profile", "context")
+    assert fallback["method"] == "ai_fallback"
+    assert fallback["data"]["name"] == "Fallback Artist"
+
+
+def test_classify_by_url():
+    crawler = AutomatedCrawler(
+        structure_map={
+            "mining_map": {
+                "artist_profile": {"url_pattern": "/artists/[name]"},
+                "event_detail": {"url_pattern": "/events/[id]"},
+            }
+        },
+        db=MagicMock(),
+    )
+    assert crawler._classify_by_url("https://example.com/artists/jane-doe") == "artist_profile"
+    assert crawler._classify_by_url("https://example.com/events/123") == "event_detail"
+    assert crawler._classify_by_url("https://example.com/about") == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_crawl_plan_execution(db_session):
+    source = await crud.create_source(db_session, url="https://example.com")
+    structure_map = {
+        "crawl_targets": ["/artists/[letter]"],
+        "mining_map": {
+            "artist_profile": {"url_pattern": "/artists/[name]"},
+            "artist_directory": {"url_pattern": "/artists/[letter]"},
+        },
+        "extraction_rules": {
+            "artist_directory": {
+                "css_selectors": {"title": "title"},
+            }
+        },
+    }
+    fetch_result = FetchResult(
+        url="https://example.com/artists/a",
+        final_url="https://example.com/artists/a",
+        html="<html><head><title>Artists A</title></head><body><h1>A</h1></body></html>",
+        status_code=200,
+        method="httpx",
+    )
+    crawler = AutomatedCrawler(structure_map=structure_map, db=db_session, ai_client=AsyncMock())
+    with patch("app.crawler.automated_crawler.fetch", new=AsyncMock(return_value=fetch_result)):
+        with patch("app.crawler.automated_crawler.settings") as mock_settings:
+            mock_settings.max_pages_per_source = 1
+            mock_settings.deterministic_confidence_threshold = 80
+            mock_settings.crawler_use_ai_fallback = False
+            mock_settings.max_ai_fallback_per_source = 50
+            stats = await crawler.execute_crawl_plan(source.id)
+
+    assert stats["pages_crawled"] == 1
+    assert stats["extracted_deterministic"] == 1
+    pages = await crud.list_pages(db_session, source_id=source.id, limit=10)
+    assert len(pages) == 1
