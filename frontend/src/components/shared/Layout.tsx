@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Globe, Database, Image, Upload, FileText, Settings, TerminalSquare } from "lucide-react";
+import { LayoutDashboard, Globe, Database, Image, Upload, FileText, Settings, TerminalSquare, GitMerge, SearchCheck, Compass, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -7,6 +7,10 @@ const navItems = [
   { to: "/sources", label: "Sources", icon: Globe },
   { to: "/pages", label: "Pages", icon: FileText },
   { to: "/records", label: "Records", icon: Database },
+  { to: "/admin-review", label: "Admin Review", icon: SearchCheck },
+  { to: "/duplicates", label: "Duplicates", icon: GitMerge },
+  { to: "/semantic", label: "Semantic", icon: Compass },
+  { to: "/audit", label: "Audit Trail", icon: History },
   { to: "/images", label: "Images", icon: Image },
   { to: "/export", label: "Export", icon: Upload },
   { to: "/logs", label: "Logs", icon: TerminalSquare },

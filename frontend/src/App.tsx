@@ -10,6 +10,10 @@ import { Images } from "@/pages/Images";
 import { Export } from "@/pages/Export";
 import { Settings } from "@/pages/Settings";
 import { Logs } from "@/pages/Logs";
+import { AdminReview } from "@/pages/AdminReview";
+import { DuplicateResolution } from "@/pages/DuplicateResolution";
+import { SemanticExplorer } from "@/pages/SemanticExplorer";
+import { AuditTrail } from "@/pages/AuditTrail";
 
 export default function App() {
   return (
@@ -20,6 +24,10 @@ export default function App() {
           <Route path="/sources" element={<Sources />} />
           <Route path="/sources/:id" element={<SourceDetail />} />
           <Route path="/records" element={<Records />} />
+          <Route path="/admin-review" element={<AdminReview />} />
+          <Route path="/duplicates" element={<DuplicateResolution />} />
+          <Route path="/semantic" element={<SemanticExplorer />} />
+          <Route path="/audit" element={<AuditTrail />} />
           <Route path="/records/:id" element={<RecordDetail />} />
           <Route path="/pages" element={<Pages />} />
           <Route path="/images" element={<Images />} />

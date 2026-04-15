@@ -8,7 +8,7 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.embeddings import cosine_similarity, create_embedding
-from app.db.models import EntityRelationship, Image, Job, Page, Record, Source
+from app.db.models import AuditAction, DuplicateReview, EntityRelationship, Image, Job, Page, Record, Source
 
 logger = structlog.get_logger()
 
@@ -54,6 +54,10 @@ def _build_embedding_payload(record_type: str, values: dict[str, Any]) -> str | 
     if not text.strip():
         return None
     return json.dumps(create_embedding(text))
+
+
+def _ordered_pair(left_record_id: str, right_record_id: str) -> tuple[str, str]:
+    return (left_record_id, right_record_id) if left_record_id <= right_record_id else (right_record_id, left_record_id)
 
 # ---------------------------------------------------------------------------
 # Source CRUD
@@ -805,3 +809,148 @@ async def list_relationships_for_record(
     )
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def upsert_duplicate_review(
+    db: AsyncSession,
+    *,
+    left_record_id: str,
+    right_record_id: str,
+    similarity_score: int,
+    reason: str,
+) -> DuplicateReview:
+    left_id, right_id = _ordered_pair(left_record_id, right_record_id)
+    stmt = select(DuplicateReview).where(
+        DuplicateReview.left_record_id == left_id,
+        DuplicateReview.right_record_id == right_id,
+    )
+    existing = (await db.execute(stmt)).scalar_one_or_none()
+    if existing is not None:
+        existing.similarity_score = similarity_score
+        existing.reason = reason
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+
+    review = DuplicateReview(
+        left_record_id=left_id,
+        right_record_id=right_id,
+        similarity_score=similarity_score,
+        reason=reason,
+        status="pending",
+    )
+    db.add(review)
+    await db.commit()
+    await db.refresh(review)
+    return review
+
+
+async def list_duplicate_reviews(
+    db: AsyncSession,
+    *,
+    status: str | None = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> list[DuplicateReview]:
+    stmt = select(DuplicateReview).order_by(DuplicateReview.similarity_score.desc(), DuplicateReview.created_at.desc())
+    if status:
+        stmt = stmt.where(DuplicateReview.status == status)
+    stmt = stmt.offset(skip).limit(limit)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def count_duplicate_reviews(db: AsyncSession, *, status: str | None = None) -> int:
+    stmt = select(func.count(DuplicateReview.id))
+    if status:
+        stmt = stmt.where(DuplicateReview.status == status)
+    result = await db.execute(stmt)
+    return result.scalar_one()
+
+
+async def get_duplicate_review_by_pair(
+    db: AsyncSession,
+    *,
+    left_record_id: str,
+    right_record_id: str,
+) -> DuplicateReview | None:
+    left_id, right_id = _ordered_pair(left_record_id, right_record_id)
+    stmt = select(DuplicateReview).where(
+        DuplicateReview.left_record_id == left_id,
+        DuplicateReview.right_record_id == right_id,
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def set_duplicate_review_status(
+    db: AsyncSession,
+    *,
+    review_id: str,
+    status: str,
+    reviewed_by: str | None = None,
+    merge_target_id: str | None = None,
+) -> DuplicateReview:
+    stmt = select(DuplicateReview).where(DuplicateReview.id == review_id)
+    review = (await db.execute(stmt)).scalar_one_or_none()
+    if review is None:
+        raise ValueError(f"Duplicate review {review_id} not found")
+    review.status = status
+    review.reviewed_by = reviewed_by
+    review.reviewed_at = datetime.now(UTC)
+    review.merge_target_id = merge_target_id
+    await db.commit()
+    await db.refresh(review)
+    return review
+
+
+async def create_audit_action(
+    db: AsyncSession,
+    *,
+    action_type: str,
+    user_id: str | None = None,
+    source_id: str | None = None,
+    record_id: str | None = None,
+    affected_record_ids: list[str] | None = None,
+    details: dict[str, Any] | None = None,
+) -> AuditAction:
+    action = AuditAction(
+        action_type=action_type,
+        user_id=user_id,
+        source_id=source_id,
+        record_id=record_id,
+        affected_record_ids=json.dumps(affected_record_ids or []),
+        details_json=json.dumps(details) if details is not None else None,
+    )
+    db.add(action)
+    await db.commit()
+    await db.refresh(action)
+    return action
+
+
+async def list_audit_actions(
+    db: AsyncSession,
+    *,
+    action_type: str | None = None,
+    source_id: str | None = None,
+    record_id: str | None = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> list[AuditAction]:
+    stmt = select(AuditAction).order_by(AuditAction.created_at.desc())
+    if action_type:
+        stmt = stmt.where(AuditAction.action_type == action_type)
+    if source_id:
+        stmt = stmt.where(AuditAction.source_id == source_id)
+    if record_id:
+        stmt = stmt.where(AuditAction.record_id == record_id)
+    stmt = stmt.offset(skip).limit(limit)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def count_audit_actions(db: AsyncSession, *, action_type: str | None = None) -> int:
+    stmt = select(func.count(AuditAction.id))
+    if action_type:
+        stmt = stmt.where(AuditAction.action_type == action_type)
+    result = await db.execute(stmt)
+    return result.scalar_one()

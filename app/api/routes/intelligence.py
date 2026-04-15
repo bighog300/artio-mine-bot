@@ -28,6 +28,14 @@ class AskRequest(BaseModel):
     limit: int = 5
 
 
+class DuplicateDecisionRequest(BaseModel):
+    left_id: str
+    right_id: str
+    decision: str
+    reviewer: str | None = None
+    primary_id: str | None = None
+
+
 def _parse_json(payload: str | None) -> dict:
     if not payload:
         return {}
@@ -265,19 +273,60 @@ async def suggest_duplicates(
             score, reasons = _score_duplicate_candidate(left, right)
             if score < min_score:
                 continue
+            reason = ", ".join(reasons) if reasons else "multi-signal similarity"
+            review = await crud.upsert_duplicate_review(
+                db,
+                left_record_id=left.id,
+                right_record_id=right.id,
+                similarity_score=int(round(score * 100)),
+                reason=reason,
+            )
             candidates.append(
                 {
+                    "review_id": review.id,
                     "left_id": left.id,
                     "left_name": left.title,
                     "right_id": right.id,
                     "right_name": right.title,
                     "similarity_score": round(score, 6),
-                    "reason": ", ".join(reasons) if reasons else "multi-signal similarity",
+                    "reason": reason,
+                    "review_status": review.status,
+                    "reviewed_by": review.reviewed_by,
                 }
             )
 
     candidates.sort(key=lambda item: float(item["similarity_score"]), reverse=True)
     return {"items": candidates[:limit], "total": len(candidates)}
+
+
+@router.get("/duplicates/reviews")
+async def list_duplicate_reviews(
+    status: str | None = None,
+    skip: int = 0,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    reviews = await crud.list_duplicate_reviews(db, status=status, skip=skip, limit=limit)
+    items: list[dict[str, object]] = []
+    for review in reviews:
+        left = await crud.get_record(db, review.left_record_id)
+        right = await crud.get_record(db, review.right_record_id)
+        items.append(
+            {
+                "id": review.id,
+                "left_id": review.left_record_id,
+                "left_name": left.title if left else None,
+                "right_id": review.right_record_id,
+                "right_name": right.title if right else None,
+                "similarity_score": review.similarity_score / 100,
+                "reason": review.reason,
+                "status": review.status,
+                "reviewed_by": review.reviewed_by,
+                "reviewed_at": review.reviewed_at,
+                "merge_target_id": review.merge_target_id,
+            }
+        )
+    return {"items": items, "total": len(items), "skip": skip, "limit": limit}
 
 
 @router.post("/merge/artists")
@@ -343,11 +392,71 @@ async def merge_artists(payload: MergeArtistsRequest, db: AsyncSession = Depends
     await db.commit()
 
     metrics.increment("merge_actions")
+    await crud.create_audit_action(
+        db,
+        action_type="merge",
+        source_id=merged_record.source_id,
+        record_id=merged_record.id,
+        affected_record_ids=[merged_record.id, payload.secondary_id],
+        details={"primary_id": payload.primary_id, "secondary_id": payload.secondary_id},
+    )
 
     return {
         "merged_id": merged_record.id,
         "removed_id": payload.secondary_id,
         "status": "merged",
+    }
+
+
+@router.post("/duplicates/decision")
+async def decide_duplicate(payload: DuplicateDecisionRequest, db: AsyncSession = Depends(get_db)):
+    allowed_decisions = {"merge", "ignore", "not_duplicate", "reviewed"}
+    if payload.decision not in allowed_decisions:
+        raise HTTPException(status_code=400, detail="Invalid decision")
+
+    review = await crud.get_duplicate_review_by_pair(
+        db,
+        left_record_id=payload.left_id,
+        right_record_id=payload.right_id,
+    )
+    if review is None:
+        review = await crud.upsert_duplicate_review(
+            db,
+            left_record_id=payload.left_id,
+            right_record_id=payload.right_id,
+            similarity_score=0,
+            reason="manual review",
+        )
+
+    merge_target_id = payload.primary_id if payload.decision == "merge" else None
+    review = await crud.set_duplicate_review_status(
+        db,
+        review_id=review.id,
+        status=payload.decision,
+        reviewed_by=payload.reviewer,
+        merge_target_id=merge_target_id,
+    )
+
+    if payload.decision == "merge":
+        primary_id = payload.primary_id or payload.left_id
+        secondary_id = payload.right_id if primary_id == payload.left_id else payload.left_id
+        await merge_artists(MergeArtistsRequest(primary_id=primary_id, secondary_id=secondary_id), db)
+
+    await crud.create_audit_action(
+        db,
+        action_type=f"duplicate_{payload.decision}",
+        user_id=payload.reviewer,
+        record_id=review.left_record_id,
+        affected_record_ids=[review.left_record_id, review.right_record_id],
+        details={"review_id": review.id, "merge_target_id": merge_target_id},
+    )
+
+    return {
+        "id": review.id,
+        "status": review.status,
+        "reviewed_by": review.reviewed_by,
+        "reviewed_at": review.reviewed_at,
+        "merge_target_id": review.merge_target_id,
     }
 
 
