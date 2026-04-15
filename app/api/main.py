@@ -109,10 +109,23 @@ async def health():
     except Exception as e:
         db_status = f"error: {str(e)}"
 
+    try:
+        from app.queue import check_queue_health
+
+        queue_health = check_queue_health()
+        redis_status = "ok" if queue_health.redis_ok else "unavailable"
+        workers_status = "available" if queue_health.workers_available else "unavailable"
+    except Exception:
+        logger.exception("health_queue_check_failed")
+        redis_status = "unavailable"
+        workers_status = "unavailable"
+
     return {
         "status": "ok",
         "version": "1.0.0",
         "db": db_status,
+        "redis": redis_status,
+        "workers": workers_status,
         "openai": "configured" if settings.openai_api_key else "not configured",
         "environment": settings.environment,
     }

@@ -45,7 +45,7 @@ def _assert_queue_available(require_worker: bool = True) -> None:
     if not health.redis_ok:
         raise HTTPException(
             status_code=503,
-            detail="Queue unavailable: cannot reach Redis. Check queue infrastructure.",
+            detail="Redis queue unavailable. Check that Redis server is running.",
         )
     if require_worker and not health.workers_available:
         raise HTTPException(
@@ -150,7 +150,7 @@ async def start_mining(
     db: AsyncSession = Depends(get_db),
 ):
     _ensure_worker_runtime()
-    _assert_queue_available()
+    _assert_queue_available(require_worker=False)
 
     payload = body.model_dump() if body else {}
     try:
@@ -170,7 +170,7 @@ async def start_mining(
         )
         raise HTTPException(
             status_code=503,
-            detail="Failed to start mining: queue infrastructure unavailable.",
+            detail="Redis queue unavailable. Check that Redis server is running.",
         ) from exc
 
     return MineStartResponse(
@@ -184,7 +184,7 @@ async def start_mining(
 @router.post("/{source_id}/map", status_code=202)
 async def map_site(source_id: str, db: AsyncSession = Depends(get_db)):
     _ensure_worker_runtime()
-    _assert_queue_available()
+    _assert_queue_available(require_worker=False)
 
     try:
         rq_job_id = await _create_and_enqueue_job(
@@ -204,7 +204,7 @@ async def crawl_source(
     db: AsyncSession = Depends(get_db),
 ):
     _ensure_worker_runtime()
-    _assert_queue_available()
+    _assert_queue_available(require_worker=False)
 
     try:
         rq_job_id = await _create_and_enqueue_job(
@@ -224,7 +224,7 @@ async def extract_source(
     db: AsyncSession = Depends(get_db),
 ):
     _ensure_worker_runtime()
-    _assert_queue_available()
+    _assert_queue_available(require_worker=False)
 
     try:
         rq_job_id = await _create_and_enqueue_job(
@@ -253,7 +253,7 @@ async def resume_mining(
     db: AsyncSession = Depends(get_db),
 ):
     _ensure_worker_runtime()
-    _assert_queue_available()
+    _assert_queue_available(require_worker=False)
 
     resume_job_type = await _choose_resume_job_type(db, source_id)
     try:
