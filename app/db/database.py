@@ -23,11 +23,18 @@ def _build_engine() -> AsyncEngine:
     validate_async_driver(settings.database_url)
 
     is_serverless = settings.environment in {"production", "vercel"}
-    engine_kwargs: dict[str, object] = {"echo": False, "pool_pre_ping": True}
-    if is_serverless:
+    is_sqlite = settings.database_url.startswith("sqlite+aiosqlite:") or settings.database_url.startswith("sqlite:")
+
+    engine_kwargs: dict[str, object] = {"echo": False}
+    if is_sqlite:
+        # Keep SQLite engine configuration minimal for test/dev compatibility.
+        pass
+    elif is_serverless:
         # Serverless Postgres providers typically require short-lived connections.
         engine_kwargs["poolclass"] = NullPool
+        engine_kwargs["pool_pre_ping"] = True
     else:
+        engine_kwargs["pool_pre_ping"] = True
         engine_kwargs["pool_size"] = 5
         engine_kwargs["max_overflow"] = 10
 
