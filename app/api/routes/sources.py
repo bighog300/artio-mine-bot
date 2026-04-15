@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.api.rbac import require_permission
 from app.api.schemas import (
+    SourceActionResponse,
     SourceCreate,
     SourceDetailResponse,
     SourceResponse,
@@ -17,6 +18,7 @@ from app.db import crud
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 logger = structlog.get_logger()
+SOURCE_OPERATIONAL_STATUSES = {"idle", "running", "paused", "stopping", "failed", "completed"}
 
 
 @router.get("", response_model=dict)
@@ -68,9 +70,11 @@ async def create_source(
             db,
             url=body.url,
             name=body.name,
+            crawl_intent=body.crawl_intent,
             crawl_hints=json.dumps(body.crawl_hints) if body.crawl_hints is not None else None,
             extraction_rules=json.dumps(body.extraction_rules) if body.extraction_rules is not None else None,
             max_depth=body.max_depth,
+            max_pages=body.max_pages,
             enabled=body.enabled,
         )
         return source
@@ -122,6 +126,10 @@ async def update_source(
         kwargs["crawl_hints"] = json.dumps(kwargs["crawl_hints"])
     if "extraction_rules" in kwargs:
         kwargs["extraction_rules"] = json.dumps(kwargs["extraction_rules"])
+    if "status" in kwargs and kwargs["status"] not in SOURCE_OPERATIONAL_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid source status '{kwargs['status']}'")
+    if "operational_status" in kwargs and kwargs["operational_status"] not in SOURCE_OPERATIONAL_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Invalid source status '{kwargs['operational_status']}'")
     if kwargs:
         source = await crud.update_source(db, source_id, **kwargs)
     return source
@@ -164,3 +172,82 @@ async def list_source_jobs(
             for job in jobs
         ]
     }
+
+
+async def _ensure_source(db: AsyncSession, source_id: str):
+    source = await crud.get_source(db, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return source
+
+
+@router.post("/{source_id}/actions/start-discovery", response_model=SourceActionResponse)
+async def start_discovery_action(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    await _ensure_source(db, source_id)
+    job = await crud.create_job(db, source_id=source_id, job_type="map_site", payload={})
+    source = await crud.set_source_operational_status(db, source_id, "running", queue_paused=False, error_message=None)
+    return SourceActionResponse(source_id=source.id, status=source.status, operational_status=source.operational_status, queued_jobs=1 if job else 0)
+
+
+@router.post("/{source_id}/actions/start-full-mining", response_model=SourceActionResponse)
+async def start_full_mining_action(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    await _ensure_source(db, source_id)
+    job = await crud.create_job(db, source_id=source_id, job_type="run_full_pipeline", payload={})
+    source = await crud.set_source_operational_status(db, source_id, "running", queue_paused=False, error_message=None)
+    return SourceActionResponse(source_id=source.id, status=source.status, operational_status=source.operational_status, queued_jobs=1 if job else 0)
+
+
+@router.post("/{source_id}/actions/pause", response_model=SourceActionResponse)
+async def pause_source_action(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    source = await _ensure_source(db, source_id)
+    source = await crud.set_source_operational_status(db, source_id, "paused", queue_paused=True)
+    return SourceActionResponse(source_id=source.id, status=source.status, operational_status=source.operational_status)
+
+
+@router.post("/{source_id}/actions/resume", response_model=SourceActionResponse)
+async def resume_source_action(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    await _ensure_source(db, source_id)
+    source = await crud.set_source_operational_status(db, source_id, "running", queue_paused=False, error_message=None)
+    return SourceActionResponse(source_id=source.id, status=source.status, operational_status=source.operational_status)
+
+
+@router.post("/{source_id}/actions/stop", response_model=SourceActionResponse)
+async def stop_source_action(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    await _ensure_source(db, source_id)
+    source = await crud.set_source_operational_status(db, source_id, "stopping", queue_paused=True)
+    cancelled_jobs = await crud.cancel_non_terminal_jobs_for_source(db, source_id)
+    source = await crud.set_source_operational_status(db, source_id, "idle", queue_paused=False)
+    return SourceActionResponse(source_id=source.id, status=source.status, operational_status=source.operational_status, queued_jobs=cancelled_jobs)
+
+
+@router.post("/{source_id}/actions/retry-failed", response_model=SourceActionResponse)
+async def retry_failed_source_action(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    await _ensure_source(db, source_id)
+    retried_jobs = await crud.retry_failed_jobs_for_source(db, source_id)
+    status = "running" if retried_jobs > 0 else "idle"
+    source = await crud.set_source_operational_status(db, source_id, status, queue_paused=False)
+    return SourceActionResponse(source_id=source.id, status=source.status, operational_status=source.operational_status, queued_jobs=retried_jobs)
