@@ -330,6 +330,29 @@ export interface AuditAction {
   timestamp: string;
 }
 
+export interface ApiKeyItem {
+  id: string;
+  tenant_id: string;
+  name: string;
+  key_prefix: string;
+  enabled: boolean;
+  usage_count: number;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface ApiKeyCreateInput {
+  name: string;
+  tenant_id?: string;
+  permissions?: string[];
+}
+
+export interface ApiUsageSummary {
+  total_requests: number;
+  avg_response_time_ms: number;
+  endpoint_usage: Array<{ endpoint: string; count: number }>;
+}
+
 // ─── API Functions ────────────────────────────────────────────────────────────
 
 // Sources
@@ -542,3 +565,19 @@ export const getAuditActions = (params?: {
   record_id?: string;
 }): Promise<PaginatedResponse<AuditAction>> =>
   api.get("/audit", { params }).then((r) => r.data);
+
+export const createApiKey = (
+  data: ApiKeyCreateInput
+): Promise<{ id: string; raw_key: string; masked_key: string }> =>
+  api.post("/keys", data).then((r) => r.data);
+
+export const getApiKeys = (
+  tenantId?: string
+): Promise<{ items: ApiKeyItem[]; total: number }> =>
+  api.get("/keys", { params: { tenant_id: tenantId || undefined } }).then((r) => r.data);
+
+export const deleteApiKey = (keyId: string, tenantId?: string): Promise<void> =>
+  api.delete(`/keys/${keyId}`, { headers: tenantId ? { "X-Tenant-ID": tenantId } : {} }).then(() => undefined);
+
+export const getApiUsage = (tenantId?: string): Promise<ApiUsageSummary> =>
+  api.get("/usage", { params: { tenant_id: tenantId || undefined } }).then((r) => r.data);

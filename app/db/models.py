@@ -31,6 +31,7 @@ class Source(Base):
     __tablename__ = "sources"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
     url: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     name: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, default="pending", nullable=False)
@@ -62,6 +63,7 @@ class Page(Base):
     __tablename__ = "pages"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
     source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
     url: Mapped[str] = mapped_column(String, nullable=False)
     original_url: Mapped[str] = mapped_column(String, nullable=False)
@@ -83,6 +85,7 @@ class Page(Base):
 
     __table_args__ = (
         UniqueConstraint("source_id", "url"),
+        Index("ix_pages_tenant_id", "tenant_id"),
         Index("ix_pages_source_id", "source_id"),
         Index("ix_pages_status", "status"),
         Index("ix_pages_page_type", "page_type"),
@@ -93,6 +96,7 @@ class Record(Base):
     __tablename__ = "records"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
     source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
     page_id: Mapped[str | None] = mapped_column(String, ForeignKey("pages.id"), nullable=True)
     record_type: Mapped[str] = mapped_column(String, nullable=False)
@@ -178,6 +182,7 @@ class Record(Base):
     )
 
     __table_args__ = (
+        Index("ix_records_tenant_id", "tenant_id"),
         Index("ix_records_source_id", "source_id"),
         Index("ix_records_status", "status"),
         Index("ix_records_record_type", "record_type"),
@@ -191,6 +196,7 @@ class Image(Base):
     __tablename__ = "images"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
     record_id: Mapped[str | None] = mapped_column(String, ForeignKey("records.id"), nullable=True)
     page_id: Mapped[str | None] = mapped_column(String, ForeignKey("pages.id"), nullable=True)
     source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
@@ -213,6 +219,7 @@ class Image(Base):
 
     __table_args__ = (
         UniqueConstraint("record_id", "url"),
+        Index("ix_images_tenant_id", "tenant_id"),
         Index("ix_images_record_id", "record_id"),
         Index("ix_images_source_id", "source_id"),
     )
@@ -222,6 +229,7 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
     source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
     job_type: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, default="pending", nullable=False)
@@ -237,8 +245,64 @@ class Job(Base):
     source: Mapped["Source"] = relationship("Source", back_populates="jobs")
 
     __table_args__ = (
+        Index("ix_jobs_tenant_id", "tenant_id"),
         Index("ix_jobs_source_id", "source_id"),
         Index("ix_jobs_status", "status"),
+    )
+
+
+class Tenant(Base):
+    __tablename__ = "tenants"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default="public")
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
+
+    __table_args__ = (
+        Index("ix_tenants_name", "name"),
+    )
+
+
+class APIKey(Base):
+    __tablename__ = "api_keys"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    key_prefix: Mapped[str] = mapped_column(String(12), nullable=False)
+    key_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    permissions_json: Mapped[str] = mapped_column(Text, default='["read"]', nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    usage_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    disabled_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+
+    __table_args__ = (
+        Index("ix_api_keys_tenant_id", "tenant_id"),
+        Index("ix_api_keys_enabled", "enabled"),
+    )
+
+
+class APIUsageEvent(Base):
+    __tablename__ = "api_usage_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False)
+    api_key_id: Mapped[str] = mapped_column(String, ForeignKey("api_keys.id"), nullable=False)
+    endpoint: Mapped[str] = mapped_column(String, nullable=False)
+    method: Mapped[str] = mapped_column(String(8), nullable=False)
+    status_code: Mapped[int] = mapped_column(Integer, nullable=False)
+    response_time_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+
+    __table_args__ = (
+        Index("ix_api_usage_events_api_key_id", "api_key_id"),
+        Index("ix_api_usage_events_tenant_id", "tenant_id"),
+        Index("ix_api_usage_events_endpoint", "endpoint"),
+        Index("ix_api_usage_events_created_at", "created_at"),
     )
 
 

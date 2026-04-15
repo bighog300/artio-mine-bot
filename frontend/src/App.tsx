@@ -14,6 +14,7 @@ import { AdminReview } from "@/pages/AdminReview";
 import { DuplicateResolution } from "@/pages/DuplicateResolution";
 import { SemanticExplorer } from "@/pages/SemanticExplorer";
 import { AuditTrail } from "@/pages/AuditTrail";
+import { ApiAccess } from "@/pages/ApiAccess";
 
 export default function App() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
           <Route path="/export" element={<Export />} />
           <Route path="/logs" element={<Logs />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/api-access" element={<ApiAccess />} />
         </Routes>
       </Layout>
     </BrowserRouter>

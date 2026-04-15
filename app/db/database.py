@@ -73,3 +73,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def init_db() -> None:
     async with get_engine().begin() as conn:
         await conn.run_sync(Base.metadata.create_all, checkfirst=True)
+        try:
+            await conn.exec_driver_sql(
+                "INSERT INTO tenants (id, name, is_active, created_at, updated_at) "
+                "VALUES ('public', 'public', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) "
+                "ON CONFLICT(id) DO NOTHING"
+            )
+        except Exception:
+            logger.exception("default_tenant_seed_failed")

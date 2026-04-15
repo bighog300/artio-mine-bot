@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.embeddings import cosine_similarity, create_embedding
 from app.db.models import (
+    APIKey,
+    APIUsageEvent,
     AuditAction,
     DuplicateReview,
     EntityRelationship,
@@ -19,6 +21,7 @@ from app.db.models import (
     Page,
     Record,
     ScheduledJob,
+    Tenant,
     Source,
 )
 
@@ -100,12 +103,15 @@ async def create_source(
     db: AsyncSession,
     url: str,
     name: str | None = None,
+    tenant_id: str = "public",
     crawl_hints: str | None = None,
     extraction_rules: str | None = None,
     max_depth: int | None = None,
     enabled: bool = True,
 ) -> Source:
+    await ensure_tenant(db, tenant_id, name=tenant_id)
     source = Source(
+        tenant_id=tenant_id,
         url=url,
         name=name,
         crawl_hints=crawl_hints,
@@ -227,6 +233,9 @@ async def get_source_stats(db: AsyncSession, source_id: str) -> dict[str, Any]:
 
 
 async def create_page(db: AsyncSession, source_id: str, url: str, **kwargs: Any) -> Page:
+    if "tenant_id" not in kwargs:
+        source = await get_source(db, source_id)
+        kwargs["tenant_id"] = source.tenant_id if source else "public"
     original_url = kwargs.pop("original_url", url)
     kwargs.setdefault("status", "fetched")
     page = Page(source_id=source_id, url=url, original_url=original_url, **kwargs)
@@ -331,6 +340,9 @@ async def count_pages_by_status(db: AsyncSession, source_id: str) -> dict[str, i
 async def create_record(
     db: AsyncSession, source_id: str, record_type: str, **kwargs: Any
 ) -> Record:
+    if "tenant_id" not in kwargs:
+        source = await get_source(db, source_id)
+        kwargs["tenant_id"] = source.tenant_id if source else "public"
     embedding_payload = _build_embedding_payload(record_type, kwargs)
     if embedding_payload is not None:
         kwargs["embedding_vector"] = embedding_payload
@@ -411,6 +423,7 @@ async def get_record(db: AsyncSession, record_id: str) -> Record | None:
 
 async def list_records(
     db: AsyncSession,
+    tenant_id: str | None = None,
     source_id: str | None = None,
     record_type: str | None = None,
     status: str | None = None,
@@ -420,6 +433,8 @@ async def list_records(
     limit: int = 50,
 ) -> list[Record]:
     stmt = select(Record)
+    if tenant_id:
+        stmt = stmt.where(Record.tenant_id == tenant_id)
     if source_id:
         stmt = stmt.where(Record.source_id == source_id)
     if record_type:
@@ -591,11 +606,14 @@ async def bulk_approve(db: AsyncSession, source_id: str, min_confidence: int = 7
 
 async def count_records(
     db: AsyncSession,
+    tenant_id: str | None = None,
     source_id: str | None = None,
     status: str | None = None,
     record_type: str | None = None,
 ) -> int:
     stmt = select(func.count(Record.id))
+    if tenant_id:
+        stmt = stmt.where(Record.tenant_id == tenant_id)
     if source_id:
         stmt = stmt.where(Record.source_id == source_id)
     if status:
@@ -622,6 +640,9 @@ async def count_records_by_type(db: AsyncSession, source_id: str) -> dict[str, i
 
 
 async def create_image(db: AsyncSession, source_id: str, url: str, **kwargs: Any) -> Image:
+    if "tenant_id" not in kwargs:
+        source = await get_source(db, source_id)
+        kwargs["tenant_id"] = source.tenant_id if source else "public"
     image = Image(source_id=source_id, url=url, **kwargs)
     db.add(image)
     await db.commit()
@@ -681,7 +702,13 @@ async def set_primary_image(db: AsyncSession, record_id: str, image_id: str) -> 
 async def create_job(
     db: AsyncSession, source_id: str, job_type: str, payload: dict[str, Any]
 ) -> Job:
-    job = Job(source_id=source_id, job_type=job_type, payload=json.dumps(payload))
+    source = await get_source(db, source_id)
+    job = Job(
+        source_id=source_id,
+        tenant_id=source.tenant_id if source else "public",
+        job_type=job_type,
+        payload=json.dumps(payload),
+    )
     db.add(job)
     await db.commit()
     await db.refresh(job)
@@ -851,16 +878,24 @@ async def upsert_entity_relationship(
 async def list_relationships_for_record(
     db: AsyncSession,
     *,
-    source_id: str,
+    source_id: str | None,
     record_id: str,
+    tenant_id: str | None = None,
 ) -> list[EntityRelationship]:
     stmt = select(EntityRelationship).where(
-        EntityRelationship.source_id == source_id,
         or_(
             EntityRelationship.from_record_id == record_id,
             EntityRelationship.to_record_id == record_id,
         ),
     )
+    if source_id:
+        stmt = stmt.where(EntityRelationship.source_id == source_id)
+    if tenant_id:
+        stmt = stmt.where(
+            EntityRelationship.source_id.in_(
+                select(Source.id).where(Source.tenant_id == tenant_id)
+            )
+        )
     result = await db.execute(stmt)
     return list(result.scalars().all())
 
@@ -1110,3 +1145,135 @@ async def mark_merge_history_rolled_back(db: AsyncSession, merge_id: str) -> Mer
     await db.commit()
     await db.refresh(history)
     return history
+
+
+# ---------------------------------------------------------------------------
+# Tenant / API Key / Usage
+# ---------------------------------------------------------------------------
+
+
+async def ensure_tenant(
+    db: AsyncSession,
+    tenant_id: str,
+    *,
+    name: str | None = None,
+) -> Tenant:
+    tenant = (await db.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one_or_none()
+    if tenant:
+        return tenant
+    tenant = Tenant(id=tenant_id, name=name or tenant_id)
+    db.add(tenant)
+    await db.commit()
+    await db.refresh(tenant)
+    return tenant
+
+
+async def create_api_key(
+    db: AsyncSession,
+    *,
+    tenant_id: str,
+    name: str,
+    key_prefix: str,
+    key_hash: str,
+    permissions_json: str = '["read"]',
+) -> APIKey:
+    key = APIKey(
+        tenant_id=tenant_id,
+        name=name,
+        key_prefix=key_prefix,
+        key_hash=key_hash,
+        permissions_json=permissions_json,
+    )
+    db.add(key)
+    await db.commit()
+    await db.refresh(key)
+    return key
+
+
+async def get_api_key_by_hash(db: AsyncSession, key_hash: str) -> APIKey | None:
+    return (
+        await db.execute(select(APIKey).where(APIKey.key_hash == key_hash))
+    ).scalar_one_or_none()
+
+
+async def list_api_keys(db: AsyncSession, *, tenant_id: str | None = None) -> list[APIKey]:
+    stmt = select(APIKey).order_by(APIKey.created_at.desc())
+    if tenant_id:
+        stmt = stmt.where(APIKey.tenant_id == tenant_id)
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def disable_api_key(db: AsyncSession, *, key_id: str, tenant_id: str | None = None) -> bool:
+    stmt = select(APIKey).where(APIKey.id == key_id)
+    if tenant_id:
+        stmt = stmt.where(APIKey.tenant_id == tenant_id)
+    key = (await db.execute(stmt)).scalar_one_or_none()
+    if key is None:
+        return False
+    key.enabled = False
+    key.disabled_at = datetime.now(UTC)
+    await db.commit()
+    return True
+
+
+async def touch_api_key(db: AsyncSession, key: APIKey) -> None:
+    key.usage_count = int(key.usage_count or 0) + 1
+    key.last_used_at = datetime.now(UTC)
+    await db.commit()
+
+
+async def create_api_usage_event(
+    db: AsyncSession,
+    *,
+    tenant_id: str,
+    api_key_id: str,
+    endpoint: str,
+    method: str,
+    status_code: int,
+    response_time_ms: int,
+) -> APIUsageEvent:
+    usage = APIUsageEvent(
+        tenant_id=tenant_id,
+        api_key_id=api_key_id,
+        endpoint=endpoint,
+        method=method,
+        status_code=status_code,
+        response_time_ms=response_time_ms,
+    )
+    db.add(usage)
+    await db.commit()
+    await db.refresh(usage)
+    return usage
+
+
+async def get_usage_summary(
+    db: AsyncSession,
+    *,
+    tenant_id: str | None = None,
+    api_key_id: str | None = None,
+) -> dict[str, Any]:
+    filters = []
+    if tenant_id:
+        filters.append(APIUsageEvent.tenant_id == tenant_id)
+    if api_key_id:
+        filters.append(APIUsageEvent.api_key_id == api_key_id)
+
+    total = (
+        await db.execute(select(func.count(APIUsageEvent.id)).where(*filters))
+    ).scalar_one()
+    avg_ms = (
+        await db.execute(select(func.avg(APIUsageEvent.response_time_ms)).where(*filters))
+    ).scalar_one_or_none()
+
+    endpoints_stmt = (
+        select(APIUsageEvent.endpoint, func.count(APIUsageEvent.id))
+        .where(*filters)
+        .group_by(APIUsageEvent.endpoint)
+        .order_by(func.count(APIUsageEvent.id).desc())
+    )
+    endpoint_rows = (await db.execute(endpoints_stmt)).all()
+    return {
+        "total_requests": int(total or 0),
+        "avg_response_time_ms": float(avg_ms or 0),
+        "endpoint_usage": [{"endpoint": row[0], "count": row[1]} for row in endpoint_rows],
+    }
