@@ -32,8 +32,26 @@ async def test_full_pipeline_happy_path(db_session: AsyncSession, mock_ai_client
         source.id,
         structure_map=json.dumps(
             {
-                "crawl_plan": {"phases": []},
-                "extraction_rules": {},
+                "crawl_plan": {
+                    "phases": [
+                        {
+                            "phase_name": "Artists Directory",
+                            "base_url": "https://example.com",
+                            "url_pattern": "/artists/john",
+                            "pagination_type": "none",
+                            "num_pages": 1,
+                        }
+                    ]
+                },
+                "extraction_rules": {
+                    "artist_profile": {
+                        "css_selectors": {
+                            "name": "p",
+                            "bio": "p",
+                        },
+                        "identifiers": ["URL matches /artists/"],
+                    }
+                },
                 "directory_structure": "test structure",
             }
         ),
