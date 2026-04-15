@@ -22,6 +22,7 @@ from app.ai.extractors.event import EventExtractor
 from app.ai.extractors.exhibition import ExhibitionExtractor
 from app.ai.extractors.venue import VenueExtractor
 from app.crawler.fetcher import fetch
+from app.crawler.automated_crawler import AutomatedCrawler
 from app.crawler.link_follower import crawl_source
 from app.crawler.robots import RobotsChecker
 from app.crawler.site_mapper import SiteMap, Section, map_site
@@ -172,8 +173,33 @@ class PipelineRunner:
         )
         if source_exists is None:
             raise ValueError(f"Source {source_id} not found before crawl start")
+        source = await crud.get_source(self.db, source_id)
+        structure_map: dict[str, Any] | None = None
+        if source and source.structure_map:
+            try:
+                structure_map = json.loads(source.structure_map)
+            except json.JSONDecodeError:
+                logger.warning("crawl_structure_map_invalid_json", source_id=source_id)
+
+        if structure_map:
+            crawler = AutomatedCrawler(structure_map, self.db, self.ai_client)
+            stats = await crawler.execute_crawl_plan(source_id)
+            pages_crawled = max(int(stats.get("pages_crawled", 0)), 1)
+            deterministic_rate = stats.get("extracted_deterministic", 0) / pages_crawled
+            ai_fallback_rate = stats.get("extracted_ai_fallback", 0) / pages_crawled
+            failure_rate = stats.get("failed", 0) / pages_crawled
+            logger.info(
+                "crawl_stats",
+                source_id=source_id,
+                deterministic_rate=round(deterministic_rate, 4),
+                ai_fallback_rate=round(ai_fallback_rate, 4),
+                failure_rate=round(failure_rate, 4),
+                tokens_used=stats.get("tokens_used", 0),
+                cost=stats.get("cost", 0.0),
+            )
+            return stats
+
         if site_map is None:
-            source = await crud.get_source(self.db, source_id)
             if source and source.site_map:
                 data = json.loads(source.site_map)
                 site_map = SiteMap(
@@ -191,7 +217,18 @@ class PipelineRunner:
             db=self.db,
             robots_checker=self.robots_checker,
         )
-        return {"pages_fetched": stats.pages_fetched, "errors": stats.pages_error}
+        pages_crawled = max(stats.pages_fetched, 1)
+        fallback_stats = {"pages_crawled": stats.pages_fetched, "failed": stats.pages_error}
+        logger.info(
+            "crawl_stats",
+            source_id=source_id,
+            deterministic_rate=0.0,
+            ai_fallback_rate=0.0,
+            failure_rate=round(stats.pages_error / pages_crawled, 4),
+            tokens_used=0,
+            cost=0.0,
+        )
+        return fallback_stats
 
     async def run_extract(self, source_id: str) -> ExtractionStats:
         """Extract records from eligible pages that are not yet terminal."""

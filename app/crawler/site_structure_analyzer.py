@@ -16,7 +16,32 @@ STRUCTURE_ANALYZER_PROMPT = """Analyze this website to find:
 3. Nested structure (detail pages under listings)
 4. Data locations (where to find bio, contact, images, etc.)
 
-Return ONLY JSON with keys: crawl_targets, mining_map, directory_structure, confidence."""
+Return ONLY JSON with keys:
+- crawl_targets: list of URL patterns to crawl
+- mining_map: map of page types to URL matching patterns and expected_fields
+- directory_structure: summary of navigation/index strategy
+- extraction_rules: map of page_type -> deterministic extraction strategy
+- confidence: integer 0-100
+
+Each extraction_rules entry MUST include:
+- css_selectors: map of field name -> CSS selector
+- regex_patterns: map of field name -> regex for text extraction
+- ai_fallback_rules: string describing when AI is allowed (for example: "Use AI only if CSS and regex confidence < 80")
+
+Example extraction_rules:
+{
+  "artist_profile": {
+    "css_selectors": {
+      "name": "h1.artist-name",
+      "bio": "div.biography",
+      "mediums": "ul.mediums li"
+    },
+    "regex_patterns": {
+      "email": "([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,})"
+    },
+    "ai_fallback_rules": "Use AI only if CSS selectors fail or confidence < 80"
+  }
+}"""
 
 
 async def analyze_structure(url: str, html: str, ai_client: OpenAIClient) -> dict:

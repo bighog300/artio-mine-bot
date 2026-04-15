@@ -80,6 +80,12 @@ class Settings(BaseSettings):
     max_crawl_depth: int = 3
     max_pages_per_source: int = 500
     crawl_delay_ms: int = 1000
+    use_deterministic_extraction: bool = True
+    deterministic_confidence_threshold: int = 80
+    max_ai_fallback_per_source: int = 50
+    crawler_batch_size: int = 10
+    crawler_rate_limit_ms: int = 1000
+    crawler_use_ai_fallback: bool = True
     # None means "use environment-based default": True in dev, False in production.
     playwright_enabled: bool | None = None
     cors_origins: str = "http://localhost:5173"
