@@ -285,6 +285,51 @@ export interface AdjacentRecordResponse {
   next_id: string | null;
 }
 
+export interface ReviewArtistSummary {
+  id: string;
+  source_id: string;
+  title: string;
+  completeness_score: number;
+  missing_fields: string[];
+  has_conflicts: boolean;
+  conflict_fields: string[];
+}
+
+export interface ReviewArtistDetail {
+  id: string;
+  source_id: string;
+  title: string;
+  canonical_fields: Record<string, unknown>;
+  completeness_score: number;
+  missing_fields: string[];
+  provenance: Record<string, unknown>;
+  conflicts: Record<string, Array<{ value: string; selected?: boolean; resolved?: boolean }>>;
+  related: Record<string, Array<{ id: string; title: string; source_url?: string; status?: string }>>;
+}
+
+export interface DuplicateCandidate {
+  id: string;
+  left_id: string;
+  right_id: string;
+  left_name: string | null;
+  right_name: string | null;
+  similarity_score: number;
+  reason: string;
+  status: string;
+  reviewed_by: string | null;
+}
+
+export interface AuditAction {
+  id: string;
+  action_type: string;
+  user: string | null;
+  source_id: string | null;
+  record_id: string | null;
+  affected_records: string[];
+  details: Record<string, unknown>;
+  timestamp: string;
+}
+
 // ─── API Functions ────────────────────────────────────────────────────────────
 
 // Sources
@@ -435,3 +480,65 @@ export const saveSettings = (data: SaveSettingsInput): Promise<AppSettings> =>
 
 export const testArtioConnection = (): Promise<TestConnectionResult> =>
   api.post("/settings/test-artio").then((r) => r.data);
+
+// Review workflows
+export const searchReviewArtists = (params?: {
+  source_id?: string;
+  has_conflicts?: boolean;
+  completeness_lt?: number;
+}): Promise<{ items: ReviewArtistSummary[]; total: number }> =>
+  api.get("/review/artists", { params }).then((r) => r.data);
+
+export const getReviewArtist = (artistId: string): Promise<ReviewArtistDetail> =>
+  api.get(`/review/artists/${artistId}`).then((r) => r.data);
+
+export const resolveReviewConflict = (
+  artistId: string,
+  field: string,
+  selectedValue: string
+): Promise<{ status: string }> =>
+  api.post(`/review/artists/${artistId}/resolve`, { field, selected_value: selectedValue }).then((r) => r.data);
+
+export const rerunReviewArtist = (artistId: string): Promise<{ result: Record<string, unknown> }> =>
+  api.post(`/review/artists/${artistId}/rerun`).then((r) => r.data);
+
+// Semantic / duplicate
+export const semanticArtistSearch = (
+  q: string
+): Promise<{ items: Array<{ id: string; name: string; semantic_score: number; completeness_score: number }>; total: number }> =>
+  api.get("/semantic/artists", { params: { q } }).then((r) => r.data);
+
+export const relatedArtists = (
+  artistId: string
+): Promise<{ items: Array<{ id: string; name: string; score: number }> }> =>
+  api.get(`/related/artists/${artistId}`).then((r) => r.data);
+
+export const getDuplicateReviews = (
+  status?: string
+): Promise<{ items: DuplicateCandidate[]; total: number }> =>
+  api.get("/duplicates/reviews", { params: { status } }).then((r) => r.data);
+
+export const decideDuplicate = (payload: {
+  left_id: string;
+  right_id: string;
+  decision: "merge" | "ignore" | "not_duplicate" | "reviewed";
+  primary_id?: string;
+  reviewer?: string;
+}): Promise<{ status: string }> => api.post("/duplicates/decision", payload).then((r) => r.data);
+
+// Metrics + audit
+export const getOperationalMetrics = (): Promise<{
+  total_artists: number;
+  avg_completeness: number;
+  conflicts_count: number;
+  duplicates_detected: number;
+  merges_performed: number;
+  pages_processed: number;
+}> => api.get("/metrics").then((r) => r.data);
+
+export const getAuditActions = (params?: {
+  action_type?: string;
+  source_id?: string;
+  record_id?: string;
+}): Promise<PaginatedResponse<AuditAction>> =>
+  api.get("/audit", { params }).then((r) => r.data);

@@ -278,3 +278,49 @@ class EntityRelationship(Base):
         Index("ix_entity_relationships_to_record_id", "to_record_id"),
         Index("ix_entity_relationships_type", "relationship_type"),
     )
+
+
+class DuplicateReview(Base):
+    __tablename__ = "duplicate_reviews"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    left_record_id: Mapped[str] = mapped_column(String, ForeignKey("records.id"), nullable=False)
+    right_record_id: Mapped[str] = mapped_column(String, ForeignKey("records.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    similarity_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    merge_target_id: Mapped[str | None] = mapped_column(String, ForeignKey("records.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "left_record_id",
+            "right_record_id",
+            name="uq_duplicate_reviews_pair",
+        ),
+        Index("ix_duplicate_reviews_status", "status"),
+        Index("ix_duplicate_reviews_similarity_score", "similarity_score"),
+    )
+
+
+class AuditAction(Base):
+    __tablename__ = "audit_actions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    action_type: Mapped[str] = mapped_column(String, nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    source_id: Mapped[str | None] = mapped_column(String, ForeignKey("sources.id"), nullable=True)
+    record_id: Mapped[str | None] = mapped_column(String, ForeignKey("records.id"), nullable=True)
+    affected_record_ids: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    details_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+
+    __table_args__ = (
+        Index("ix_audit_actions_action_type", "action_type"),
+        Index("ix_audit_actions_created_at", "created_at"),
+        Index("ix_audit_actions_record_id", "record_id"),
+        Index("ix_audit_actions_source_id", "source_id"),
+    )

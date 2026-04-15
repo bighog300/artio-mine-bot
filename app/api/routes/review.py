@@ -148,6 +148,14 @@ async def resolve_artist_conflict(
         entry["resolved"] = True
 
     await crud.update_record(db, artist.id, raw_data=json.dumps(payload))
+    await crud.create_audit_action(
+        db,
+        action_type="conflict_resolution",
+        record_id=artist.id,
+        source_id=artist.source_id,
+        affected_record_ids=[artist.id],
+        details={"field": body.field, "selected_value": body.selected_value},
+    )
     return {
         "id": artist.id,
         "field": body.field,
@@ -166,6 +174,14 @@ async def rerun_artist(artist_id: str, db: AsyncSession = Depends(get_db)):
 
     runner = PipelineRunner(db=db, ai_client=OpenAIClient())
     result = await runner.rerun_artist_family(source_id=artist.source_id, family_key=family_key)
+    await crud.create_audit_action(
+        db,
+        action_type="rerun",
+        record_id=artist.id,
+        source_id=artist.source_id,
+        affected_record_ids=[artist.id],
+        details={"family_key": family_key},
+    )
     return {
         "artist_id": artist.id,
         "family_key": family_key,

@@ -1,12 +1,13 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getActivityFeed, getStats, getSources } from "@/lib/api";
+import { getActivityFeed, getOperationalMetrics, getStats, getSources } from "@/lib/api";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { formatLogMessage, formatRelative } from "@/lib/utils";
 
 export function Dashboard() {
   const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: getStats });
   const { data: sources } = useQuery({ queryKey: ["sources"], queryFn: getSources });
+  const { data: metrics } = useQuery({ queryKey: ["operational-metrics"], queryFn: getOperationalMetrics });
   const { data: activity } = useQuery({
     queryKey: ["activity-feed"],
     queryFn: () => getActivityFeed({ limit: 20 }),
@@ -28,6 +29,15 @@ export function Dashboard() {
         />
         <StatCard label="Pages Crawled" value={stats?.pages.crawled ?? 0} />
         <StatCard label="Export Ready" value={stats?.records.approved ?? 0} highlight />
+      </div>
+
+      <div className="grid grid-cols-6 gap-3">
+        <MiniMetric label="Artists" value={metrics?.total_artists ?? 0} />
+        <MiniMetric label="Avg completeness" value={metrics?.avg_completeness ?? 0} />
+        <MiniMetric label="Conflicts" value={metrics?.conflicts_count ?? 0} />
+        <MiniMetric label="Duplicates" value={metrics?.duplicates_detected ?? 0} />
+        <MiniMetric label="Merges" value={metrics?.merges_performed ?? 0} />
+        <MiniMetric label="Pages processed" value={metrics?.pages_processed ?? 0} />
       </div>
 
       <div className="grid grid-cols-2 gap-6">
@@ -130,6 +140,15 @@ export function Dashboard() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="bg-white border rounded p-3">
+      <div className="text-xs text-gray-500">{label}</div>
+      <div className="text-lg font-semibold">{value}</div>
     </div>
   );
 }

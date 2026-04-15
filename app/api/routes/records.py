@@ -149,6 +149,14 @@ async def update_record(
     update_data = {k: v for k, v in body.model_dump().items() if v is not None}
     if update_data:
         record = await crud.update_record(db, record_id, **update_data)
+        await crud.create_audit_action(
+            db,
+            action_type="record_update",
+            source_id=record.source_id,
+            record_id=record.id,
+            affected_record_ids=[record.id],
+            details={"fields": sorted(list(update_data.keys()))},
+        )
     return record
 
 
@@ -158,6 +166,13 @@ async def approve_record(record_id: str, db: AsyncSession = Depends(get_db)):
     if not record:
         raise HTTPException(status_code=404, detail="Record not found")
     record = await crud.approve_record(db, record_id)
+    await crud.create_audit_action(
+        db,
+        action_type="approve",
+        source_id=record.source_id,
+        record_id=record.id,
+        affected_record_ids=[record.id],
+    )
     return ApproveResponse(id=record.id, status=record.status)
 
 
@@ -174,6 +189,14 @@ async def reject_record(
     record = await crud.reject_record(db, record_id)
     if kwargs:
         record = await crud.update_record(db, record_id, **kwargs)
+    await crud.create_audit_action(
+        db,
+        action_type="reject",
+        source_id=record.source_id,
+        record_id=record.id,
+        affected_record_ids=[record.id],
+        details={"reason": body.reason if body else None},
+    )
     return ApproveResponse(id=record.id, status=record.status)
 
 
