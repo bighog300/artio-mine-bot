@@ -342,6 +342,14 @@ async def list_duplicate_reviews(
             error=str(exc),
         )
         return {"items": [], "total": 0, "skip": skip, "limit": limit}
+    except Exception:
+        logger.exception(
+            "duplicate_reviews_unexpected_error",
+            status=status,
+            skip=skip,
+            limit=limit,
+        )
+        return {"items": [], "total": 0, "skip": skip, "limit": limit}
 
 
 @router.post("/merge/artists")

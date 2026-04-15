@@ -8,11 +8,13 @@ export function Dashboard() {
   const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: getStats });
   const { data: sources } = useQuery({ queryKey: ["sources"], queryFn: getSources });
   const { data: metrics } = useQuery({ queryKey: ["operational-metrics"], queryFn: getOperationalMetrics });
-  const { data: activity } = useQuery({
+  const { data: activity, isError: isActivityError } = useQuery({
     queryKey: ["activity-feed"],
     queryFn: () => getActivityFeed({ limit: 20 }),
-    refetchInterval: 10000,
+    refetchInterval: (query) => (query.state.status === "success" ? 10000 : false),
     retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const { data: jobs } = useQuery({ queryKey: ["jobs", "dashboard"], queryFn: () => getJobs({ limit: 200 }) });
   const { data: queues } = useQuery({ queryKey: ["queues"], queryFn: getQueues });
@@ -144,7 +146,10 @@ export function Dashboard() {
                 </div>
               </div>
             ))}
-            {(!activity || activity.items.length === 0) && (
+            {isActivityError && (
+              <div className="text-sm text-amber-700">Activity feed is temporarily unavailable.</div>
+            )}
+            {!isActivityError && (!activity || activity.items.length === 0) && (
               <div className="text-sm text-gray-500">No activity yet.</div>
             )}
           </div>
