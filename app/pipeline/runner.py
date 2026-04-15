@@ -723,11 +723,19 @@ class PipelineRunner:
 
         related_data = extract_artist_related_items(page_type, page.html or "", page.url)
 
-        existing_artist = await crud.get_artist_record_by_family_key(
+        existing_page_artist = await crud.get_record_by_page_and_type(
             self.db,
             source_id=page.source_id,
-            family_key=family_key,
+            page_id=page.id,
+            record_type="artist",
         )
+        existing_artist = existing_page_artist
+        if existing_artist is None:
+            existing_artist = await crud.get_artist_record_by_family_key(
+                self.db,
+                source_id=page.source_id,
+                family_key=family_key,
+            )
         existing_raw = existing_artist.raw_data if existing_artist else None
         merged_payload = merge_artist_payload(
             existing_raw_data=existing_raw,
