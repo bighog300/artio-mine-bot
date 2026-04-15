@@ -1,4 +1,5 @@
 import type { MappingSampleRunResultResponse } from "@/lib/api";
+import { SAMPLE_RUN_REVIEW_STATUSES, type SampleRunReviewStatus } from "@/components/source-mapper/constants";
 
 interface Props {
   sampleRun?: MappingSampleRunResultResponse;
@@ -8,6 +9,12 @@ interface Props {
 }
 
 export function SampleRunReview({ sampleRun, onStart, loading, onModerateResult }: Props) {
+  const reviewLabel: Record<SampleRunReviewStatus, string> = {
+    approved: "Approve",
+    needs_review: "Needs review",
+    rejected: "Reject",
+  };
+
   return (
     <section className="rounded border bg-white p-4 space-y-3">
       <div className="flex items-center justify-between">
@@ -25,9 +32,11 @@ export function SampleRunReview({ sampleRun, onStart, loading, onModerateResult 
                 <div className="flex items-center justify-between gap-2">
                   <div>Status: {item.review_status}</div>
                   <div className="flex gap-1">
-                    <button className="px-2 py-1 border rounded" onClick={() => onModerateResult(item.id, { review_status: "approved" })}>Approve</button>
-                    <button className="px-2 py-1 border rounded" onClick={() => onModerateResult(item.id, { review_status: "needs_review" })}>Needs review</button>
-                    <button className="px-2 py-1 border rounded" onClick={() => onModerateResult(item.id, { review_status: "rejected" })}>Reject</button>
+                    {SAMPLE_RUN_REVIEW_STATUSES.map((status) => (
+                      <button key={status} className="px-2 py-1 border rounded" onClick={() => onModerateResult(item.id, { review_status: status })}>
+                        {reviewLabel[status]}
+                      </button>
+                    ))}
                   </div>
                 </div>
                 <textarea

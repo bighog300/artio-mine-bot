@@ -110,6 +110,36 @@ def _serialize_draft_summary(draft, page_types: list, rows: list) -> MappingDraf
     return MappingDraftSummary(**payload)
 
 
+def _deserialize_record_preview(raw_json: str | None) -> dict:
+    try:
+        return json.loads(raw_json or "{}")
+    except (TypeError, json.JSONDecodeError):
+        return {}
+
+
+def _serialize_sample_result(result) -> MappingSampleRunResultItem:
+    return MappingSampleRunResultItem(
+        id=result.id,
+        sample_run_id=result.sample_run_id,
+        sample_id=result.sample_id,
+        review_status=result.review_status,
+        review_notes=result.review_notes,
+        record_preview=_deserialize_record_preview(result.record_preview_json),
+        created_at=result.created_at,
+        updated_at=result.updated_at,
+    )
+
+
+def _serialize_version_publish_response(version) -> MappingVersionPublishResponse:
+    return MappingVersionPublishResponse(
+        id=version.id,
+        source_id=version.source_id,
+        status=version.status,
+        published_at=version.published_at,
+        published_by=version.published_by,
+    )
+
+
 @router.post("", response_model=MappingDraftSummary, status_code=201)
 async def create_mapping_draft(
     source_id: str,
@@ -389,19 +419,7 @@ async def get_sample_run_results(
     if sample_run is None:
         raise HTTPException(status_code=404, detail="Sample run not found")
     results = await crud.list_source_mapping_sample_results(db, sample_run_id, review_status=review_status)
-    items = [
-        MappingSampleRunResultItem(
-            id=item.id,
-            sample_run_id=item.sample_run_id,
-            sample_id=item.sample_id,
-            review_status=item.review_status,
-            review_notes=item.review_notes,
-            record_preview=json.loads(item.record_preview_json or "{}"),
-            created_at=item.created_at,
-            updated_at=item.updated_at,
-        )
-        for item in results
-    ]
+    items = [_serialize_sample_result(item) for item in results]
     return MappingSampleRunResultResponse(sample_run_id=sample_run_id, status=sample_run.status, items=items)
 
 
@@ -442,16 +460,7 @@ async def update_sample_run_result(
             "updates": updates,
         },
     )
-    return MappingSampleRunResultItem(
-        id=result.id,
-        sample_run_id=result.sample_run_id,
-        sample_id=result.sample_id,
-        review_status=result.review_status,
-        review_notes=result.review_notes,
-        record_preview=json.loads(result.record_preview_json or "{}"),
-        created_at=result.created_at,
-        updated_at=result.updated_at,
-    )
+    return _serialize_sample_result(result)
 
 
 @router.get("", response_model=dict)
@@ -486,13 +495,7 @@ async def publish_mapping_draft(
         record_id=draft_id,
         details={"draft_id": draft_id, "status": published.status},
     )
-    return MappingVersionPublishResponse(
-        id=published.id,
-        source_id=published.source_id,
-        status=published.status,
-        published_at=published.published_at,
-        published_by=published.published_by,
-    )
+    return _serialize_version_publish_response(published)
 
 
 @router.get("/{draft_id}/diff", response_model=MappingVersionDiffSummary)
@@ -555,10 +558,4 @@ async def rollback_mapping_version(
         record_id=version_id,
         details={"active_mapping_version_id": restored.id},
     )
-    return MappingVersionPublishResponse(
-        id=restored.id,
-        source_id=restored.source_id,
-        status=restored.status,
-        published_at=restored.published_at,
-        published_by=restored.published_by,
-    )
+    return _serialize_version_publish_response(restored)

@@ -1,5 +1,6 @@
 import { ConfidenceBadge } from "@/components/shared/ConfidenceBadge";
 import type { MappingRow } from "@/lib/api";
+import { MAPPING_ROW_STATUSES } from "@/components/source-mapper/constants";
 
 interface Props {
   rows: MappingRow[];
@@ -32,12 +33,9 @@ export function MappingMatrix({ rows, statusFilter, onStatusFilterChange, select
         <span>Status filter</span>
         <select className="w-full border rounded px-2 py-1" value={statusFilter} onChange={(e) => onStatusFilterChange(e.target.value)}>
           <option value="all">all</option>
-          <option value="proposed">proposed</option>
-          <option value="needs_review">needs_review</option>
-          <option value="changed_from_published">changed_from_published</option>
-          <option value="approved">approved</option>
-          <option value="rejected">rejected</option>
-          <option value="ignored">ignored</option>
+          {MAPPING_ROW_STATUSES.map((status) => (
+            <option key={status} value={status}>{status}</option>
+          ))}
         </select>
       </label>
       {!rows.length ? <p className="text-sm text-gray-500">No mapping rows yet.</p> : (
@@ -92,12 +90,9 @@ export function MappingMatrix({ rows, statusFilter, onStatusFilterChange, select
                 <td className="p-2"><ConfidenceBadge band={row.confidence_band} score={Math.round(row.confidence_score * 100)} /></td>
                 <td className="p-2">
                   <select className="border rounded px-2 py-1" value={row.status} onChange={(e) => onRowUpdate(row.id, { status: e.target.value })}>
-                    <option value="proposed">proposed</option>
-                    <option value="needs_review">needs_review</option>
-                    <option value="changed_from_published">changed_from_published</option>
-                    <option value="approved">approved</option>
-                    <option value="rejected">rejected</option>
-                    <option value="ignored">ignored</option>
+                    {MAPPING_ROW_STATUSES.map((status) => (
+                      <option key={status} value={status}>{status}</option>
+                    ))}
                   </select>
                 </td>
               </tr>
