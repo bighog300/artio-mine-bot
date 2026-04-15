@@ -105,5 +105,8 @@ jobs:
             npm install
           fi
 
+      - name: 🧪 Run frontend tests
+        run: npm run test
+
       - name: 🏗️ Build frontend
         run: npm run build
