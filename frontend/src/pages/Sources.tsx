@@ -1,41 +1,73 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Plus, Play, Trash2, Eye } from "lucide-react";
-import { getSources, createSource, deleteSource, startMining } from "@/lib/api";
+import { Eye, Pause, Play, RotateCcw, Square, Trash2 } from "lucide-react";
+import {
+  createSource,
+  deleteSource,
+  getSources,
+  pauseSource,
+  resumeSource,
+  retryFailedSource,
+  startDiscovery,
+  startFullMining,
+  stopSource,
+  type CreateSourceInput,
+} from "@/lib/api";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { formatRelative } from "@/lib/utils";
 
+type SourceAction = "start-discovery" | "start-full" | "pause" | "resume" | "stop" | "retry-failed";
+
+const CRAWL_INTENT_OPTIONS: Array<{ value: CreateSourceInput["crawl_intent"]; label: string }> = [
+  { value: "site_root", label: "Site root" },
+  { value: "directory_listing", label: "Directory/listing page" },
+  { value: "detail_entity", label: "Detail/entity page" },
+  { value: "test_crawl", label: "Test crawl" },
+];
+
 export function Sources() {
   const [showDialog, setShowDialog] = useState(false);
-  const [urlInput, setUrlInput] = useState("");
-  const [nameInput, setNameInput] = useState("");
-  const [maxPages, setMaxPages] = useState<number | "">("");
-  const [maxDepth, setMaxDepth] = useState<number | "">("");
+  const [form, setForm] = useState<CreateSourceInput>({
+    url: "",
+    name: "",
+    crawl_intent: "site_root",
+    enabled: true,
+  });
   const [error, setError] = useState<string | null>(null);
-  const [startFeedback, setStartFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
-
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
   const { data, isLoading } = useQuery({ queryKey: ["sources"], queryFn: getSources });
 
   const createMutation = useMutation({
-    mutationFn: async () => {
-      const source = await createSource({ url: urlInput, name: nameInput || undefined });
-      await startMining(source.id, {
-        max_pages: typeof maxPages === "number" ? maxPages : undefined,
-        max_depth: typeof maxDepth === "number" ? maxDepth : undefined,
-      });
+    mutationFn: createSource,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
+      setShowDialog(false);
+      setError(null);
+      setForm({ url: "", name: "", crawl_intent: "site_root", enabled: true });
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  const createAndRunMutation = useMutation({
+    mutationFn: async ({ action }: { action: "start-discovery" | "start-full" }) => {
+      const source = await createSource(form);
+      if (action === "start-discovery") {
+        await startDiscovery(source.id);
+      } else {
+        await startFullMining(source.id);
+      }
       return source;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       setShowDialog(false);
-      setUrlInput("");
-      setNameInput("");
-      setMaxPages("");
-      setMaxDepth("");
+      setError(null);
+      setActionFeedback("Source saved and job started.");
+      setForm({ url: "", name: "", crawl_intent: "site_root", enabled: true });
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -45,14 +77,32 @@ export function Sources() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sources"] }),
   });
 
-  const startMutation = useMutation({
-    mutationFn: (sourceId: string) => startMining(sourceId),
+  const actionMutation = useMutation({
+    mutationFn: async ({ sourceId, action }: { sourceId: string; action: SourceAction }) => {
+      switch (action) {
+        case "start-discovery":
+          return startDiscovery(sourceId);
+        case "start-full":
+          return startFullMining(sourceId);
+        case "pause":
+          return pauseSource(sourceId);
+        case "resume":
+          return resumeSource(sourceId);
+        case "stop":
+          return stopSource(sourceId);
+        case "retry-failed":
+          return retryFailedSource(sourceId);
+      }
+    },
     onSuccess: () => {
-      setStartFeedback({ type: "success", message: "Mining queued successfully." });
+      setActionFeedback("Source action accepted.");
       queryClient.invalidateQueries({ queryKey: ["sources"] });
     },
-    onError: (e: Error) => setStartFeedback({ type: "error", message: e.message }),
+    onError: (e: Error) => setActionFeedback(e.message),
   });
+
+  const isCreateBusy = createMutation.isPending || createAndRunMutation.isPending;
+  const canSubmit = useMemo(() => Boolean(form.url?.trim()), [form.url]);
 
   return (
     <div className="space-y-4">
@@ -60,24 +110,14 @@ export function Sources() {
         <h1 className="text-2xl font-bold text-gray-900">Sources</h1>
         <button
           onClick={() => setShowDialog(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
         >
-          <Plus size={16} /> Add Source
+          Add Source
         </button>
       </div>
-      {startFeedback && (
-        <div
-          className={`rounded border px-3 py-2 text-sm ${
-            startFeedback.type === "success"
-              ? "border-green-200 bg-green-50 text-green-700"
-              : "border-red-200 bg-red-50 text-red-700"
-          }`}
-        >
-          {startFeedback.message}
-        </div>
-      )}
 
-      {/* Table */}
+      {actionFeedback && <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm">{actionFeedback}</div>}
+
       <div className="bg-white rounded-lg border overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-gray-50">
@@ -100,34 +140,22 @@ export function Sources() {
                   <div className="font-medium">{source.name ?? source.url}</div>
                   <div className="text-xs text-gray-500 truncate max-w-xs">{source.url}</div>
                 </td>
-                <td className="p-3"><StatusBadge status={source.status} /></td>
+                <td className="p-3"><StatusBadge status={source.operational_status ?? source.status} /></td>
                 <td className="p-3">{source.total_pages}</td>
                 <td className="p-3">{source.total_records}</td>
-                <td className="p-3 text-gray-500">
-                  {source.last_crawled_at ? formatRelative(source.last_crawled_at) : "Never"}
-                </td>
+                <td className="p-3 text-gray-500">{source.last_crawled_at ? formatRelative(source.last_crawled_at) : "Never"}</td>
                 <td className="p-3">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => navigate(`/sources/${source.id}`)}
-                      className="p-1 text-gray-500 hover:text-blue-600"
-                      title="View"
-                    >
-                      <Eye size={16} />
-                    </button>
-                    <button
-                      onClick={() => startMutation.mutate(source.id)}
-                      disabled={startMutation.isPending}
-                      className="p-1 text-gray-500 hover:text-green-600 disabled:opacity-50"
-                      title="Run"
-                    >
-                      <Play size={16} />
-                    </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={() => navigate(`/sources/${source.id}`)} className="p-1 text-gray-500 hover:text-blue-600" title="View"><Eye size={16} /></button>
+                    <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "start-discovery" })} className="px-2 py-1 border rounded text-xs">Start Discovery</button>
+                    <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "start-full" })} className="px-2 py-1 border rounded text-xs">Start Full Mining</button>
+                    <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "pause" })} className="p-1 text-gray-500 hover:text-amber-600" title="Pause"><Pause size={16} /></button>
+                    <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "resume" })} className="p-1 text-gray-500 hover:text-green-600" title="Resume"><Play size={16} /></button>
+                    <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "stop" })} className="p-1 text-gray-500 hover:text-red-600" title="Stop"><Square size={16} /></button>
+                    <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "retry-failed" })} className="p-1 text-gray-500 hover:text-indigo-600" title="Retry Failed"><RotateCcw size={16} /></button>
                     <button
                       onClick={() => {
-                        if (confirm("Delete this source and all its data?")) {
-                          deleteMutation.mutate(source.id);
-                        }
+                        if (confirm("Delete this source and all its data?")) deleteMutation.mutate(source.id);
                       }}
                       className="p-1 text-gray-500 hover:text-red-600"
                       title="Delete"
@@ -138,85 +166,72 @@ export function Sources() {
                 </td>
               </tr>
             ))}
-            {!isLoading && data?.items.length === 0 && (
-              <tr>
-                <td colSpan={6} className="p-6 text-center text-gray-400">
-                  No sources yet. Click "Add Source" to get started.
-                </td>
-              </tr>
-            )}
           </tbody>
         </table>
       </div>
 
-      {/* Add Source Dialog */}
       {showDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl shadow-xl">
             <h2 className="text-lg font-semibold mb-4">Add Source</h2>
             {error && <p className="text-red-600 text-sm mb-3">{error}</p>}
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">URL *</label>
-                <input
-                  type="url"
-                  value={urlInput}
-                  onChange={(e) => setUrlInput(e.target.value)}
-                  placeholder="https://example-gallery.com"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="col-span-2">
+                <label className="block mb-1">URL *</label>
+                <input type="url" value={form.url ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, url: e.target.value }))} className="w-full border rounded px-3 py-2" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Name (optional)</label>
-                <input
-                  type="text"
-                  value={nameInput}
-                  onChange={(e) => setNameInput(e.target.value)}
-                  placeholder="Gallery Name"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+                <label className="block mb-1">Name</label>
+                <input value={form.name ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} className="w-full border rounded px-3 py-2" />
               </div>
-              <details className="text-sm text-gray-500 cursor-pointer">
-                <summary>Advanced options</summary>
-                <div className="mt-2 space-y-2">
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Max pages (default: 500)</label>
-                    <input
-                      type="number"
-                      value={maxPages}
-                      onChange={(e) => setMaxPages(e.target.value === "" ? "" : Number(e.target.value))}
-                      min={1}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-600 mb-1">Max depth (default: 3)</label>
-                    <input
-                      type="number"
-                      value={maxDepth}
-                      onChange={(e) => setMaxDepth(e.target.value === "" ? "" : Number(e.target.value))}
-                      min={1}
-                      max={10}
-                      className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-                    />
-                  </div>
-                </div>
-              </details>
+              <div>
+                <label className="block mb-1">Crawl intent</label>
+                <select value={form.crawl_intent ?? "site_root"} onChange={(e) => setForm((prev) => ({ ...prev, crawl_intent: e.target.value as CreateSourceInput["crawl_intent"] }))} className="w-full border rounded px-3 py-2 bg-white">
+                  {CRAWL_INTENT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block mb-1">Max pages</label>
+                <input type="number" min={1} value={form.max_pages ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, max_pages: e.target.value ? Number(e.target.value) : undefined }))} className="w-full border rounded px-3 py-2" />
+              </div>
+              <div>
+                <label className="block mb-1">Max depth</label>
+                <input type="number" min={1} value={form.max_depth ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, max_depth: e.target.value ? Number(e.target.value) : undefined }))} className="w-full border rounded px-3 py-2" />
+              </div>
+              <div className="col-span-2">
+                <label className="block mb-1">Crawl hints (JSON)</label>
+                <textarea rows={2} placeholder='{"seed": ["/artists"]}' className="w-full border rounded px-3 py-2" onChange={(e) => {
+                  try {
+                    const value = e.target.value.trim();
+                    setForm((prev) => ({ ...prev, crawl_hints: value ? JSON.parse(value) : undefined }));
+                    setError(null);
+                  } catch {
+                    setError("Invalid crawl hints JSON");
+                  }
+                }} />
+              </div>
+              <div className="col-span-2">
+                <label className="block mb-1">Extraction rules (JSON)</label>
+                <textarea rows={2} placeholder='{"artists": {"required": ["title"]}}' className="w-full border rounded px-3 py-2" onChange={(e) => {
+                  try {
+                    const value = e.target.value.trim();
+                    setForm((prev) => ({ ...prev, extraction_rules: value ? JSON.parse(value) : undefined }));
+                    setError(null);
+                  } catch {
+                    setError("Invalid extraction rules JSON");
+                  }
+                }} />
+              </div>
+              <label className="col-span-2 flex items-center gap-2">
+                <input type="checkbox" checked={form.enabled ?? true} onChange={(e) => setForm((prev) => ({ ...prev, enabled: e.target.checked }))} />
+                Enabled
+              </label>
             </div>
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={() => createMutation.mutate()}
-                disabled={!urlInput || createMutation.isPending}
-                className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium"
-              >
-                {createMutation.isPending ? "Starting..." : "Add & Start Mining"}
-              </button>
-              <button
-                onClick={() => { setShowDialog(false); setError(null); }}
-                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm"
-              >
-                Cancel
-              </button>
+            <div className="flex flex-wrap gap-2 mt-4">
+              <button disabled={!canSubmit || isCreateBusy} onClick={() => createMutation.mutate(form)} className="px-3 py-2 bg-slate-700 text-white rounded disabled:opacity-60">Save Source</button>
+              <button disabled={!canSubmit || isCreateBusy} onClick={() => createAndRunMutation.mutate({ action: "start-discovery" })} className="px-3 py-2 bg-blue-600 text-white rounded disabled:opacity-60">Save & Start Discovery</button>
+              <button disabled={!canSubmit || isCreateBusy} onClick={() => createAndRunMutation.mutate({ action: "start-full" })} className="px-3 py-2 bg-green-600 text-white rounded disabled:opacity-60">Save & Start Full Mining</button>
+              <button onClick={() => setShowDialog(false)} className="px-3 py-2 border rounded">Cancel</button>
             </div>
           </div>
         </div>

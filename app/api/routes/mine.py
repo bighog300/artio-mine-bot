@@ -243,7 +243,7 @@ async def pause_mining(source_id: str, db: AsyncSession = Depends(get_db)):
     source = await crud.get_source(db, source_id)
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
-    await crud.update_source(db, source_id, status="paused")
+    await crud.update_source(db, source_id, status="paused", operational_status="paused", queue_paused=True)
     return {"source_id": source_id, "status": "paused"}
 
 

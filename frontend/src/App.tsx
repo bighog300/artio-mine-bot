@@ -15,6 +15,8 @@ import { DuplicateResolution } from "@/pages/DuplicateResolution";
 import { SemanticExplorer } from "@/pages/SemanticExplorer";
 import { AuditTrail } from "@/pages/AuditTrail";
 import { ApiAccess } from "@/pages/ApiAccess";
+import { Jobs } from "@/pages/Jobs";
+import { Queues } from "@/pages/Queues";
 
 export default function App() {
   return (
@@ -31,6 +33,8 @@ export default function App() {
           <Route path="/audit" element={<AuditTrail />} />
           <Route path="/records/:id" element={<RecordDetail />} />
           <Route path="/pages" element={<Pages />} />
+          <Route path="/jobs" element={<Jobs />} />
+          <Route path="/queues" element={<Queues />} />
           <Route path="/images" element={<Images />} />
           <Route path="/export" element={<Export />} />
           <Route path="/logs" element={<Logs />} />

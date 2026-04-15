@@ -37,17 +37,37 @@ export interface Source {
   url: string;
   name: string | null;
   status: string;
+  operational_status?: string;
   total_pages: number;
   total_records: number;
   last_crawled_at: string | null;
   created_at: string;
   site_map?: string | null;
+  crawl_intent?: string;
+  max_depth?: number | null;
+  max_pages?: number | null;
+  enabled?: boolean;
+  queue_paused?: boolean;
+  crawl_hints?: Record<string, unknown> | null;
+  extraction_rules?: Record<string, unknown> | null;
   stats?: SourceStats;
 }
 
 export interface CreateSourceInput {
   url: string;
   name?: string;
+  crawl_intent?: "site_root" | "directory_listing" | "detail_entity" | "test_crawl";
+  max_pages?: number;
+  max_depth?: number;
+  enabled?: boolean;
+  crawl_hints?: Record<string, unknown>;
+  extraction_rules?: Record<string, unknown>;
+}
+
+export interface UpdateSourceInput extends Partial<CreateSourceInput> {
+  status?: string;
+  operational_status?: string;
+  queue_paused?: boolean;
 }
 
 export interface MineOptions {
@@ -66,6 +86,19 @@ export interface Job {
   started_at?: string | null;
   completed_at?: string | null;
   error_message?: string | null;
+  source?: string | null;
+  processed_count?: number;
+  failure_count?: number;
+  duration_seconds?: number | null;
+}
+
+export interface QueueState {
+  name: string;
+  pending: number;
+  running: number;
+  failed: number;
+  paused: number;
+  oldest_item_age_seconds: number;
 }
 
 export interface MiningStatus {
@@ -368,8 +401,29 @@ export const getSourceJobs = (sourceId: string): Promise<{ items: Job[] }> =>
 export const createSource = (data: CreateSourceInput): Promise<Source> =>
   api.post("/sources", data).then((r) => r.data);
 
+export const updateSource = (id: string, data: UpdateSourceInput): Promise<Source> =>
+  api.patch(`/sources/${id}`, data).then((r) => r.data);
+
 export const deleteSource = (id: string): Promise<void> =>
   api.delete(`/sources/${id}`).then(() => undefined);
+
+export const startDiscovery = (sourceId: string): Promise<{ source_id: string; status: string }> =>
+  api.post(`/sources/${sourceId}/actions/start-discovery`).then((r) => r.data);
+
+export const startFullMining = (sourceId: string): Promise<{ source_id: string; status: string }> =>
+  api.post(`/sources/${sourceId}/actions/start-full-mining`).then((r) => r.data);
+
+export const pauseSource = (sourceId: string): Promise<{ source_id: string; status: string }> =>
+  api.post(`/sources/${sourceId}/actions/pause`).then((r) => r.data);
+
+export const resumeSource = (sourceId: string): Promise<{ source_id: string; status: string }> =>
+  api.post(`/sources/${sourceId}/actions/resume`).then((r) => r.data);
+
+export const stopSource = (sourceId: string): Promise<{ source_id: string; status: string }> =>
+  api.post(`/sources/${sourceId}/actions/stop`).then((r) => r.data);
+
+export const retryFailedSource = (sourceId: string): Promise<{ source_id: string; status: string }> =>
+  api.post(`/sources/${sourceId}/actions/retry-failed`).then((r) => r.data);
 
 // Mining
 export const startMining = (sourceId: string, opts?: MineOptions): Promise<Job> =>
@@ -455,6 +509,34 @@ export const getActivityFeed = (params?: {
   limit?: number;
 }): Promise<{ items: LogEntry[] }> =>
   api.get("/logs/activity", { params }).then((r) => r.data);
+
+export const getJobs = (params?: {
+  source_id?: string;
+  status?: string;
+  skip?: number;
+  limit?: number;
+}): Promise<PaginatedResponse<Job>> => api.get("/jobs", { params }).then((r) => r.data);
+
+export const retryJob = (jobId: string): Promise<{ id: string; status: string }> =>
+  api.post(`/jobs/${jobId}/retry`).then((r) => r.data);
+
+export const cancelJob = (jobId: string): Promise<{ id: string; status: string }> =>
+  api.post(`/jobs/${jobId}/cancel`).then((r) => r.data);
+
+export const pauseJob = (jobId: string): Promise<{ id: string; status: string }> =>
+  api.post(`/jobs/${jobId}/pause`).then((r) => r.data);
+
+export const resumeJob = (jobId: string): Promise<{ id: string; status: string }> =>
+  api.post(`/jobs/${jobId}/resume`).then((r) => r.data);
+
+export const getQueues = (): Promise<{ items: QueueState[]; total: number }> =>
+  api.get("/queues").then((r) => r.data);
+
+export const pauseQueue = (name: string): Promise<{ name: string; status: string }> =>
+  api.post(`/queues/${name}/pause`).then((r) => r.data);
+
+export const resumeQueue = (name: string): Promise<{ name: string; status: string }> =>
+  api.post(`/queues/${name}/resume`).then((r) => r.data);
 
 export const deleteLogs = (
   olderThanDays: number,

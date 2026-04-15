@@ -33,6 +33,8 @@ class SourceStats(BaseModel):
 class SourceCreate(BaseModel):
     url: str
     name: str | None = None
+    crawl_intent: str = "site_root"
+    max_pages: int | None = None
     crawl_hints: dict[str, Any] | None = None
     extraction_rules: dict[str, Any] | None = None
     max_depth: int | None = None
@@ -42,10 +44,14 @@ class SourceCreate(BaseModel):
 class SourceUpdate(BaseModel):
     name: str | None = None
     status: str | None = None
+    operational_status: str | None = None
+    crawl_intent: str | None = None
     crawl_hints: dict[str, Any] | None = None
     extraction_rules: dict[str, Any] | None = None
     max_depth: int | None = None
+    max_pages: int | None = None
     enabled: bool | None = None
+    queue_paused: bool | None = None
     health_status: str | None = None
 
 
@@ -55,14 +61,18 @@ class SourceResponse(BaseModel):
     url: str
     name: str | None
     status: str
+    operational_status: str = "idle"
     total_pages: int
     total_records: int
     last_crawled_at: datetime | None
     created_at: datetime
     crawl_hints: dict[str, Any] | None = None
     extraction_rules: dict[str, Any] | None = None
+    crawl_intent: str = "site_root"
     max_depth: int | None = None
+    max_pages: int | None = None
     enabled: bool = True
+    queue_paused: bool = False
     health_status: str = "unknown"
     stats: SourceStats | None = None
 
@@ -91,6 +101,13 @@ class SourceDetailResponse(SourceResponse):
     site_map: str | None = None
     error_message: str | None = None
     updated_at: datetime
+
+
+class SourceActionResponse(BaseModel):
+    source_id: str
+    status: str
+    operational_status: str
+    queued_jobs: int = 0
 
 
 # ---------------------------------------------------------------------------

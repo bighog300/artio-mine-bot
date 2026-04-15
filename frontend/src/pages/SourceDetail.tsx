@@ -1,83 +1,81 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  getSource,
-  startMining,
-  pauseMining,
   deleteSource,
+  getMiningStatus,
   getPages,
   getRecords,
-  getMiningStatus,
+  getSource,
   getSourceJobs,
+  pauseSource,
+  resumeSource,
+  retryFailedSource,
+  startDiscovery,
+  startFullMining,
+  stopSource,
+  updateSource,
 } from "@/lib/api";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { ConfidenceBadge } from "@/components/shared/ConfidenceBadge";
-import { RecordTypeBadge } from "@/components/shared/RecordTypeBadge";
-import { formatDate, formatDuration, diffSeconds } from "@/lib/utils";
-import { PipelineProgress } from "@/components/pipeline/PipelineProgress";
 
 export function SourceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<"overview" | "pages" | "records" | "jobs">("overview");
-  const [startFeedback, setStartFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  const previousRecordsRef = useRef<number | null>(null);
+  const [activeTab, setActiveTab] = useState<"overview" | "pages" | "records" | "jobs" | "settings">("overview");
+  const [message, setMessage] = useState<string | null>(null);
 
-  const { data: source, isLoading } = useQuery({
-    queryKey: ["source", id],
-    queryFn: () => getSource(id!),
-    enabled: !!id,
-  });
-  const { data: miningStatus } = useQuery({
-    queryKey: ["mine-status", id],
-    queryFn: () => getMiningStatus(id!),
-    enabled: !!id,
-    refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      if (!status) return 5000;
-      return ["queued", "pending", "running", "mapping", "crawling", "extracting"].includes(status)
-        ? 3000
-        : 10000;
+  const { data: source, isLoading } = useQuery({ queryKey: ["source", id], queryFn: () => getSource(id!), enabled: !!id });
+  const { data: miningStatus } = useQuery({ queryKey: ["mine-status", id], queryFn: () => getMiningStatus(id!), enabled: !!id, refetchInterval: 5000 });
+  const { data: pages } = useQuery({ queryKey: ["pages", id], queryFn: () => getPages({ source_id: id, limit: 50 }), enabled: activeTab === "pages" && !!id });
+  const { data: records } = useQuery({ queryKey: ["records", id], queryFn: () => getRecords({ source_id: id, limit: 50 }), enabled: activeTab === "records" && !!id });
+  const { data: jobs } = useQuery({ queryKey: ["source-jobs", id], queryFn: () => getSourceJobs(id!), enabled: !!id, refetchInterval: 5000 });
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["source", id] });
+    queryClient.invalidateQueries({ queryKey: ["sources"] });
+    queryClient.invalidateQueries({ queryKey: ["mine-status", id] });
+    queryClient.invalidateQueries({ queryKey: ["source-jobs", id] });
+  };
+
+  const actionMutation = useMutation({
+    mutationFn: async (action: "discovery" | "full" | "pause" | "resume" | "stop" | "retry") => {
+      if (!id) return;
+      if (action === "discovery") return startDiscovery(id);
+      if (action === "full") return startFullMining(id);
+      if (action === "pause") return pauseSource(id);
+      if (action === "resume") return resumeSource(id);
+      if (action === "stop") return stopSource(id);
+      return retryFailedSource(id);
     },
-  });
-
-  const { data: pages } = useQuery({
-    queryKey: ["pages", id],
-    queryFn: () => getPages({ source_id: id, limit: 50 }),
-    enabled: activeTab === "pages" && !!id,
-  });
-
-  const { data: records } = useQuery({
-    queryKey: ["records", id],
-    queryFn: () => getRecords({ source_id: id, limit: 50 }),
-    enabled: activeTab === "records" && !!id,
-  });
-
-  const { data: jobs } = useQuery({
-    queryKey: ["source-jobs", id],
-    queryFn: () => getSourceJobs(id!),
-    enabled: activeTab === "jobs" && !!id,
-    refetchInterval: 5000,
-  });
-
-  const startMutation = useMutation({
-    mutationFn: () => startMining(id!),
     onSuccess: () => {
-      setStartFeedback({ type: "success", message: "Mining queued successfully." });
-      queryClient.invalidateQueries({ queryKey: ["source", id] });
-      queryClient.invalidateQueries({ queryKey: ["mine-status", id] });
-      queryClient.invalidateQueries({ queryKey: ["source-jobs", id] });
+      setMessage("Action queued.");
+      refresh();
     },
-    onError: (e: Error) => {
-      setStartFeedback({ type: "error", message: e.message });
-    },
+    onError: (e: Error) => setMessage(e.message),
   });
 
-  const pauseMutation = useMutation({
-    mutationFn: () => pauseMining(id!),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["source", id] }),
+  const updateSettingsMutation = useMutation({
+    mutationFn: () =>
+      updateSource(id!, {
+        crawl_intent:
+          source?.crawl_intent === "directory_listing" ||
+          source?.crawl_intent === "detail_entity" ||
+          source?.crawl_intent === "test_crawl" ||
+          source?.crawl_intent === "site_root"
+            ? source.crawl_intent
+            : "site_root",
+        max_depth: source?.max_depth ?? undefined,
+        max_pages: source?.max_pages ?? undefined,
+        enabled: source?.enabled,
+        crawl_hints: source?.crawl_hints ?? undefined,
+        extraction_rules: source?.extraction_rules ?? undefined,
+      }),
+    onSuccess: () => {
+      setMessage("Settings saved.");
+      refresh();
+    },
+    onError: (e: Error) => setMessage(e.message),
   });
 
   const deleteMutation = useMutation({
@@ -85,199 +83,95 @@ export function SourceDetail() {
     onSuccess: () => navigate("/sources"),
   });
 
-  useEffect(() => {
-    const latest = miningStatus?.progress?.records_extracted;
-    if (typeof latest !== "number") return;
-    if (previousRecordsRef.current === null) {
-      previousRecordsRef.current = latest;
-    }
-  }, [miningStatus?.progress?.records_extracted]);
-
   if (isLoading) return <div className="p-6 text-gray-400">Loading...</div>;
   if (!source) return <div className="p-6 text-red-500">Source not found</div>;
 
-  const siteMap = source.site_map ? JSON.parse(source.site_map) : null;
-  const tabs = ["overview", "pages", "records", "jobs"] as const;
-  const previousCount = previousRecordsRef.current ?? miningStatus?.progress?.records_extracted ?? 0;
-  const recordsDelta = Math.max(0, (miningStatus?.progress?.records_extracted ?? 0) - previousCount);
-  previousRecordsRef.current = miningStatus?.progress?.records_extracted ?? previousCount;
+  const tabs = ["overview", "pages", "records", "jobs", "settings"] as const;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <button onClick={() => navigate("/sources")} className="text-sm text-gray-500 hover:text-gray-700 mb-1">
-            ← Sources
-          </button>
-          <h1 className="text-2xl font-bold">{source.name ?? source.url}</h1>
-          <p className="text-sm text-gray-500">{source.url}</p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => startMutation.mutate()}
-            disabled={startMutation.isPending}
-            className="px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50"
-          >
-            {startMutation.isPending ? "Starting..." : "Start Mining"}
-          </button>
-          <button
-            onClick={() => pauseMutation.mutate()}
-            className="px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50"
-          >
-            Pause
-          </button>
-          <button
-            onClick={() => { if (confirm("Delete?")) deleteMutation.mutate(); }}
-            className="px-3 py-1.5 border border-red-300 text-red-600 rounded text-sm hover:bg-red-50"
-          >
-            Delete
-          </button>
-        </div>
+      <div>
+        <button onClick={() => navigate("/sources")} className="text-sm text-gray-500 hover:text-gray-700 mb-1">← Sources</button>
+        <h1 className="text-2xl font-bold">{source.name ?? source.url}</h1>
+        <p className="text-sm text-gray-500">{source.url}</p>
       </div>
-      {startFeedback && (
-        <div
-          className={`rounded border px-3 py-2 text-sm ${
-            startFeedback.type === "success"
-              ? "border-green-200 bg-green-50 text-green-700"
-              : "border-red-200 bg-red-50 text-red-700"
-          }`}
-        >
-          {startFeedback.message}
+
+      {message && <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm">{message}</div>}
+
+      <div className="bg-white border rounded p-4">
+        <h2 className="font-semibold mb-3">Operational Controls</h2>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <StatusBadge status={source.operational_status ?? source.status} />
+          <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate("discovery")}>Start Discovery</button>
+          <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate("full")}>Start Full Mining</button>
+          <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate("pause")}>Pause</button>
+          <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate("resume")}>Resume</button>
+          <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate("stop")}>Stop</button>
+          <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate("retry")}>Retry Failed</button>
+          <button className="px-2 py-1 border border-red-300 text-red-600 rounded" onClick={() => { if (confirm("Delete this source and all data?")) deleteMutation.mutate(); }}>Delete</button>
         </div>
-      )}
+        {miningStatus?.progress && <p className="mt-3 text-xs text-gray-500">Progress: {miningStatus.progress.percent_complete}% · Crawled {miningStatus.progress.pages_crawled} pages · Extracted {miningStatus.progress.records_extracted} records.</p>}
+      </div>
 
       <div className="border-b">
         <div className="flex gap-4">
           {tabs.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`py-2 px-1 text-sm font-medium border-b-2 capitalize ${
-                activeTab === tab
-                  ? "border-blue-500 text-blue-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
-              }`}
-            >
+            <button key={tab} onClick={() => setActiveTab(tab)} className={`py-2 px-1 text-sm font-medium border-b-2 capitalize ${activeTab === tab ? "border-blue-500 text-blue-600" : "border-transparent text-gray-500"}`}>
               {tab}
             </button>
           ))}
         </div>
       </div>
 
-      {activeTab === "overview" && (
-        <div className="space-y-4">
-          <div className="bg-white border rounded p-4">
-            <div className="text-sm text-gray-500">Status</div>
-            <div className="mt-1"><StatusBadge status={miningStatus?.status ?? source.status} /></div>
-          </div>
-
-          <PipelineProgress
-            sourceStatus={miningStatus?.status ?? source.status}
-            progress={miningStatus?.progress ?? null}
-            recordsDelta={recordsDelta}
-          />
-
-          {siteMap && (
-            <div className="bg-white border rounded p-4">
-              <h3 className="font-medium mb-3">Site Map — {siteMap.platform}</h3>
-              <div className="space-y-2">
-                {siteMap.sections?.map((section: { name: string; url: string; content_type: string; confidence: number }, i: number) => (
-                  <div key={i} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                    <div>
-                      <div className="font-medium text-sm">{section.name}</div>
-                      <div className="text-xs text-gray-500">{section.url}</div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                        {section.content_type}
-                      </span>
-                      <span className="text-xs text-gray-500">{section.confidence}%</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      {activeTab === "overview" && <div className="bg-white border rounded p-4 text-sm text-gray-700">Source created at {new Date(source.created_at).toLocaleString()} with current status <strong>{source.operational_status ?? source.status}</strong>.</div>}
 
       {activeTab === "pages" && (
         <div className="bg-white border rounded overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left p-3 font-medium text-gray-600">URL</th>
-                <th className="text-left p-3 font-medium text-gray-600">Type</th>
-                <th className="text-left p-3 font-medium text-gray-600">Status</th>
-                <th className="text-left p-3 font-medium text-gray-600">Depth</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pages?.items.map((page) => (
-                <tr key={page.id} className="border-t">
-                  <td className="p-3 max-w-xs truncate">{page.url}</td>
-                  <td className="p-3 text-xs">{page.page_type}</td>
-                  <td className="p-3"><StatusBadge status={page.status} /></td>
-                  <td className="p-3">{page.depth}</td>
-                </tr>
-              ))}
-            </tbody>
+          <table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="text-left p-3">URL</th><th className="text-left p-3">Type</th><th className="text-left p-3">Status</th></tr></thead>
+            <tbody>{pages?.items.map((p) => <tr key={p.id} className="border-t"><td className="p-3 truncate max-w-[440px]">{p.url}</td><td className="p-3">{p.page_type}</td><td className="p-3"><StatusBadge status={p.status} /></td></tr>)}</tbody>
           </table>
         </div>
       )}
 
       {activeTab === "records" && (
-        <div className="grid grid-cols-3 gap-3">
-          {records?.items.map((record) => (
-            <div key={record.id} className="bg-white border rounded p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <RecordTypeBadge type={record.record_type} />
-                <ConfidenceBadge band={record.confidence_band as "HIGH" | "MEDIUM" | "LOW"} score={record.confidence_score} />
-              </div>
-              <div className="font-medium text-sm truncate">{record.title ?? "Untitled"}</div>
-              <StatusBadge status={record.status} />
-            </div>
-          ))}
-          {records?.items.length === 0 && (
-            <div className="col-span-3 text-center text-gray-400 p-6">No records extracted yet.</div>
-          )}
-        </div>
+        <div className="bg-white border rounded p-4 text-sm">{records?.items.length ?? 0} records found.</div>
       )}
 
       {activeTab === "jobs" && (
         <div className="bg-white border rounded overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left p-3 font-medium text-gray-600">Type</th>
-                <th className="text-left p-3 font-medium text-gray-600">Status</th>
-                <th className="text-left p-3 font-medium text-gray-600">Started</th>
-                <th className="text-left p-3 font-medium text-gray-600">Duration</th>
-                <th className="text-left p-3 font-medium text-gray-600">Error</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(jobs?.items ?? []).map((job) => {
-                const durationSeconds = job.started_at && job.completed_at
-                  ? diffSeconds(job.started_at, job.completed_at)
-                  : null;
-                return (
-                  <tr key={job.id} className="border-t">
-                    <td className="p-3">{job.job_type}</td>
-                    <td className="p-3"><StatusBadge status={job.status} /></td>
-                    <td className="p-3 text-gray-600">{job.started_at ? formatDate(job.started_at) : "—"}</td>
-                    <td className="p-3 text-gray-600">{durationSeconds !== null ? formatDuration(durationSeconds) : "—"}</td>
-                    <td className="p-3 text-red-600 text-xs">{job.error_message ?? "—"}</td>
-                  </tr>
-                );
-              })}
-              {(!jobs || jobs.items.length === 0) && (
-                <tr>
-                  <td colSpan={5} className="text-center text-gray-400 p-6">No jobs yet.</td>
-                </tr>
-              )}
-            </tbody>
+          <table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="text-left p-3">Type</th><th className="text-left p-3">Status</th><th className="text-left p-3">Started</th><th className="text-left p-3">Completed</th></tr></thead>
+            <tbody>{(jobs?.items ?? []).map((job) => <tr key={job.id} className="border-t"><td className="p-3">{job.job_type}</td><td className="p-3"><StatusBadge status={job.status} /></td><td className="p-3">{job.started_at ? new Date(job.started_at).toLocaleString() : "—"}</td><td className="p-3">{job.completed_at ? new Date(job.completed_at).toLocaleString() : "—"}</td></tr>)}</tbody>
           </table>
+        </div>
+      )}
+
+      {activeTab === "settings" && (
+        <div className="bg-white border rounded p-4 space-y-3 text-sm">
+          <h3 className="font-semibold">Source behavior settings</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="space-y-1">
+              <span className="text-gray-600">Crawl intent</span>
+              <select className="w-full border rounded px-2 py-1" value={source.crawl_intent ?? "site_root"} onChange={(e) => queryClient.setQueryData(["source", id], { ...source, crawl_intent: e.target.value })}>
+                <option value="site_root">Site root</option>
+                <option value="directory_listing">Directory/listing page</option>
+                <option value="detail_entity">Detail/entity page</option>
+                <option value="test_crawl">Test crawl</option>
+              </select>
+            </label>
+            <label className="space-y-1">
+              <span className="text-gray-600">Max pages</span>
+              <input type="number" className="w-full border rounded px-2 py-1" value={source.max_pages ?? ""} onChange={(e) => queryClient.setQueryData(["source", id], { ...source, max_pages: e.target.value ? Number(e.target.value) : undefined })} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-gray-600">Max depth</span>
+              <input type="number" className="w-full border rounded px-2 py-1" value={source.max_depth ?? ""} onChange={(e) => queryClient.setQueryData(["source", id], { ...source, max_depth: e.target.value ? Number(e.target.value) : undefined })} />
+            </label>
+            <label className="flex items-center gap-2 mt-6">
+              <input type="checkbox" checked={source.enabled ?? true} onChange={(e) => queryClient.setQueryData(["source", id], { ...source, enabled: e.target.checked })} />
+              Enabled
+            </label>
+          </div>
+          <button className="px-3 py-2 bg-blue-600 text-white rounded" onClick={() => updateSettingsMutation.mutate()}>Save Settings</button>
         </div>
       )}
     </div>

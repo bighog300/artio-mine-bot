@@ -106,7 +106,9 @@ async def create_source(
     tenant_id: str = "public",
     crawl_hints: str | None = None,
     extraction_rules: str | None = None,
+    crawl_intent: str = "site_root",
     max_depth: int | None = None,
+    max_pages: int | None = None,
     enabled: bool = True,
 ) -> Source:
     await ensure_tenant(db, tenant_id, name=tenant_id)
@@ -116,7 +118,9 @@ async def create_source(
         name=name,
         crawl_hints=crawl_hints,
         extraction_rules=extraction_rules,
+        crawl_intent=crawl_intent,
         max_depth=max_depth,
+        max_pages=max_pages,
         enabled=enabled,
     )
     db.add(source)
@@ -225,6 +229,56 @@ async def get_source_stats(db: AsyncSession, source_id: str) -> dict[str, Any]:
         "medium_confidence": medium.scalar_one(),
         "low_confidence": low.scalar_one(),
     }
+
+
+async def set_source_operational_status(
+    db: AsyncSession,
+    source_id: str,
+    operational_status: str,
+    *,
+    queue_paused: bool | None = None,
+    error_message: str | None = None,
+) -> Source:
+    source = await get_source(db, source_id)
+    if source is None:
+        raise ValueError(f"Source {source_id} not found")
+    source.operational_status = operational_status
+    source.status = operational_status
+    if queue_paused is not None:
+        source.queue_paused = queue_paused
+    if error_message is not None:
+        source.error_message = error_message
+    source.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(source)
+    return source
+
+
+async def cancel_non_terminal_jobs_for_source(db: AsyncSession, source_id: str) -> int:
+    stmt = select(Job).where(
+        Job.source_id == source_id,
+        Job.status.in_(["queued", "pending", "running", "paused"]),
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    now = datetime.now(UTC)
+    for job in rows:
+        job.status = "cancelled"
+        job.completed_at = now
+    await db.commit()
+    return len(rows)
+
+
+async def retry_failed_jobs_for_source(db: AsyncSession, source_id: str) -> int:
+    stmt = select(Job).where(Job.source_id == source_id, Job.status == "failed")
+    rows = (await db.execute(stmt)).scalars().all()
+    for job in rows:
+        job.status = "pending"
+        job.error_message = None
+        job.started_at = None
+        job.completed_at = None
+        job.attempts = int(job.attempts or 0) + 1
+    await db.commit()
+    return len(rows)
 
 
 # ---------------------------------------------------------------------------

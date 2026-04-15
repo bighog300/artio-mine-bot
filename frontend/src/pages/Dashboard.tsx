@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getActivityFeed, getOperationalMetrics, getStats, getSources } from "@/lib/api";
+import { getActivityFeed, getJobs, getOperationalMetrics, getQueues, getStats, getSources } from "@/lib/api";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { formatLogMessage, formatRelative } from "@/lib/utils";
 
@@ -13,6 +13,8 @@ export function Dashboard() {
     queryFn: () => getActivityFeed({ limit: 20 }),
     refetchInterval: 10000,
   });
+  const { data: jobs } = useQuery({ queryKey: ["jobs", "dashboard"], queryFn: () => getJobs({ limit: 200 }) });
+  const { data: queues } = useQuery({ queryKey: ["queues"], queryFn: getQueues });
 
   const recentSources = sources?.items?.slice(0, 3) ?? [];
 
@@ -38,6 +40,13 @@ export function Dashboard() {
         <MiniMetric label="Duplicates" value={metrics?.duplicates_detected ?? 0} />
         <MiniMetric label="Merges" value={metrics?.merges_performed ?? 0} />
         <MiniMetric label="Pages processed" value={metrics?.pages_processed ?? 0} />
+      </div>
+      <div className="grid grid-cols-5 gap-3">
+        <MiniMetric label="Jobs pending" value={jobs?.items.filter((j) => ["queued", "pending"].includes(j.status)).length ?? 0} />
+        <MiniMetric label="Jobs running" value={jobs?.items.filter((j) => j.status === "running").length ?? 0} />
+        <MiniMetric label="Jobs failed" value={jobs?.items.filter((j) => j.status === "failed").length ?? 0} />
+        <MiniMetric label="Queues paused" value={queues?.items.reduce((acc, q) => acc + q.paused, 0) ?? 0} />
+        <MiniMetric label="Oldest queue age (s)" value={queues?.items[0]?.oldest_item_age_seconds ?? 0} />
       </div>
 
       <div className="grid grid-cols-2 gap-6">
