@@ -282,7 +282,28 @@ class AutomatedCrawler:
         payload = data.get("data", {}) if isinstance(data.get("data"), dict) else {}
         title = payload.get("name") or payload.get("title")
         description = payload.get("bio") or payload.get("description")
-        record_type = page_type if page_type != "unknown" else "artist"
+        record_type = {
+            "artist_profile": "artist",
+            "artist": "artist",
+            "event_detail": "event",
+            "event": "event",
+            "exhibition_detail": "exhibition",
+            "exhibition": "exhibition",
+            "venue_profile": "venue",
+            "venue": "venue",
+            "artwork_detail": "artwork",
+            "artwork": "artwork",
+        }.get(page_type, "artist")
+
+        if page_id is not None:
+            existing = await crud.get_record_by_page_and_type(
+                self.db,
+                source_id=source_id,
+                page_id=page_id,
+                record_type=record_type,
+            )
+            if existing is not None:
+                return
 
         await crud.create_record(
             self.db,
