@@ -1,3 +1,4 @@
+import json
 from abc import ABC, abstractmethod
 from urllib.parse import urljoin, urlparse
 
@@ -80,7 +81,13 @@ class BaseExtractor(ABC):
 
         return urls
 
+    def _build_user_content(self, url: str, html: str, context: dict | None = None) -> str:
+        context_block = ""
+        if context:
+            context_block = f"\n\nContext hints:\n{json.dumps(context)}"
+        return f"URL: {url}\n\nHTML:\n{html}{context_block}"
+
     @abstractmethod
-    async def extract(self, url: str, html: str) -> dict:
+    async def extract(self, url: str, html: str, context: dict | None = None) -> dict:
         """Extract structured data from page HTML."""
         ...

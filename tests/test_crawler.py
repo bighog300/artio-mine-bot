@@ -194,3 +194,35 @@ async def test_crawl_sanitizes_null_bytes_before_store(db_session):
     assert stored_page.html is not None
     assert "\x00" not in stored_page.html
     assert stored_page.html == "<html><body>HelloWorld</body></html>"
+
+
+def test_generate_urls_from_pattern_letter_and_page():
+    from app.crawler.site_structure_analyzer import _generate_urls_from_pattern
+
+    letter_urls = _generate_urls_from_pattern("https://example.com", "/artists/[letter]")
+    assert letter_urls[0] == "https://example.com/artists/a"
+    assert letter_urls[-1] == "https://example.com/artists/z"
+    assert len(letter_urls) == 26
+
+    page_urls = _generate_urls_from_pattern("https://example.com", "/artists?page=[page]", limit=3)
+    assert page_urls == [
+        "https://example.com/artists?page=1",
+        "https://example.com/artists?page=2",
+        "https://example.com/artists?page=3",
+    ]
+
+
+def test_extract_nav_html_only_returns_nav_and_header_content():
+    from app.crawler.site_structure_analyzer import _extract_nav_html
+
+    html = """
+    <html><body>
+      <header><a href='/artists'>Artists</a></header>
+      <main><a href='/hidden'>Hidden</a></main>
+      <nav><a href='/events'>Events</a></nav>
+    </body></html>
+    """
+    result = _extract_nav_html(html)
+    assert "Artists" in result
+    assert "Events" in result
+    assert "Hidden" not in result

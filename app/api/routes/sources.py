@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException
 import json
 import structlog
@@ -5,6 +6,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.ai.client import OpenAIClient
 from app.api.rbac import require_permission
 from app.api.schemas import (
     SourceActionResponse,
@@ -145,6 +147,53 @@ async def delete_source(
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
     await crud.delete_source(db, source_id)
+
+
+@router.post("/{source_id}/analyze-structure", response_model=dict)
+async def analyze_source_structure(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    """Analyze source site structure once and cache the mining map on the source."""
+    source = await crud.get_source(db, source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    if source.structure_map and source.structure_status == "analyzed":
+        return {"source_id": source_id, "status": "cached", "structure": json.loads(source.structure_map)}
+
+    await crud.update_source(db, source_id, structure_status="analyzing", structure_error=None)
+
+    try:
+        from app.crawler.fetcher import fetch
+        from app.crawler.site_structure_analyzer import analyze_structure
+
+        fetch_result = await fetch(source.url)
+        if fetch_result.error or not fetch_result.html:
+            raise ValueError(fetch_result.error or "Could not fetch homepage HTML")
+
+        ai_client = OpenAIClient()
+        structure = await analyze_structure(source.url, fetch_result.html, ai_client)
+
+        await crud.update_source(
+            db,
+            source_id,
+            structure_map=json.dumps(structure),
+            structure_status="analyzed",
+            structure_error=None,
+            analyzed_at=datetime.now(UTC),
+        )
+        return {"source_id": source_id, "status": "analyzed", "structure": structure}
+    except Exception as exc:
+        logger.error("source_structure_analysis_failed", source_id=source_id, error=str(exc))
+        await crud.update_source(
+            db,
+            source_id,
+            structure_status="failed",
+            structure_error=str(exc),
+        )
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/{source_id}/jobs")
