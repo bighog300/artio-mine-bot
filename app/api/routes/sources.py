@@ -27,17 +27,30 @@ async def list_sources(
     db: AsyncSession = Depends(get_db),
     _role: str = Depends(require_permission("read")),
 ):
-    sources = await crud.list_sources(db, skip=skip, limit=limit, enabled=enabled)
-    total = len(sources)  # Simple count for now
+    try:
+        sources = await crud.list_sources(db, skip=skip, limit=limit, enabled=enabled)
+        total = len(sources)  # Simple count for now
 
-    items = []
-    for source in sources:
-        stats_data = await crud.get_source_stats(db, source.id)
-        source_dict = SourceResponse.model_validate(source).model_dump()
-        source_dict["stats"] = SourceStats(**stats_data).model_dump()
-        items.append(source_dict)
+        items = []
+        for source in sources:
+            stats_data = await crud.get_source_stats(db, source.id)
+            source_dict = SourceResponse.model_validate(source).model_dump()
+            source_dict["stats"] = SourceStats(**stats_data).model_dump()
+            items.append(source_dict)
 
-    return {"items": items, "total": total, "skip": skip, "limit": limit}
+        return {"items": items, "total": total, "skip": skip, "limit": limit}
+    except SQLAlchemyError as exc:
+        logger.error(
+            "sources_list_db_error",
+            skip=skip,
+            limit=limit,
+            enabled=enabled,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Database error while listing sources. Check API logs for details.",
+        ) from exc
 
 
 @router.post("", response_model=SourceResponse, status_code=201)
