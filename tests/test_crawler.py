@@ -229,7 +229,8 @@ def test_extract_nav_html_only_returns_nav_and_header_content():
     assert "Hidden" not in result
 
 
-def test_extract_deterministic_css():
+@pytest.mark.asyncio
+async def test_extract_deterministic_css_selectors():
     crawler = AutomatedCrawler(
         structure_map={
             "extraction_rules": {
@@ -249,14 +250,15 @@ def test_extract_deterministic_css():
       <div class="biography">Painter and sculptor.</div>
     </body></html>
     """
-    extracted = crawler._extract_deterministic(html, "artist_profile", "https://example.com/artists/jane-doe")
-    assert extracted["data"]["name"] == "Jane Doe"
-    assert extracted["data"]["bio"] == "Painter and sculptor."
-    assert extracted["method"] == "deterministic"
-    assert extracted["confidence"] == 100
+    result = crawler._extract_deterministic(html, "artist_profile", "https://example.com/artists/jane-doe")
+    assert result["data"]["name"] == "Jane Doe"
+    assert result["data"]["bio"] == "Painter and sculptor."
+    assert result["method"] == "deterministic"
+    assert result["confidence"] == 100
 
 
-def test_extract_deterministic_regex():
+@pytest.mark.asyncio
+async def test_extract_deterministic_regex():
     crawler = AutomatedCrawler(
         structure_map={
             "extraction_rules": {
@@ -270,15 +272,37 @@ def test_extract_deterministic_regex():
         db=MagicMock(),
     )
     html = "<html><body><p>Email: artist@example.com</p></body></html>"
-    extracted = crawler._extract_deterministic(html, "artist_profile", "https://example.com/artists/jane-doe")
-    assert extracted["data"]["email"] == "artist@example.com"
-    assert extracted["confidence"] == 100
+    result = crawler._extract_deterministic(html, "artist_profile", "https://example.com/artists/jane-doe")
+    assert result["data"]["email"] == "artist@example.com"
+    assert result["confidence"] == 100
 
 
 @pytest.mark.asyncio
-async def test_extract_with_fallback():
+async def test_confidence_degradation():
+    crawler = AutomatedCrawler(
+        structure_map={
+            "extraction_rules": {
+                "artist_profile": {
+                    "css_selectors": {"name": "h1.name", "bio": "div.bio", "contact": "div.contact"},
+                    "regex_patterns": {"birth_year": r"Born (\\d{4})"},
+                }
+            }
+        },
+        db=MagicMock(),
+    )
+    result = crawler._extract_deterministic(
+        "<html><body><h1>Wrong Selector</h1></body></html>",
+        "artist_profile",
+        "https://example.com/artists/a/jane-doe",
+    )
+    # 4 failures (3 css + 1 regex) => 100 - 40
+    assert result["confidence"] == 60
+
+
+@pytest.mark.asyncio
+async def test_extract_with_ai_fallback():
     ai_client = AsyncMock()
-    ai_client.complete = AsyncMock(return_value={"data": {"name": "Fallback Artist"}, "confidence": 88})
+    ai_client.complete = AsyncMock(return_value={"name": "Fallback Artist", "bio": "Fallback bio"})
     crawler = AutomatedCrawler(
         structure_map={
             "extraction_rules": {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, datetime
 from typing import Any
@@ -24,10 +25,11 @@ class AutomatedCrawler:
 
     def __init__(self, structure_map: dict[str, Any], db: AsyncSession, ai_client=None):
         self.structure_map = structure_map
+        self.crawl_plan = structure_map.get("crawl_plan", {}) or {}
+        self.extraction_rules = structure_map.get("extraction_rules", {}) or {}
         self.db = db
         self.ai_client = ai_client
-        self.extraction_rules = structure_map.get("extraction_rules", {}) or {}
-        self.stats = {
+        self.stats: dict[str, Any] = {
             "pages_crawled": 0,
             "extracted_deterministic": 0,
             "extracted_ai_fallback": 0,
@@ -38,92 +40,144 @@ class AutomatedCrawler:
         self._ai_fallback_used = 0
 
     async def execute_crawl_plan(self, source_id: str) -> dict[str, Any]:
-        """Execute crawl_targets and store extracted metadata on crawled pages."""
-        source = await crud.get_source(self.db, source_id)
-        if source is None:
-            raise ValueError(f"Source {source_id} not found")
+        """Execute the AI-generated crawl plan."""
+        logger.info("starting_crawl_plan", source_id=source_id)
 
-        crawl_targets = self.structure_map.get("crawl_targets", [])
-        if not isinstance(crawl_targets, list):
-            logger.warning("crawl_targets_invalid", source_id=source_id)
-            return self.stats
+        phases = self.crawl_plan.get("phases", [])
+        if phases:
+            for phase in phases:
+                await self._execute_phase(source_id, phase)
+        else:
+            # Backward compatibility with Phase 1 structure maps.
+            source = await crud.get_source(self.db, source_id)
+            if source is None:
+                raise ValueError(f"Source {source_id} not found")
+            seen: set[str] = set()
+            for target in self.structure_map.get("crawl_targets", []):
+                for url in self._urls_from_target(source.url, target):
+                    if url in seen:
+                        continue
+                    seen.add(url)
+                    if len(seen) > settings.max_pages_per_source:
+                        logger.info(
+                            "max_pages_reached",
+                            source_id=source_id,
+                            limit=settings.max_pages_per_source,
+                        )
+                        break
+                    await self._crawl_and_extract(source_id, url)
 
-        seen: set[str] = set()
-        for target in crawl_targets:
-            urls = self._urls_from_target(source.url, target)
-            for url in urls:
-                if url in seen:
-                    continue
-                seen.add(url)
-                if len(seen) > settings.max_pages_per_source:
-                    logger.info("max_pages_reached", source_id=source_id, limit=settings.max_pages_per_source)
-                    return self.stats
-                await self._process_url(source_id=source_id, url=url)
-
+        logger.info(
+            "crawl_complete",
+            source_id=source_id,
+            pages_crawled=self.stats["pages_crawled"],
+            extracted_deterministic=self.stats["extracted_deterministic"],
+            extracted_ai_fallback=self.stats["extracted_ai_fallback"],
+            failed=self.stats["failed"],
+        )
         return self.stats
 
-    async def _process_url(self, source_id: str, url: str) -> None:
-        result = await fetch(url)
-        self.stats["pages_crawled"] += 1
+    async def _execute_phase(self, source_id: str, phase: dict[str, Any]) -> None:
+        """Execute a single crawl phase."""
+        phase_name = phase.get("phase_name", "unnamed")
+        logger.info("executing_phase", phase=phase_name)
 
-        page_type = self._classify_by_url(url)
-        html = result.html or ""
-        title = self._extract_title(html)
-        truncated_html = html.replace("\x00", "")[: 500 * 1024]
+        base_url = phase.get("base_url", "")
+        pattern = phase.get("url_pattern", "")
+        pagination = phase.get("pagination_type", "none")
+        num_pages = int(phase.get("num_pages", 1))
 
+        urls = self._generate_urls(base_url, pattern, pagination, num_pages)
+        for url in urls:
+            await self._crawl_and_extract(source_id, url)
+
+    async def _crawl_and_extract(self, source_id: str, url: str) -> None:
+        """Crawl URL and extract data deterministically."""
         try:
-            page, created = await crud.get_or_create_page(self.db, source_id=source_id, url=url)
-            if created:
-                await crud.update_page(
-                    self.db,
-                    page.id,
-                    status="fetched",
-                    page_type=page_type,
-                    title=title,
-                    html=truncated_html,
-                    fetch_method=result.method,
-                    crawled_at=datetime.now(UTC),
-                    error_message=result.error,
-                )
-            else:
-                await crud.update_page(
-                    self.db,
-                    page.id,
-                    page_type=page_type,
-                    title=title,
-                    html=truncated_html,
-                    fetch_method=result.method,
-                    crawled_at=datetime.now(UTC),
-                    error_message=result.error,
-                )
-
-            deterministic = self._extract_deterministic(html, page_type, url)
-            if deterministic["confidence"] >= settings.deterministic_confidence_threshold:
-                self.stats["extracted_deterministic"] += 1
-            elif self._should_use_ai_fallback():
-                ai_result = await self._extract_with_ai(
-                    html,
-                    page_type,
-                    context=f"url={url}",
-                )
-                if ai_result.get("data"):
-                    self.stats["extracted_ai_fallback"] += 1
-                self._ai_fallback_used += 1
-            else:
+            result = await fetch(url)
+            if not result.html:
                 self.stats["failed"] += 1
+                logger.warning("fetch_failed", url=url, error=result.error)
+                return
+
+            html = result.html
+            self.stats["pages_crawled"] += 1
+
+            page_type = self._classify_by_url(url)
+            deterministic = self._extract_deterministic(html, page_type, url)
+            confidence = int(deterministic.get("confidence", 0))
+
+            page, created = await crud.get_or_create_page(self.db, source_id=source_id, url=url)
+            updates = {
+                "status": "fetched",
+                "page_type": page_type,
+                "title": self._extract_title(html),
+                "html": html.replace("\x00", "")[: 500 * 1024],
+                "fetch_method": result.method,
+                "crawled_at": datetime.now(UTC),
+                "error_message": result.error,
+            }
+            if created:
+                await crud.update_page(self.db, page.id, **updates)
+            else:
+                await crud.update_page(self.db, page.id, **updates)
+
+            if confidence >= settings.deterministic_confidence_threshold:
+                self.stats["extracted_deterministic"] += 1
+                await self._save_record(source_id, page.id, page_type, deterministic, url)
+                return
+
+            if self._should_use_ai_fallback():
+                ai_data = await self._extract_with_ai(
+                    html=html,
+                    page_type=page_type,
+                    context=self._get_ai_context(page_type),
+                )
+                self.stats["extracted_ai_fallback"] += 1
+                self._ai_fallback_used += 1
+                await self._save_record(source_id, page.id, page_type, ai_data, url)
+                return
+
+            logger.warning("skipping_low_confidence", url=url, confidence=confidence)
+            self.stats["failed"] += 1
         except Exception as exc:
-            logger.error("automated_crawl_page_failed", source_id=source_id, url=url, error=str(exc))
+            logger.error("crawl_extract_failed", url=url, error=str(exc))
             self.stats["failed"] += 1
 
+    def _classify_by_url(self, url: str) -> str:
+        """Classify page type by URL pattern matching (NO AI)."""
+        parsed_path = urlparse(url).path
+
+        # Prefer extraction rule identifiers if available.
+        for page_type, rules in self.extraction_rules.items():
+            identifiers = rules.get("identifiers", [])
+            if any(self._matches_pattern(parsed_path, pattern) for pattern in identifiers):
+                return page_type
+
+        # Backward compatible mining_map pattern matching.
+        mining_map = self.structure_map.get("mining_map", {}) or {}
+        for page_type, config in mining_map.items():
+            pattern = (config or {}).get("url_pattern")
+            if pattern and self._matches_pattern(parsed_path, pattern):
+                return page_type
+
+        return "unknown"
+
     def _extract_deterministic(self, html: str, page_type: str, url: str) -> dict[str, Any]:
-        """Extract using CSS selectors and regex (NO AI)."""
+        """Extract data using CSS selectors and regex (NO AI)."""
         soup = BeautifulSoup(html or "", "lxml")
         rules = self.extraction_rules.get(page_type, {}) or {}
 
-        extracted: dict[str, Any] = {"data": {}, "confidence": 100, "method": "deterministic"}
-        parse_failures = 0
+        extracted: dict[str, Any] = {
+            "page_type": page_type,
+            "url": url,
+            "confidence": 100,
+            "data": {},
+            "method": "deterministic",
+        }
 
-        for field, selector in (rules.get("css_selectors", {}) or {}).items():
+        css_selectors = rules.get("css_selectors", {}) or {}
+        for field, selector in css_selectors.items():
             try:
                 elements = soup.select(selector)
                 if not elements:
@@ -132,21 +186,14 @@ class AutomatedCrawler:
                 if len(elements) == 1:
                     extracted["data"][field] = elements[0].get_text(" ", strip=True)
                 else:
-                    extracted["data"][field] = [element.get_text(" ", strip=True) for element in elements]
+                    extracted["data"][field] = [el.get_text(" ", strip=True) for el in elements]
             except Exception as exc:
-                parse_failures += 1
+                logger.warning("css_selector_failed", selector=selector, error=str(exc), url=url)
                 extracted["confidence"] -= 10
-                logger.warning(
-                    "deterministic_css_parse_failed",
-                    url=url,
-                    page_type=page_type,
-                    field=field,
-                    selector=selector,
-                    error=str(exc),
-                )
 
         text = soup.get_text("\n", strip=True)
-        for field, pattern in (rules.get("regex_patterns", {}) or {}).items():
+        regex_patterns = rules.get("regex_patterns", {}) or {}
+        for field, pattern in regex_patterns.items():
             try:
                 match = re.search(pattern, text, flags=re.IGNORECASE)
                 if match:
@@ -154,66 +201,143 @@ class AutomatedCrawler:
                 else:
                     extracted["confidence"] -= 10
             except re.error as exc:
-                parse_failures += 1
+                logger.warning("regex_failed", pattern=pattern, error=str(exc), url=url)
                 extracted["confidence"] -= 10
-                logger.warning(
-                    "deterministic_regex_parse_failed",
-                    url=url,
-                    page_type=page_type,
-                    field=field,
-                    pattern=pattern,
-                    error=str(exc),
-                )
 
-        extracted["confidence"] = max(extracted["confidence"] - (parse_failures * 5), 0)
+        extracted["confidence"] = max(0, int(extracted["confidence"]))
         return extracted
 
     async def _extract_with_ai(self, html: str, page_type: str, context: str) -> dict[str, Any]:
-        """Fallback extraction path (called only when deterministic confidence is low)."""
+        """Fallback: Extract using AI (only when CSS/regex fails)."""
         if self.ai_client is None:
-            return {"data": {}, "confidence": 0, "method": "none"}
-        user_content = (
-            f"Context: {context}\n"
-            f"Page type hint: {page_type}\n"
-            "Extract key fields into JSON with shape {\"data\": {...}, \"confidence\": <0-100>}.\n"
-            f"HTML snippet:\n{html[:5000]}"
-        )
+            return {
+                "page_type": page_type,
+                "data": {},
+                "confidence": 0,
+                "method": "none",
+            }
+
+        extractor = self._get_extractor_for_page_type(page_type)
         try:
-            response = await self.ai_client.complete(
-                system_prompt="Extract structured data for an art website page using the provided page type hint.",
-                user_content=user_content,
-                response_format={"type": "json_object"},
+            extracted = await extractor.extract(
+                url="https://placeholder.local/",
+                html=html,
+                context={"hint": context},
             )
             return {
-                "data": response.get("data", response),
-                "confidence": int(response.get("confidence", 60)),
+                "page_type": page_type,
+                "data": extracted,
+                "confidence": int(extracted.get("confidence_score", 70)),
                 "method": "ai_fallback",
             }
         except Exception as exc:
             logger.error("ai_fallback_failed", page_type=page_type, error=str(exc))
-            return {"data": {}, "confidence": 0, "method": "ai_failed"}
-
-    def _classify_by_url(self, url: str) -> str:
-        """Classify page type by URL patterns from mining_map (NO AI)."""
-        mining_map = self.structure_map.get("mining_map", {}) or {}
-        parsed_url = urlparse(url)
-        for page_type, config in mining_map.items():
-            pattern = (config or {}).get("url_pattern")
-            if not pattern:
-                continue
-            escaped = re.escape(pattern)
-            token_map = {
-                re.escape("[letter]"): r"[a-z]",
-                re.escape("[number]"): r"\d+",
-                re.escape("[page]"): r"\d+",
-                re.escape("[name]"): r"[^/]+",
-                re.escape("[id]"): r"[^/]+",
+            return {
+                "page_type": page_type,
+                "data": {},
+                "confidence": 0,
+                "method": "ai_failed",
             }
-            for token, regex in token_map.items():
-                escaped = escaped.replace(token, regex)
-            if re.search(f"{escaped}$", parsed_url.path, flags=re.IGNORECASE):
-                return page_type
-        return "unknown"
+
+    def _get_extractor_for_page_type(self, page_type: str):
+        from app.ai.extractors.artist import ArtistExtractor
+        from app.ai.extractors.artwork import ArtworkExtractor
+        from app.ai.extractors.event import EventExtractor
+        from app.ai.extractors.exhibition import ExhibitionExtractor
+        from app.ai.extractors.venue import VenueExtractor
+
+        mapping = {
+            "artist_profile": ArtistExtractor,
+            "artist": ArtistExtractor,
+            "event_detail": EventExtractor,
+            "event": EventExtractor,
+            "exhibition_detail": ExhibitionExtractor,
+            "exhibition": ExhibitionExtractor,
+            "venue_profile": VenueExtractor,
+            "venue": VenueExtractor,
+            "artwork_detail": ArtworkExtractor,
+            "artwork": ArtworkExtractor,
+        }
+        extractor_cls = mapping.get(page_type, ArtistExtractor)
+        return extractor_cls(self.ai_client)
+
+    def _get_ai_context(self, page_type: str) -> str:
+        """Generate AI context hint for extraction."""
+        rules = self.extraction_rules.get(page_type, {}) or {}
+        hint = rules.get("ai_context_hint", "")
+        expected_type = rules.get("expected_output_type", page_type)
+        fields = ", ".join((rules.get("css_selectors", {}) or {}).keys())
+
+        return f"Page type: {expected_type}\n{hint}\nExpected fields: {fields}"
+
+    async def _save_record(
+        self,
+        source_id: str,
+        page_id: str | None,
+        page_type: str,
+        data: dict[str, Any],
+        url: str,
+    ) -> None:
+        """Save extracted record to database."""
+        payload = data.get("data", {}) if isinstance(data.get("data"), dict) else {}
+        title = payload.get("name") or payload.get("title")
+        description = payload.get("bio") or payload.get("description")
+        record_type = page_type if page_type != "unknown" else "artist"
+
+        await crud.create_record(
+            self.db,
+            source_id=source_id,
+            page_id=page_id,
+            record_type=record_type,
+            title=title,
+            description=description,
+            raw_data=json.dumps(payload),
+            confidence_score=int(data.get("confidence", 50)),
+            source_url=url,
+            extraction_provider=data.get("method", "deterministic"),
+        )
+
+    def _generate_urls(self, base_url: str, pattern: str, pagination: str, num_pages: int) -> list[str]:
+        """Generate concrete URLs from pattern."""
+        if pagination == "letter":
+            return [urljoin(base_url, pattern.replace("[letter]", ltr)) for ltr in "abcdefghijklmnopqrstuvwxyz"]
+        if pagination == "numbered":
+            return [urljoin(base_url, pattern.replace("[page]", str(page))) for page in range(1, num_pages + 1)]
+        if pagination == "calendar":
+            return [
+                urljoin(base_url, pattern.replace("[month]", str(month).zfill(2)))
+                for month in range(1, 13)
+            ]
+        return [urljoin(base_url, pattern)]
+
+    def _matches_pattern(self, value: str, pattern: str) -> bool:
+        """Match URL/path against identifier pattern."""
+        regex = pattern
+        replacements = {
+            "[letter]": "[a-z]",
+            "[name]": "[a-z0-9-]+",
+            "[page]": r"\\d+",
+            "[number]": r"\\d+",
+            "[year]": r"\\d{4}",
+            "[month]": r"\\d{1,2}",
+            "[id]": r"[^/]+",
+        }
+        for token, expression in replacements.items():
+            regex = regex.replace(token, expression)
+        try:
+            return bool(re.search(regex, value, re.IGNORECASE))
+        except re.error as exc:
+            logger.warning("url_pattern_invalid", pattern=pattern, error=str(exc))
+            return False
+
+    def _extract_title(self, html: str) -> str | None:
+        if not html:
+            return None
+        soup = BeautifulSoup(html, "lxml")
+        title_tag = soup.find("title")
+        if title_tag is None:
+            return None
+        return title_tag.get_text(strip=True) or None
 
     def _urls_from_target(self, base_url: str, target: Any) -> list[str]:
         if isinstance(target, str):
@@ -229,16 +353,4 @@ class AutomatedCrawler:
         return _generate_urls_from_pattern(base_url, pattern, limit=limit)
 
     def _should_use_ai_fallback(self) -> bool:
-        return (
-            settings.crawler_use_ai_fallback
-            and self._ai_fallback_used < settings.max_ai_fallback_per_source
-        )
-
-    def _extract_title(self, html: str) -> str | None:
-        if not html:
-            return None
-        soup = BeautifulSoup(html, "lxml")
-        title_tag = soup.find("title")
-        if title_tag is None:
-            return None
-        return title_tag.get_text(strip=True) or None
+        return settings.crawler_use_ai_fallback and self._ai_fallback_used < settings.max_ai_fallback_per_source
