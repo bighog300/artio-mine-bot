@@ -676,6 +676,60 @@ async def create_source_mapping_sample_result(
     return result
 
 
+async def get_source_mapping_sample_run(
+    db: AsyncSession,
+    source_id: str,
+    draft_id: str,
+    sample_run_id: str,
+) -> SourceMappingSampleRun | None:
+    stmt = (
+        select(SourceMappingSampleRun)
+        .join(SourceMappingVersion, SourceMappingSampleRun.mapping_version_id == SourceMappingVersion.id)
+        .where(
+            SourceMappingVersion.source_id == source_id,
+            SourceMappingVersion.id == draft_id,
+            SourceMappingSampleRun.id == sample_run_id,
+        )
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def list_source_mapping_sample_results(
+    db: AsyncSession,
+    sample_run_id: str,
+) -> list[SourceMappingSampleResult]:
+    result = await db.execute(
+        select(SourceMappingSampleResult).where(SourceMappingSampleResult.sample_run_id == sample_run_id)
+    )
+    return list(result.scalars().all())
+
+
+async def rollback_source_mapping_version(
+    db: AsyncSession,
+    source_id: str,
+    version_id: str,
+    *,
+    rolled_back_by: str | None = None,
+) -> SourceMappingVersion:
+    source = await get_source(db, source_id)
+    if source is None:
+        raise ValueError(f"Source {source_id} not found")
+    version = await get_source_mapping_version(db, source_id, version_id)
+    if version is None:
+        raise ValueError("Mapping version not found")
+    if version.status != "published":
+        raise RuntimeError("Rollback requires a published mapping version")
+
+    source.active_mapping_version_id = version.id
+    source.mapping_status = "published"
+    source.updated_at = datetime.now(UTC)
+    version.published_by = rolled_back_by or version.published_by
+    await db.commit()
+    await db.refresh(version)
+    return version
+
+
 # ---------------------------------------------------------------------------
 # Page CRUD
 # ---------------------------------------------------------------------------

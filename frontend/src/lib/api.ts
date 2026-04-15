@@ -165,6 +165,34 @@ export interface MappingDiffSummary {
   unchanged: number;
 }
 
+export interface MappingScanResponse {
+  draft_id: string;
+  scan_status: string;
+  job_id: string | null;
+  message: string;
+}
+
+export interface MappingSampleRunResponse {
+  sample_run_id: string;
+  status: string;
+}
+
+export interface MappingSampleRunResult {
+  id: string;
+  sample_run_id: string;
+  sample_id: string | null;
+  review_status: string;
+  record_preview: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MappingSampleRunResultResponse {
+  sample_run_id: string;
+  status: string;
+  items: MappingSampleRunResult[];
+}
+
 export interface MineOptions {
   max_depth?: number;
   max_pages?: number;
@@ -537,6 +565,12 @@ export const getSourceMappingDraft = (
   draftId: string
 ): Promise<MappingDraftSummary> => api.get(`/sources/${sourceId}/mapping-drafts/${draftId}`).then((r) => r.data);
 
+export const startSourceMappingScan = (
+  sourceId: string,
+  draftId: string
+): Promise<MappingScanResponse> =>
+  api.post(`/sources/${sourceId}/mapping-drafts/${draftId}/scan`).then((r) => r.data);
+
 export const getSourceMappingRows = (
   sourceId: string,
   draftId: string
@@ -597,6 +631,26 @@ export const getSourceMappingDiff = (
   draftId: string
 ): Promise<MappingDiffSummary> =>
   api.get(`/sources/${sourceId}/mapping-drafts/${draftId}/diff`).then((r) => r.data);
+
+export const startSourceMappingSampleRun = (
+  sourceId: string,
+  draftId: string,
+  payload: { page_type_keys?: string[]; sample_count?: number }
+): Promise<MappingSampleRunResponse> =>
+  api.post(`/sources/${sourceId}/mapping-drafts/${draftId}/sample-run`, payload).then((r) => r.data);
+
+export const getSourceMappingSampleRun = (
+  sourceId: string,
+  draftId: string,
+  sampleRunId: string
+): Promise<MappingSampleRunResultResponse> =>
+  api.get(`/sources/${sourceId}/mapping-drafts/${draftId}/sample-run/${sampleRunId}`).then((r) => r.data);
+
+export const rollbackSourceMappingVersion = (
+  sourceId: string,
+  versionId: string
+): Promise<{ id: string; source_id: string; status: string; published_at: string; published_by: string | null }> =>
+  api.post(`/sources/${sourceId}/mapping-drafts/versions/${versionId}/rollback`).then((r) => r.data);
 
 // Mining
 export const startMining = (sourceId: string, opts?: MineOptions): Promise<MineStartResponse> =>

@@ -2,7 +2,6 @@ import json
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
@@ -13,6 +12,11 @@ from app.api.schemas import (
     MappingPageTypeResponse,
     MappingPreviewRequest,
     MappingPreviewResponse,
+    MappingSampleRunRequest,
+    MappingSampleRunResponse,
+    MappingSampleRunResultItem,
+    MappingSampleRunResultResponse,
+    MappingScanResponse,
     MappingRowActionRequest,
     MappingRowResponse,
     MappingRowUpdateRequest,
@@ -21,7 +25,7 @@ from app.api.schemas import (
     MappingVersionPublishResponse,
 )
 from app.db import crud
-from app.db.models import SourceMappingSample
+from app.source_mapper.service import SourceMapperService
 
 router = APIRouter(prefix="/sources/{source_id}/mapping-drafts", tags=["source-mapper"])
 logger = structlog.get_logger()
@@ -86,37 +90,14 @@ async def create_mapping_draft(
     else:
         draft = await crud.create_source_mapping_version(db, source_id, scan_options=options, created_by="admin")
 
-    # Minimal seed-safe defaults so the matrix and preview are immediately usable.
     page_types = await crud.list_source_mapping_page_types(db, draft.id)
     rows = await crud.list_source_mapping_rows(db, source_id, draft.id, skip=0, limit=2000)
     if not page_types and not rows:
-        page_type = await crud.create_source_mapping_page_type(
-            db,
-            draft.id,
-            key="generic_detail",
-            label="Generic Detail",
-            sample_count=1,
-            confidence_score=0.55,
-        )
-        sample = await crud.create_source_mapping_sample(
-            db,
-            draft.id,
-            page_type_id=page_type.id,
-            url=source.url,
-            title=source.name,
-            html_snapshot=None,
-        )
-        await crud.create_source_mapping_row(
-            db,
-            draft.id,
-            page_type_id=page_type.id,
-            selector="title",
-            sample_value=source.name or source.url,
-            destination_entity="event",
-            destination_field="title",
-            confidence_score=0.52,
-        )
-        page_types = [page_type]
+        mapper = SourceMapperService(db)
+        scan_result = await mapper.run_scan(source, draft)
+        if scan_result.get("scan_status") == "error":
+            logger.warning("mapping_scan_error_on_create", source_id=source_id, draft_id=draft.id, result=scan_result)
+        page_types = await crud.list_source_mapping_page_types(db, draft.id)
         rows = await crud.list_source_mapping_rows(db, source_id, draft.id, skip=0, limit=2000)
 
     await crud.create_audit_action(
@@ -137,6 +118,24 @@ async def create_mapping_draft(
         needs_review_count=needs_review_count,
         changed_from_published_count=changed_count,
     )
+
+
+@router.post("/{draft_id}/scan", response_model=MappingScanResponse, status_code=202)
+async def start_or_restart_scan(
+    source_id: str,
+    draft_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    draft = await _get_draft_or_404(db, source_id, draft_id)
+    source = await crud.get_source(db, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    mapper = SourceMapperService(db)
+    result = await mapper.run_scan(source, draft)
+    status = str(result.get("scan_status", "queued"))
+    message = "Mapping scan completed." if status == "completed" else "Mapping scan queued."
+    return MappingScanResponse(draft_id=draft_id, scan_status=status, job_id=f"scan-{draft_id}", message=message)
 
 
 @router.get("/{draft_id}", response_model=MappingDraftSummary)
@@ -326,81 +325,58 @@ async def generate_preview(
     _role: str = Depends(require_permission("read")),
 ):
     await _get_draft_or_404(db, source_id, draft_id)
-    sample = None
-    if body.sample_page_id == "default":
-        draft_samples = await db.execute(select(SourceMappingSample).where(SourceMappingSample.mapping_version_id == draft_id))
-        sample = draft_samples.scalars().first()
-    else:
-        sample = await crud.get_source_mapping_sample(db, body.sample_page_id)
-    if sample is None or sample.mapping_version_id != draft_id:
-        raise HTTPException(status_code=404, detail="Sample page not found")
+    mapper = SourceMapperService(db)
+    try:
+        preview = await mapper.generate_preview(source_id, draft_id, body.sample_page_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return MappingPreviewResponse(**preview)
 
-    rows = await crud.list_source_mapping_rows(db, source_id, draft_id, skip=0, limit=500)
-    extractions = []
-    record_preview: dict[str, str] = {}
-    category_preview: dict[str, list[str]] = {}
-    warnings: list[str] = []
-    for row in rows:
-        normalized = (row.sample_value or "").strip() or None
-        if row.status == "rejected" or not row.is_enabled:
-            continue
-        warning = None
-        if normalized is None:
-            warning = "Empty sample value"
-        elif float(row.confidence_score or 0.0) < LOW_CONFIDENCE_THRESHOLD:
-            warning = "Low confidence mapping - moderation required"
-            warnings.append(f"Low confidence extraction for {row.destination_entity}.{row.destination_field}")
-        extractions.append(
-            {
-                "mapping_row_id": row.id,
-                "source_selector": row.selector,
-                "raw_value": row.sample_value,
-                "normalized_value": normalized,
-                "destination_entity": row.destination_entity,
-                "destination_field": row.destination_field,
-                "category_target": row.category_target,
-                "confidence_score": row.confidence_score,
-                "warning": warning,
-            }
-        )
-        if normalized is not None:
-            record_preview[row.destination_field] = normalized
-        if row.category_target:
-            category_preview.setdefault(row.destination_entity, [])
-            if row.category_target not in category_preview[row.destination_entity]:
-                category_preview[row.destination_entity].append(row.category_target)
 
-    sample_run = await crud.create_source_mapping_sample_run(
-        db,
+@router.post("/{draft_id}/sample-run", response_model=MappingSampleRunResponse, status_code=202)
+async def start_sample_run(
+    source_id: str,
+    draft_id: str,
+    body: MappingSampleRunRequest,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    await _get_draft_or_404(db, source_id, draft_id)
+    mapper = SourceMapperService(db)
+    result = await mapper.run_sample_review(
+        source_id,
         draft_id,
-        sample_count=1,
-        created_by="admin",
-        summary={"sample_page_id": body.sample_page_id, "extraction_count": len(extractions)},
+        sample_count=body.sample_count,
+        page_type_keys=body.page_type_keys or None,
     )
-    await crud.create_source_mapping_sample_result(
-        db,
-        sample_run.id,
-        sample_id=sample.id,
-        record_preview={"record_preview": record_preview, "extractions": extractions},
-    )
+    return MappingSampleRunResponse(**result)
 
-    page_type_key = sample.page_type.key if sample.page_type else None
-    source_snippet = None
-    if sample.html_snapshot:
-        source_snippet = sample.html_snapshot[:400]
-    elif sample.title:
-        source_snippet = sample.title[:400]
 
-    return MappingPreviewResponse(
-        sample_page_id=sample.id,
-        page_url=sample.url,
-        page_type_key=page_type_key,
-        extractions=extractions,
-        record_preview=record_preview,
-        source_snippet=source_snippet,
-        category_preview=category_preview,
-        warnings=warnings,
-    )
+@router.get("/{draft_id}/sample-run/{sample_run_id}", response_model=MappingSampleRunResultResponse)
+async def get_sample_run_results(
+    source_id: str,
+    draft_id: str,
+    sample_run_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    sample_run = await crud.get_source_mapping_sample_run(db, source_id, draft_id, sample_run_id)
+    if sample_run is None:
+        raise HTTPException(status_code=404, detail="Sample run not found")
+    results = await crud.list_source_mapping_sample_results(db, sample_run_id)
+    items = [
+        MappingSampleRunResultItem(
+            id=item.id,
+            sample_run_id=item.sample_run_id,
+            sample_id=item.sample_id,
+            review_status=item.review_status,
+            record_preview=json.loads(item.record_preview_json or "{}"),
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+        )
+        for item in results
+    ]
+    return MappingSampleRunResultResponse(sample_run_id=sample_run_id, status=sample_run.status, items=items)
 
 
 @router.get("", response_model=dict)
@@ -481,3 +457,33 @@ async def get_mapping_diff(
         else:
             unchanged += 1
     return MappingVersionDiffSummary(added=added, removed=removed, changed=changed, unchanged=unchanged)
+
+
+@router.post("/versions/{version_id}/rollback", response_model=MappingVersionPublishResponse)
+async def rollback_mapping_version(
+    source_id: str,
+    version_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    try:
+        restored = await crud.rollback_source_mapping_version(db, source_id, version_id, rolled_back_by="admin")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await crud.create_audit_action(
+        db,
+        action_type="mapping_version_rolled_back",
+        user_id="admin",
+        source_id=source_id,
+        record_id=version_id,
+        details={"active_mapping_version_id": restored.id},
+    )
+    return MappingVersionPublishResponse(
+        id=restored.id,
+        source_id=restored.source_id,
+        status=restored.status,
+        published_at=restored.published_at,
+        published_by=restored.published_by,
+    )
