@@ -344,6 +344,147 @@ async def test_pipeline_handles_ai_error(db_session: AsyncSession, mock_ai_clien
 
 
 @pytest.mark.asyncio
+async def test_crawl_hints_page_role_override_and_same_slug_override(
+    db_session: AsyncSession, mock_ai_client
+):
+    from app.pipeline.runner import PipelineRunner
+
+    crawl_hints = {
+        "page_role_overrides": {"https://hints.com/alice/": "artist_profile_hub"},
+        "same_slug_children": ["bio.php"],
+    }
+    source = await crud.create_source(
+        db_session,
+        url="https://hints.com",
+        crawl_hints=json.dumps(crawl_hints),
+    )
+    await crud.create_page(
+        db_session,
+        source_id=source.id,
+        url="https://hints.com/alice/",
+        original_url="https://hints.com/alice/",
+        status="fetched",
+        html="<html><body><h1>Alice</h1></body></html>",
+    )
+
+    runner = PipelineRunner(db=db_session, ai_client=mock_ai_client)
+    with patch("app.pipeline.runner.fetch", new=AsyncMock()) as fetch_mock:
+        fetch_mock.return_value = type(
+            "FetchResult",
+            (),
+            {
+                "error": None,
+                "url": "https://hints.com/alice/bio.php",
+                "final_url": "https://hints.com/alice/bio.php",
+                "html": "<html><body>Bio page</body></html>",
+                "method": "httpx",
+            },
+        )()
+        with patch.object(
+            runner._extractors["artist"],
+            "extract",
+            new=AsyncMock(return_value={"name": "Alice", "bio": "Bio", "image_urls": []}),
+        ):
+            await runner.run_extract(source.id)
+
+    child, _ = await crud.get_or_create_page(db_session, source.id, "https://hints.com/alice/bio.php")
+    assert child.url.endswith("bio.php")
+
+
+@pytest.mark.asyncio
+async def test_force_deepen_and_ignore_patterns(db_session: AsyncSession, mock_ai_client):
+    from app.pipeline.runner import PipelineRunner
+
+    crawl_hints = {
+        "force_deepen_urls": ["https://force.com/alice/"],
+        "ignore_url_patterns": ["/login"],
+    }
+    source = await crud.create_source(
+        db_session,
+        url="https://force.com",
+        crawl_hints=json.dumps(crawl_hints),
+    )
+    await crud.create_page(
+        db_session,
+        source_id=source.id,
+        url="https://force.com/login",
+        original_url="https://force.com/login",
+        status="fetched",
+        html="<html><body>login</body></html>",
+    )
+    await crud.create_page(
+        db_session,
+        source_id=source.id,
+        url="https://force.com/alice/",
+        original_url="https://force.com/alice/",
+        status="fetched",
+        html="<html><body>Artist</body></html>",
+    )
+
+    runner = PipelineRunner(db=db_session, ai_client=mock_ai_client)
+    with patch("app.pipeline.runner.fetch", new=AsyncMock()) as fetch_mock:
+        fetch_mock.return_value = type(
+            "FetchResult",
+            (),
+            {
+                "error": "404",
+                "url": "https://force.com/alice/about.php",
+                "final_url": "https://force.com/alice/about.php",
+                "html": "",
+                "method": "httpx",
+            },
+        )()
+        with patch("app.pipeline.runner.classify_page", new=AsyncMock(return_value=type(
+            "ClassifyResult", (), {"page_type": "unknown", "confidence": 0, "reasoning": "test"}
+        )())):
+            with patch.object(
+                runner._extractors["artist"],
+                "extract",
+                new=AsyncMock(return_value={"name": "Alice", "bio": "Bio", "image_urls": []}),
+            ):
+                await runner.run_extract(source.id)
+
+    pages = await crud.list_pages(db_session, source_id=source.id, limit=50)
+    urls = {p.url for p in pages}
+    assert "https://force.com/alice/about.php" in urls
+    login_page = [p for p in pages if p.url.endswith("/login")][0]
+    assert login_page.status == "skipped"
+
+
+@pytest.mark.asyncio
+async def test_artist_related_records_are_idempotent(db_session: AsyncSession, mock_ai_client):
+    from app.ai.classifier import ClassifyResult
+    from app.pipeline.runner import PipelineRunner
+
+    source = await crud.create_source(db_session, url="https://repeat.com")
+    page = await crud.create_page(
+        db_session,
+        source_id=source.id,
+        url="https://repeat.com/alice/exhibitions.php",
+        original_url="https://repeat.com/alice/exhibitions.php",
+        status="fetched",
+        html="""
+        <ul><li><strong>Solo Show</strong>, Gallery, 2019</li></ul>
+        """,
+    )
+
+    runner = PipelineRunner(db=db_session, ai_client=mock_ai_client)
+    with patch(
+        "app.pipeline.runner.classify_page",
+        new=AsyncMock(
+            return_value=ClassifyResult(page_type="artist_exhibitions", confidence=90, reasoning="test")
+        ),
+    ):
+        await runner.run_extract(source.id)
+        await crud.update_page(db_session, page.id, status="fetched")
+        await runner.run_extract(source.id)
+
+    records = await crud.list_records(db_session, source_id=source.id, limit=50)
+    exhibition_children = [r for r in records if r.record_type == "exhibition"]
+    assert len(exhibition_children) == 1
+
+
+@pytest.mark.asyncio
 @respx.mock
 async def test_image_collection(db_session: AsyncSession):
     from app.pipeline.image_collector import collect_images

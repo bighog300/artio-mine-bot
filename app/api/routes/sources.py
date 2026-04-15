@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+import json
 import structlog
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,7 +40,12 @@ async def create_source(body: SourceCreate, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=409, detail="Source with this URL already exists")
 
     try:
-        source = await crud.create_source(db, url=body.url, name=body.name)
+        source = await crud.create_source(
+            db,
+            url=body.url,
+            name=body.name,
+            crawl_hints=json.dumps(body.crawl_hints) if body.crawl_hints is not None else None,
+        )
         return source
     except IntegrityError as exc:
         await db.rollback()
@@ -78,6 +84,8 @@ async def update_source(
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
     kwargs = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "crawl_hints" in kwargs:
+        kwargs["crawl_hints"] = json.dumps(kwargs["crawl_hints"])
     if kwargs:
         source = await crud.update_source(db, source_id, **kwargs)
     return source

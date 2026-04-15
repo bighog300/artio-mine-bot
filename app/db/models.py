@@ -35,6 +35,7 @@ class Source(Base):
     name: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, default="pending", nullable=False)
     site_map: Mapped[str | None] = mapped_column(Text, nullable=True)
+    crawl_hints: Mapped[str | None] = mapped_column(Text, nullable=True)
     total_pages: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     total_records: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
