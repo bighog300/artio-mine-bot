@@ -16,8 +16,13 @@ logger = structlog.get_logger()
 # ---------------------------------------------------------------------------
 
 
-async def create_source(db: AsyncSession, url: str, name: str | None = None) -> Source:
-    source = Source(url=url, name=name)
+async def create_source(
+    db: AsyncSession,
+    url: str,
+    name: str | None = None,
+    crawl_hints: str | None = None,
+) -> Source:
+    source = Source(url=url, name=name, crawl_hints=crawl_hints)
     db.add(source)
     await db.commit()
     await db.refresh(source)
@@ -254,6 +259,43 @@ async def get_record_by_page_and_type(
         )
     )
     return result.scalar_one_or_none()
+
+
+async def get_artist_record_by_family_key(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    family_key: str,
+) -> Record | None:
+    result = await db.execute(
+        select(Record).where(
+            Record.source_id == source_id,
+            Record.record_type == "artist",
+            Record.raw_data.is_not(None),
+            Record.raw_data.contains(f'"artist_family_key": "{family_key}"'),
+        )
+    )
+    return result.scalars().first()
+
+
+async def get_record_by_item_fingerprint(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    page_id: str | None,
+    record_type: str,
+    item_fingerprint: str,
+) -> Record | None:
+    stmt = select(Record).where(
+        Record.source_id == source_id,
+        Record.record_type == record_type,
+        Record.raw_data.is_not(None),
+        Record.raw_data.contains(f'"item_fingerprint": "{item_fingerprint}"'),
+    )
+    if page_id is not None:
+        stmt = stmt.where(Record.page_id == page_id)
+    result = await db.execute(stmt)
+    return result.scalars().first()
 
 
 async def get_record(db: AsyncSession, record_id: str) -> Record | None:

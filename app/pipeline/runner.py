@@ -29,6 +29,12 @@ from app.db import crud
 from app.db.database import AsyncSessionLocal
 from app.db.log_writer import configure_structlog_for_service
 from app.db.models import Page, Record
+from app.extraction.artist_merge import (
+    ARTIST_RELATED_PAGE_TYPES,
+    derive_artist_family_key,
+    merge_artist_payload,
+)
+from app.extraction.artist_related import extract_artist_related_items
 from app.pipeline.image_collector import collect_images
 
 worker_log_processor = configure_structlog_for_service("worker")
@@ -72,6 +78,7 @@ class PipelineRunner:
             "venue": VenueExtractor(ai_client),
             "artwork": ArtworkExtractor(ai_client),
         }
+        self._crawl_hints_cache: dict[str, dict[str, Any]] = {}
 
     async def run_full_pipeline(self, source_id: str) -> None:
         """Run complete pipeline: map → crawl → extract."""
@@ -259,10 +266,26 @@ class PipelineRunner:
             page_id=page.id,
             url=page.url,
         )
-        # Classify page
-        classify_result = await classify_page(
-            url=page.url, html=page.html, ai_client=self.ai_client
-        )
+        source_hints = await self._get_crawl_hints(page.source_id)
+        if self._should_ignore_url(page.url, source_hints):
+            await crud.update_page(self.db, page.id, status="skipped")
+            return None
+
+        forced_page_type = self._get_page_role_override(page.url, source_hints)
+        if forced_page_type is not None:
+            classify_result = type(
+                "ForcedClassifyResult",
+                (),
+                {
+                    "page_type": forced_page_type,
+                    "confidence": 100,
+                    "reasoning": "crawl_hints.page_role_overrides",
+                },
+            )()
+        else:
+            classify_result = await classify_page(
+                url=page.url, html=page.html, ai_client=self.ai_client
+            )
         logger.info(
             "page_classification_result",
             source_id=page.source_id,
@@ -275,9 +298,22 @@ class PipelineRunner:
             self.db, page.id, page_type=classify_result.page_type, status="classified"
         )
 
-        if classify_result.page_type in DISCOVERY_PAGE_TYPES:
-            await self.handle_discovery_page(page, classify_result.page_type)
+        if classify_result.page_type == "artist_directory_letter":
+            await self.handle_discovery_page(page, classify_result.page_type, source_hints=source_hints)
             return None
+        if classify_result.page_type == "artist_profile_hub":
+            await self.deepen_same_slug_children(page, source_hints=source_hints)
+
+        if self._is_force_deepen(page.url, source_hints):
+            await self.deepen_same_slug_children(page, source_hints=source_hints)
+
+        if classify_result.page_type in ARTIST_RELATED_PAGE_TYPES:
+            final_status = "expanded" if classify_result.page_type == "artist_profile_hub" else "extracted"
+            return await self.process_artist_related_page(
+                page,
+                classify_result.page_type,
+                final_status=final_status,
+            )
 
         record_type = DETAIL_PAGE_TYPES.get(classify_result.page_type)
         if record_type is None:
@@ -439,11 +475,17 @@ class PipelineRunner:
 
         return record
 
-    async def handle_discovery_page(self, page: Page, page_type: str) -> None:
+    async def handle_discovery_page(
+        self,
+        page: Page,
+        page_type: str,
+        *,
+        source_hints: dict[str, Any] | None = None,
+    ) -> None:
         if page_type == "artist_directory_letter":
-            await self.expand_artist_directory_letter(page)
+            await self.expand_artist_directory_letter(page, source_hints=source_hints)
         elif page_type == "artist_profile_hub":
-            await self.deepen_same_slug_children(page)
+            await self.deepen_same_slug_children(page, source_hints=source_hints)
         else:
             return
         await crud.update_page(self.db, page.id, status="expanded")
@@ -455,7 +497,9 @@ class PipelineRunner:
             page_type=page_type,
         )
 
-    async def expand_artist_directory_letter(self, page: Page) -> None:
+    async def expand_artist_directory_letter(
+        self, page: Page, *, source_hints: dict[str, Any] | None = None
+    ) -> None:
         if not page.html:
             return
 
@@ -466,6 +510,8 @@ class PipelineRunner:
             if not href or href.startswith("#") or href.startswith("javascript:"):
                 continue
             full_url = urljoin(page.url, href).split("#")[0]
+            if self._should_ignore_url(full_url, source_hints or {}):
+                continue
             parsed = urlparse(full_url)
             if parsed.netloc != base_netloc:
                 continue
@@ -489,17 +535,15 @@ class PipelineRunner:
                     depth=max(page.depth + 1, child_page.depth),
                 )
 
-    async def deepen_same_slug_children(self, page: Page) -> None:
+    async def deepen_same_slug_children(
+        self, page: Page, *, source_hints: dict[str, Any] | None = None
+    ) -> None:
         base_url = page.url if page.url.endswith("/") else f"{page.url}/"
-        suffixes = [
-            "about.php",
-            "exhibitions.php",
-            "articles.php",
-            "press.php",
-            "memories.php",
-        ]
+        suffixes = self._get_same_slug_children(page.url, source_hints or {})
         for suffix in suffixes:
             child_url = urljoin(base_url, suffix)
+            if self._should_ignore_url(child_url, source_hints or {}):
+                continue
             child_page, created = await crud.get_or_create_page(
                 self.db,
                 source_id=page.source_id,
@@ -543,6 +587,182 @@ class PipelineRunner:
                 status="fetched",
                 depth=max(page.depth + 1, child_page.depth),
             )
+
+    async def process_artist_related_page(
+        self,
+        page: Page,
+        page_type: str,
+        *,
+        final_status: str = "extracted",
+    ) -> Record:
+        family_key = derive_artist_family_key(page.url)
+        if family_key is None:
+            raise ValueError(f"Unable to derive artist family key for URL {page.url}")
+
+        extracted_data: dict[str, Any] = {}
+        if page_type in {"artist_profile", "artist_profile_hub", "artist_biography"}:
+            extracted_data = await self._extractors["artist"].extract(url=page.url, html=page.html or "")
+
+        related_data = extract_artist_related_items(page_type, page.html or "", page.url)
+
+        existing_artist = await crud.get_artist_record_by_family_key(
+            self.db,
+            source_id=page.source_id,
+            family_key=family_key,
+        )
+        existing_raw = existing_artist.raw_data if existing_artist else None
+        merged_payload = merge_artist_payload(
+            existing_raw_data=existing_raw,
+            page_type=page_type,
+            source_url=page.url,
+            extracted_data=extracted_data,
+            related_data=related_data,
+        )
+        merged_payload["artist_family_key"] = family_key
+
+        artist_kwargs: dict[str, Any] = {
+            "page_id": existing_artist.page_id if existing_artist else page.id,
+            "source_url": page.url,
+            "status": "pending",
+            "raw_data": json.dumps(merged_payload),
+            "title": merged_payload.get("artist_payload", {}).get("artist_name"),
+            "bio": merged_payload.get("artist_payload", {}).get("bio_full")
+            or merged_payload.get("artist_payload", {}).get("bio_short"),
+            "website_url": merged_payload.get("artist_payload", {}).get("website"),
+            "email": merged_payload.get("artist_payload", {}).get("email"),
+            "nationality": merged_payload.get("artist_payload", {}).get("nationality"),
+            "avatar_url": merged_payload.get("artist_payload", {}).get("avatar_url"),
+            "confidence_score": merged_payload.get("completeness_score", 0),
+            "confidence_band": "HIGH"
+            if merged_payload.get("completeness_score", 0) >= 70
+            else "MEDIUM"
+            if merged_payload.get("completeness_score", 0) >= 40
+            else "LOW",
+            "confidence_reasons": json.dumps(
+                [f"Completeness score {merged_payload.get('completeness_score', 0)}"]
+            ),
+        }
+
+        if existing_artist is None:
+            artist_record = await crud.create_record(
+                self.db,
+                source_id=page.source_id,
+                record_type="artist",
+                **artist_kwargs,
+            )
+        else:
+            artist_record = await crud.update_record(self.db, existing_artist.id, **artist_kwargs)
+
+        await self._create_artist_related_child_records(
+            source_id=page.source_id,
+            page=page,
+            related_data=related_data,
+        )
+
+        await crud.update_page(
+            self.db,
+            page.id,
+            status=final_status,
+            extracted_at=datetime.now(UTC),
+        )
+        return artist_record
+
+    async def _create_artist_related_child_records(
+        self,
+        *,
+        source_id: str,
+        page: Page,
+        related_data: dict[str, list[dict[str, Any]]],
+    ) -> None:
+        record_type_map = {
+            "exhibitions": "exhibition",
+            "articles": "artist_article",
+            "press": "artist_press",
+            "memories": "artist_memory",
+        }
+        for key, record_type in record_type_map.items():
+            for item in related_data.get(key, []):
+                fingerprint = item.get("item_fingerprint")
+                if not fingerprint:
+                    continue
+                existing = await crud.get_record_by_item_fingerprint(
+                    self.db,
+                    source_id=source_id,
+                    page_id=page.id,
+                    record_type=record_type,
+                    item_fingerprint=fingerprint,
+                )
+                if existing is not None:
+                    continue
+                await crud.create_record(
+                    self.db,
+                    source_id=source_id,
+                    page_id=page.id,
+                    record_type=record_type,
+                    title=item.get("title"),
+                    description=item.get("raw_text"),
+                    source_url=item.get("url") or item.get("source_url") or page.url,
+                    raw_data=json.dumps(item),
+                    status="pending",
+                    confidence_score=60,
+                    confidence_band="MEDIUM",
+                    confidence_reasons=json.dumps(["Deterministic related-item extraction"]),
+                )
+
+    async def _get_crawl_hints(self, source_id: str) -> dict[str, Any]:
+        cached = self._crawl_hints_cache.get(source_id)
+        if cached is not None:
+            return cached
+        source = await crud.get_source(self.db, source_id)
+        hints: dict[str, Any] = {}
+        if source and source.crawl_hints:
+            try:
+                loaded = json.loads(source.crawl_hints)
+                if isinstance(loaded, dict):
+                    hints = loaded
+            except json.JSONDecodeError:
+                hints = {}
+        self._crawl_hints_cache[source_id] = hints
+        return hints
+
+    def _get_page_role_override(self, url: str, hints: dict[str, Any]) -> str | None:
+        overrides = hints.get("page_role_overrides") or {}
+        if not isinstance(overrides, dict):
+            return None
+        return overrides.get(url)
+
+    def _is_force_deepen(self, url: str, hints: dict[str, Any]) -> bool:
+        force_urls = hints.get("force_deepen_urls") or []
+        if not isinstance(force_urls, list):
+            return False
+        return url in force_urls
+
+    def _get_same_slug_children(self, url: str, hints: dict[str, Any]) -> list[str]:
+        default_suffixes = [
+            "about.php",
+            "exhibitions.php",
+            "articles.php",
+            "press.php",
+            "memories.php",
+        ]
+        custom_suffixes = hints.get("same_slug_children")
+        if isinstance(custom_suffixes, list) and custom_suffixes:
+            return [s for s in custom_suffixes if isinstance(s, str) and s.strip()]
+
+        parsed = urlparse(url)
+        domain_rules = hints.get("domain_rules") or {}
+        if isinstance(domain_rules, dict):
+            domain_hint = domain_rules.get(parsed.netloc) or {}
+            domain_children = domain_hint.get("same_slug_children")
+            if isinstance(domain_children, list) and domain_children:
+                return [s for s in domain_children if isinstance(s, str) and s.strip()]
+        return default_suffixes
+
+    def _should_ignore_url(self, url: str, hints: dict[str, Any]) -> bool:
+        patterns = hints.get("ignore_url_patterns") or []
+        if not isinstance(patterns, list):
+            return False
+        return any(isinstance(pattern, str) and pattern in url for pattern in patterns)
 
 
 async def _run_pipeline_job_async(

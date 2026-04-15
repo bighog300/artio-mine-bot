@@ -33,11 +33,13 @@ class SourceStats(BaseModel):
 class SourceCreate(BaseModel):
     url: str
     name: str | None = None
+    crawl_hints: dict[str, Any] | None = None
 
 
 class SourceUpdate(BaseModel):
     name: str | None = None
     status: str | None = None
+    crawl_hints: dict[str, Any] | None = None
 
 
 class SourceResponse(BaseModel):
@@ -50,7 +52,18 @@ class SourceResponse(BaseModel):
     total_records: int
     last_crawled_at: datetime | None
     created_at: datetime
+    crawl_hints: dict[str, Any] | None = None
     stats: SourceStats | None = None
+
+    @field_validator("crawl_hints", mode="before")
+    @classmethod
+    def parse_crawl_hints(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except Exception:
+                return None
+        return v
 
 
 class SourceDetailResponse(SourceResponse):
