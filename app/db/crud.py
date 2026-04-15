@@ -610,6 +610,7 @@ async def count_records(
     source_id: str | None = None,
     status: str | None = None,
     record_type: str | None = None,
+    search: str | None = None,
 ) -> int:
     stmt = select(func.count(Record.id))
     if tenant_id:
@@ -620,6 +621,15 @@ async def count_records(
         stmt = stmt.where(Record.status == status)
     if record_type:
         stmt = stmt.where(Record.record_type == record_type)
+    if search:
+        query_filter = f"%{search}%"
+        stmt = stmt.where(
+            or_(
+                Record.title.ilike(query_filter),
+                Record.description.ilike(query_filter),
+                Record.bio.ilike(query_filter),
+            )
+        )
     result = await db.execute(stmt)
     return result.scalar_one()
 
