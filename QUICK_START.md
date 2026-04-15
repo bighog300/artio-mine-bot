@@ -1,223 +1,245 @@
-# Artio Mine Bot — Quick Deployment (5 Minutes)
+# Quick Start: Structure-First Mining
 
-## Prerequisites ✅
+## The Idea (30 seconds)
 
-Before starting, make sure you have:
-
-- [ ] OpenAI API key (get from https://platform.openai.com/api-keys)
-- [ ] SSH access to craig@dockerdev
-- [ ] Can SSH without password prompt:
-  ```bash
-  ssh -o BatchMode=yes craig@dockerdev "echo connected"
-  ```
+1. **User adds URL** → System analyzes it once → Saves the structure
+2. **System knows** → Where the A-Z directories are, what data is where
+3. **Crawlbot uses map** → Generates precise URLs, no guessing
+4. **Extraction uses context** → AI knows what to look for, uses 50% fewer tokens
+5. **Result** → 52% fewer tokens, structure reused forever
 
 ---
 
-## One-Command Deployment
+## Implementation (Code Level)
 
-```bash
-./deploy.sh sk-proj-YOUR_API_KEY craig@dockerdev 8000
+### Step 1: Database (5 minutes)
+Add 4 columns to `sources` table:
+```sql
+ALTER TABLE sources ADD COLUMN structure_map TEXT;
+ALTER TABLE sources ADD COLUMN structure_status VARCHAR(50) DEFAULT 'pending';
+ALTER TABLE sources ADD COLUMN structure_error TEXT;
+ALTER TABLE sources ADD COLUMN analyzed_at TIMESTAMP;
 ```
 
-**Replace `sk-proj-YOUR_API_KEY` with your actual OpenAI API key**
+### Step 2: New Module (50 lines)
+Create `app/crawler/site_structure_analyzer.py`:
+- Takes: URL + homepage HTML
+- Does: Call GPT-4o once
+- Returns: {crawl_targets, mining_map, directory_structure}
 
-Example:
-```bash
-./deploy.sh sk-proj-abc123xyz789 craig@dockerdev 8000
+### Step 3: New API Endpoint (40 lines)
+Add to `app/api/routes/sources.py`:
+```python
+POST /sources/{id}/analyze-structure
+→ Calls site_structure_analyzer
+→ Saves result to database
+→ Returns structure to user
 ```
 
----
-
-## What This Does (Automatically)
-
-1. ✅ Verifies SSH connectivity
-2. ✅ Clones GitHub repository to `/home/craig/artio-mine-bot`
-3. ✅ Creates `.env` configuration file with your API key
-4. ✅ Verifies Docker/Docker Compose installed
-5. ✅ Builds Docker images (3-5 minutes first time)
-6. ✅ Starts containers
-7. ✅ Initializes database
-8. ✅ Runs health checks
-9. ✅ Displays access URLs
-
----
-
-## Expected Output
-
+### Step 4: Use in Crawlbot (50 lines)
+Modify `app/crawler/link_follower.py`:
+```python
+def crawl_source():
+    structure = load_saved_structure()
+    for target in structure["crawl_targets"]:
+        urls = generate_urls_from_pattern(target["url_pattern"])
+        for url in urls:
+            fetch(url)
 ```
-✅ SSH connectivity verified
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Deploying Artio Mine Bot to craig@dockerdev
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-[1/6] Preparing remote directory...
-✅ Remote directory prepared
-
-[2/6] Creating .env configuration...
-✅ Configuration file created
-
-[3/6] Verifying Docker installation...
-✅ Docker verified
-
-[4/6] Building Docker images...
-  This may take 3-5 minutes on first build...
-✅ Docker images built
-
-[5/6] Starting containers...
-✅ Containers started
-
-[6/6] Running health checks...
-✅ Health checks complete
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✅ DEPLOYMENT SUCCESSFUL
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🌐 Frontend: http://craig@dockerdev:5173
-🔌 API: http://craig@dockerdev:8000
-💚 Health: http://craig@dockerdev:8000/health
+### Step 5: Use in Extraction (60 lines)
+Modify `app/pipeline/runner.py`:
+```python
+def run_extract():
+    structure = load_saved_structure()
+    mining_map = structure["mining_map"]
+    
+    for page in pages:
+        page_type = find_type_in_mining_map(page.url)
+        expected_fields = mining_map[page_type]["expected_fields"]
+        extracted = extract(page.html, hint=expected_fields)
 ```
 
 ---
 
-## Access Your Application
+## User Experience
 
-### Via Web Browser
-- **Frontend:** http://craig@dockerdev:5173
-- **API Docs:** http://craig@dockerdev:8000/docs
+### First Time (Structure Analysis)
+```
+User:
+  1. Paste URL: https://art.co.za
+  2. Click "Add Source"
+  3. Click "Analyze Structure"
+  4. Wait 5 seconds
+  5. See: "Found Artist A-Z directory, 26 pages"
 
-### Via Command Line
+Behind scenes:
+  - 1 API call to GPT-4o
+  - 2000 tokens used
+  - Structure saved to database
+  - $0.015 cost (one time!)
+```
 
-```bash
-# Test API health
-curl http://craig@dockerdev:8000/health
+### Next Time (Mining)
+```
+User:
+  1. Click "Start Mining"
+  2. Wait for crawling + extraction
+  3. Done!
 
-# View logs
-ssh craig@dockerdev 'cd artio-mine-bot && docker-compose logs -f'
-
-# Access database
-ssh craig@dockerdev 'docker-compose exec api sqlite3 /app/data/miner.db ".tables"'
+Behind scenes:
+  - 0 API calls for classification (URL pattern matching)
+  - ~500 API calls for extraction (50% fewer tokens each)
+  - Uses saved structure
+  - $2.50 cost (52% reduction from $5.11!)
 ```
 
 ---
 
-## Common Tasks
+## Token Comparison
 
-### Stop Services
-```bash
-ssh craig@dockerdev 'cd artio-mine-bot && docker-compose down'
+### Before (Wasteful)
+```
+Analyze once: 1,000 tokens
+Classify 100 pages: 20,000 tokens (100 AI calls)
+Extract 500 pages: 400,000 tokens (500 AI calls)
+─────────────────────────────────
+TOTAL: 421,000 tokens = $5.11 per source
 ```
 
-### Start Services Again
-```bash
-ssh craig@dockerdev 'cd artio-mine-bot && docker-compose up -d'
+### After (Optimized)
 ```
-
-### View Logs
-```bash
-ssh craig@dockerdev 'cd artio-mine-bot && docker-compose logs -f'
-```
-
-### Restart Services
-```bash
-ssh craig@dockerdev 'cd artio-mine-bot && docker-compose restart'
-```
-
-### Update Configuration
-```bash
-ssh craig@dockerdev 'nano artio-mine-bot/.env'
-# Edit, then save and exit
-ssh craig@dockerdev 'cd artio-mine-bot && docker-compose restart api'
+Analyze once: 2,000 tokens (SAVED FOREVER)
+Classify 100 pages: 0 tokens (pattern matching, no AI!)
+Extract 500 pages: 200,000 tokens (50% reduction, better hints)
+─────────────────────────────────
+TOTAL: 202,000 tokens = $2.51 per source (52% reduction!)
 ```
 
 ---
 
-## Troubleshooting
+## Files to Create/Modify
 
-### "Cannot connect to ssh host"
-Make sure you can SSH without a password prompt:
-```bash
-ssh -o BatchMode=yes craig@dockerdev "echo connected"
-```
+| File | Type | Size | What |
+|------|------|------|------|
+| `app/crawler/site_structure_analyzer.py` | NEW | 50 lines | Structure analysis |
+| `app/api/routes/sources.py` | MODIFY | +40 lines | API endpoint |
+| `app/crawler/link_follower.py` | MODIFY | +50 lines | Use structure in crawl |
+| `app/pipeline/runner.py` | MODIFY | +60 lines | Use structure in extract |
+| `app/ai/extractors/base.py` | MODIFY | +5 lines | Accept context param |
+| Migration | NEW | 10 lines | Add DB columns |
 
-If this fails, you need to set up SSH key authentication:
-```bash
-# Generate key (if needed)
-ssh-keygen -t ed25519
+**Total code**: ~215 lines new/modified
+**Total effort**: 2-3 days for one engineer
 
-# Add to remote
-ssh-copy-id -i ~/.ssh/id_ed25519.pub craig@dockerdev
+---
 
-# Test
-ssh -o BatchMode=yes craig@dockerdev "echo connected"
-```
+## Testing
 
-### "Docker not found"
-Docker not installed on remote. SSH to remote and install:
-```bash
-ssh craig@dockerdev
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker craig
-exit
-```
+```python
+# 1. Test structure analysis
+def test_analyze_structure():
+    html = load_test_homepage()
+    result = await analyze_structure(url, html, ai_client)
+    assert "crawl_targets" in result
+    assert "mining_map" in result
 
-### "Build timeout" or "Build takes long"
-This is normal for first build (Playwright browser installation takes 3-5 minutes).
-Just wait. Subsequent deployments will be much faster.
+# 2. Test URL generation
+def test_generate_urls():
+    pattern = "/artists/[letter]"
+    urls = generate_urls_from_pattern(pattern)
+    assert urls == ["/artists/a", "/artists/b", ..., "/artists/z"]
 
-### "Cannot access http://craig@dockerdev:5173"
-Check firewall:
-```bash
-ssh craig@dockerdev 'sudo ufw allow 8000/tcp && sudo ufw allow 5173/tcp'
-```
-
-Or use SSH tunneling:
-```bash
-ssh -L 8000:localhost:8000 -L 5173:localhost:5173 craig@dockerdev
-# Then open http://localhost:5173 in your browser
+# 3. Test crawl with structure
+def test_crawl_with_structure():
+    # Should crawl using generated URLs, not links
+    
+# 4. Test extraction with context
+def test_extract_with_context():
+    # Should use fewer tokens with context hint
+    
+# 5. Benchmark token usage
+def test_token_reduction():
+    # Measure before/after
+    assert new_tokens < old_tokens * 0.55
 ```
 
 ---
 
-## Next Steps
+## Deployment Checklist
 
-1. ✅ Run deployment script
-2. 📝 Open frontend at http://craig@dockerdev:5173
-3. ➕ Add a test source (enter a URL)
-4. 🔨 Start mining to test
-5. 📊 Review results in dashboard
-6. 🔧 Adjust settings as needed
-
----
-
-## Full Documentation
-
-For detailed instructions, configuration options, and advanced topics, see:
-- `DEPLOYMENT_GUIDE.md` — Comprehensive deployment guide
-- `DOCKER_DEPLOYMENT_ANALYSIS.md` — Technical analysis and architecture
-- `AUDIT_REPORT.md` — Code quality and architecture audit
+- [ ] Database migration runs
+- [ ] New module works in isolation
+- [ ] API endpoint tested locally
+- [ ] Crawlbot uses structure correctly
+- [ ] Extraction produces same accuracy
+- [ ] Token usage reduced to <202K per source
+- [ ] Stage deployment passes all tests
+- [ ] Production rollout (no downtime needed)
 
 ---
 
-## Script Usage
+## Rollback (if needed)
 
 ```bash
-# Show help (run without arguments)
-./deploy.sh
+# Drop the columns
+ALTER TABLE sources DROP COLUMN structure_map;
+ALTER TABLE sources DROP COLUMN structure_status;
+ALTER TABLE sources DROP COLUMN structure_error;
+ALTER TABLE sources DROP COLUMN analyzed_at;
 
-# Full usage
-./deploy.sh <openai-api-key> [ssh-host] [port]
-
-# Examples
-./deploy.sh sk-proj-abc123 craig@dockerdev 8000
-./deploy.sh sk-proj-abc123 user@192.168.1.100 9000
-./deploy.sh sk-proj-abc123  # Uses default craig@dockerdev:8000
+# Restart crawlbot (uses old logic)
+# Done!
 ```
 
 ---
 
-**Ready? Let's deploy!**
+## Frequently Asked Questions
 
-```bash
-./deploy.sh sk-proj-YOUR_API_KEY craig@dockerdev 8000
-```
+**Q: What if the structure analysis fails?**
+A: Falls back to old method (link following). Status="failed" is logged.
+
+**Q: Can users override the structure?**
+A: Yes, could add a manual edit form later. For now, re-run analyze-structure.
+
+**Q: Does this work for all websites?**
+A: Best for sites with A-Z directories, letter-based pagination. Falls back for others.
+
+**Q: What about dynamic sites with JavaScript?**
+A: Playwright already used. Same as before. Structure analysis works on server-rendered HTML.
+
+**Q: Can we cache across multiple users?**
+A: Yes! Same URL = same structure. Could implement shared cache layer.
+
+---
+
+## Success Criteria
+
+✅ Token usage reduced by 50%+
+✅ Cost reduced by 50%+
+✅ Crawlbot generates correct URLs
+✅ No regression in extraction accuracy
+✅ All tests passing
+
+---
+
+## Timeline
+
+- **Day 1**: Database + module + endpoint
+- **Day 2**: Integration with crawlbot + extraction
+- **Day 3**: Testing + benchmarking + deployment
+
+---
+
+## Money Impact
+
+- **Cost per source BEFORE**: $5.11
+- **Cost per source AFTER**: $2.51
+- **Monthly savings** (500 sources): $1,300
+- **Annual savings**: $15,600
+- **Implementation cost**: ~$3,000 (3 engineer days)
+- **ROI**: Break-even in 3 months
+
+---
+
+**Ready to build?** Start with `STRUCTURE_FIRST_IMPLEMENTATION.md` for full code examples.
