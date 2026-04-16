@@ -20,7 +20,7 @@ export function Export() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Export to Artio</h1>
+      <h1 className="text-2xl font-bold text-foreground">Export to Artio</h1>
 
       {/* Connection status */}
       <Alert
@@ -30,20 +30,20 @@ export function Export() {
       />
 
       {/* Preview */}
-      <div className="bg-white border rounded-lg p-4 space-y-4">
-        <h2 className="font-semibold text-gray-900">Export Preview</h2>
+      <div className="bg-card border rounded-lg p-4 space-y-4">
+        <h2 className="font-semibold text-foreground">Export Preview</h2>
         <div className="grid grid-cols-2 gap-4">
-          <div className="bg-gray-50 rounded p-3">
-            <div className="text-sm text-gray-500">Ready to export</div>
+          <div className="bg-muted/40 rounded p-3">
+            <div className="text-sm text-muted-foreground">Ready to export</div>
             <div className="text-3xl font-bold text-blue-600">{preview?.record_count ?? 0}</div>
           </div>
-          <div className="bg-gray-50 rounded p-3">
-            <div className="text-sm text-gray-500">By type</div>
+          <div className="bg-muted/40 rounded p-3">
+            <div className="text-sm text-muted-foreground">By type</div>
             <div className="space-y-1 mt-1">
               {Object.entries(preview?.by_type ?? {}).map(([type, count]) => (
                 count > 0 && (
                   <div key={type} className="flex justify-between text-sm">
-                    <span className="capitalize text-gray-600">{type}</span>
+                    <span className="capitalize text-muted-foreground">{type}</span>
                     <span className="font-medium">{count}</span>
                   </div>
                 )
@@ -54,11 +54,11 @@ export function Export() {
 
         <div className="flex gap-3 items-end">
           <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Source (optional)</label>
+            <label className="block text-sm font-medium text-muted-foreground mb-1">Source (optional)</label>
             <select
               value={sourceId}
               onChange={(e) => setSourceId(e.target.value)}
-              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+              className="w-full border border-border rounded px-2 py-1.5 text-sm"
             >
               <option value="">All sources</option>
               {sources?.items.map((s) => (

@@ -25,9 +25,9 @@ export function CreatePresetDialog({ open, draftId, creating, onClose, onCreate 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded border bg-white p-4 space-y-3">
+      <div className="w-full max-w-lg rounded border bg-card p-4 space-y-3">
         <h3 className="text-lg font-semibold">Save as Preset</h3>
-        <p className="text-xs text-gray-500">Create a reusable snapshot from draft/version findings.</p>
+        <p className="text-xs text-muted-foreground">Create a reusable snapshot from draft/version findings.</p>
 
         <label className="block text-sm space-y-1">
           <span className="font-medium">Preset Name</span>
@@ -51,7 +51,7 @@ export function CreatePresetDialog({ open, draftId, creating, onClose, onCreate 
           />
         </label>
 
-        <div className="rounded border bg-slate-50 px-3 py-2 text-xs">Source draft/version: <strong>{draftId}</strong></div>
+        <div className="rounded border bg-muted/40 px-3 py-2 text-xs">Source draft/version: <strong>{draftId}</strong></div>
 
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -66,7 +66,7 @@ export function CreatePresetDialog({ open, draftId, creating, onClose, onCreate 
         <div className="flex justify-end gap-2">
           <button className="px-3 py-1 border rounded" onClick={onClose} disabled={creating}>Cancel</button>
           <button
-            className="px-3 py-1 rounded bg-slate-900 text-white disabled:opacity-60"
+            className="px-3 py-1 rounded bg-foreground text-white disabled:opacity-60"
             onClick={() => onCreate({ name, description: description || undefined, include_statuses: approvedOnly ? ["approved"] : ["approved", "needs_review", "proposed", "changed_from_published"] })}
             disabled={creating || !name.trim()}
           >

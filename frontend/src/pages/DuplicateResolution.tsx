@@ -118,11 +118,11 @@ export function DuplicateResolution() {
 
   if (!isPairsLoading && pairs.length === 0) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50">
+      <div className="h-screen flex items-center justify-center bg-muted/40">
         <div className="text-center">
           <div className="text-6xl mb-4">🎉</div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">No Duplicates Found</h2>
-          <p className="text-gray-600">All duplicate pairs have been resolved.</p>
+          <h2 className="text-2xl font-bold text-foreground mb-2">No Duplicates Found</h2>
+          <p className="text-muted-foreground">All duplicate pairs have been resolved.</p>
         </div>
       </div>
     );
@@ -131,7 +131,7 @@ export function DuplicateResolution() {
   if (isPairsLoading || isPairLoading || !pairDetails) {
     return (
       <div className="h-screen flex items-center justify-center">
-        <div className="text-gray-500">Loading duplicate pair…</div>
+        <div className="text-muted-foreground">Loading duplicate pair…</div>
       </div>
     );
   }
@@ -147,7 +147,7 @@ export function DuplicateResolution() {
   const { pair, record_a: recordA, record_b: recordB } = pairDetails;
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
+    <div className="h-screen flex flex-col bg-muted/40">
       <DuplicateHeader
         total={pairs.length}
         current={safeIndex}

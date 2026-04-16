@@ -54,7 +54,7 @@ export function MappingMatrix({ rows, statusFilter, onStatusFilterChange, select
   const allVisibleSelected = filteredRows.length > 0 && filteredRows.every((row) => selectedRowIds.includes(row.id));
 
   return (
-    <section className="rounded border bg-white p-4">
+    <section className="rounded border bg-card p-4">
       <h2 className="font-semibold mb-3">Mapping Matrix</h2>
       <label className="space-y-1 text-sm block mb-3">
         <span>Status filter</span>
@@ -65,9 +65,9 @@ export function MappingMatrix({ rows, statusFilter, onStatusFilterChange, select
           ))}
         </select>
       </label>
-      {!rows.length ? <p className="text-sm text-gray-500">No mapping rows yet.</p> : (
+      {!rows.length ? <p className="text-sm text-muted-foreground">No mapping rows yet.</p> : (
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-muted/40">
             <tr>
               <th className="text-left p-2"><input type="checkbox" checked={allVisibleSelected} onChange={(e) => setSelectedRowIds(e.target.checked ? filteredRows.map((row) => row.id) : [])} /></th>
               <th className="text-left p-2">Selector</th>

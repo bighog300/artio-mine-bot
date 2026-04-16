@@ -13,9 +13,9 @@ export function Workers() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">Workers</h1>
-      <div className="bg-white border rounded overflow-hidden">
+      <div className="bg-card border rounded overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-muted/40">
             <tr>
               <th className="text-left p-3">Worker</th>
               <th className="text-left p-3">Status</th>

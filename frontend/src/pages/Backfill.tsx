@@ -10,7 +10,7 @@ import {
 import { Badge, Button, Input } from "@/components/ui";
 
 const statusClass: Record<string, string> = {
-  pending: "bg-gray-100 text-gray-700",
+  pending: "bg-muted text-muted-foreground",
   running: "bg-blue-100 text-blue-700",
   completed: "bg-green-100 text-green-700",
   failed: "bg-red-100 text-red-700",
@@ -57,8 +57,8 @@ export function Backfill() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Backfill Dashboard</h1>
-        <p className="text-sm text-gray-500">Manage campaigns, schedules, and enrichment automation.</p>
+        <h1 className="text-2xl font-bold text-foreground">Backfill Dashboard</h1>
+        <p className="text-sm text-muted-foreground">Manage campaigns, schedules, and enrichment automation.</p>
       </div>
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -67,8 +67,8 @@ export function Backfill() {
         <StatCard label="Schedules" value={(schedules?.items ?? []).length} />
       </section>
 
-      <section className="rounded-lg border border-gray-200 bg-white p-4">
-        <h2 className="mb-3 text-lg font-semibold text-gray-900">Create Schedule</h2>
+      <section className="rounded-lg border border-border bg-card p-4">
+        <h2 className="mb-3 text-lg font-semibold text-foreground">Create Schedule</h2>
         <form className="grid gap-3 md:grid-cols-4" onSubmit={onSubmit}>
           <Input
             value={name}
@@ -102,14 +102,14 @@ export function Backfill() {
         ) : null}
       </section>
 
-      <section className="rounded-lg border border-gray-200 bg-white p-4">
-        <h2 className="mb-3 text-lg font-semibold text-gray-900">Recent Campaigns</h2>
-        {campaignsLoading ? <p className="text-sm text-gray-500">Loading campaigns…</p> : <CampaignTable items={campaigns?.items ?? []} />}
+      <section className="rounded-lg border border-border bg-card p-4">
+        <h2 className="mb-3 text-lg font-semibold text-foreground">Recent Campaigns</h2>
+        {campaignsLoading ? <p className="text-sm text-muted-foreground">Loading campaigns…</p> : <CampaignTable items={campaigns?.items ?? []} />}
       </section>
 
-      <section className="rounded-lg border border-gray-200 bg-white p-4">
-        <h2 className="mb-3 text-lg font-semibold text-gray-900">Schedules</h2>
-        {schedulesLoading ? <p className="text-sm text-gray-500">Loading schedules…</p> : <ScheduleTable items={schedules?.items ?? []} />}
+      <section className="rounded-lg border border-border bg-card p-4">
+        <h2 className="mb-3 text-lg font-semibold text-foreground">Schedules</h2>
+        {schedulesLoading ? <p className="text-sm text-muted-foreground">Loading schedules…</p> : <ScheduleTable items={schedules?.items ?? []} />}
       </section>
     </div>
   );
@@ -117,23 +117,23 @@ export function Backfill() {
 
 function StatCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className="mt-1 text-2xl font-semibold text-gray-900">{value}</p>
+    <div className="rounded-lg border border-border bg-card p-4">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="mt-1 text-2xl font-semibold text-foreground">{value}</p>
     </div>
   );
 }
 
 function CampaignTable({ items }: { items: BackfillCampaign[] }) {
   if (items.length === 0) {
-    return <p className="text-sm text-gray-500">No campaigns created yet.</p>;
+    return <p className="text-sm text-muted-foreground">No campaigns created yet.</p>;
   }
 
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-sm">
         <thead>
-          <tr className="border-b border-gray-200 text-left text-gray-500">
+          <tr className="border-b border-border text-left text-muted-foreground">
             <th className="py-2">Name</th>
             <th className="py-2">Status</th>
             <th className="py-2">Progress</th>
@@ -142,17 +142,17 @@ function CampaignTable({ items }: { items: BackfillCampaign[] }) {
         </thead>
         <tbody>
           {items.map((campaign) => (
-            <tr key={campaign.id} className="border-b border-gray-100">
-              <td className="py-2 text-gray-900">{campaign.name}</td>
+            <tr key={campaign.id} className="border-b border-border/60">
+              <td className="py-2 text-foreground">{campaign.name}</td>
               <td className="py-2">
-                <Badge className={statusClass[campaign.status] ?? "bg-gray-100 text-gray-700"}>
+                <Badge className={statusClass[campaign.status] ?? "bg-muted text-muted-foreground"}>
                   {campaign.status}
                 </Badge>
               </td>
-              <td className="py-2 text-gray-700">
+              <td className="py-2 text-muted-foreground">
                 {campaign.processed_records}/{campaign.total_records}
               </td>
-              <td className="py-2 text-gray-500">{new Date(campaign.created_at).toLocaleString()}</td>
+              <td className="py-2 text-muted-foreground">{new Date(campaign.created_at).toLocaleString()}</td>
             </tr>
           ))}
         </tbody>
@@ -163,14 +163,14 @@ function CampaignTable({ items }: { items: BackfillCampaign[] }) {
 
 function ScheduleTable({ items }: { items: BackfillSchedule[] }) {
   if (items.length === 0) {
-    return <p className="text-sm text-gray-500">No schedules configured.</p>;
+    return <p className="text-sm text-muted-foreground">No schedules configured.</p>;
   }
 
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-sm">
         <thead>
-          <tr className="border-b border-gray-200 text-left text-gray-500">
+          <tr className="border-b border-border text-left text-muted-foreground">
             <th className="py-2">Name</th>
             <th className="py-2">Cron</th>
             <th className="py-2">Next Run</th>
@@ -179,13 +179,13 @@ function ScheduleTable({ items }: { items: BackfillSchedule[] }) {
         </thead>
         <tbody>
           {items.map((schedule) => (
-            <tr key={schedule.id} className="border-b border-gray-100">
-              <td className="py-2 text-gray-900">{schedule.name}</td>
-              <td className="py-2 text-gray-700">{schedule.cron_expression ?? "-"}</td>
-              <td className="py-2 text-gray-700">
+            <tr key={schedule.id} className="border-b border-border/60">
+              <td className="py-2 text-foreground">{schedule.name}</td>
+              <td className="py-2 text-muted-foreground">{schedule.cron_expression ?? "-"}</td>
+              <td className="py-2 text-muted-foreground">
                 {schedule.next_run_at ? new Date(schedule.next_run_at).toLocaleString() : "-"}
               </td>
-              <td className="py-2 text-gray-700">{schedule.enabled ? "Yes" : "No"}</td>
+              <td className="py-2 text-muted-foreground">{schedule.enabled ? "Yes" : "No"}</td>
             </tr>
           ))}
         </tbody>

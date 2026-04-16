@@ -10,7 +10,7 @@ interface Props {
 
 export function VersionHistoryPanel({ versions, diff, onPublish, publishing, onRollback }: Props) {
   return (
-    <section className="rounded border bg-white p-4 space-y-2">
+    <section className="rounded border bg-card p-4 space-y-2">
       <h2 className="font-semibold">Versioning & Publish</h2>
       <div className="text-sm">
         {diff ? (

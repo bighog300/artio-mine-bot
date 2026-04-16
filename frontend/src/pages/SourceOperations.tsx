@@ -108,11 +108,11 @@ export function SourceOperations() {
       <div>
         <Button variant="ghost" size="sm" onClick={() => navigate(`/sources/${id}`)} className="mb-1">← Source Detail</Button>
         <h1 className="text-2xl font-bold">Source Operations Console</h1>
-        <p className="text-sm text-gray-500">{ops?.source?.name ?? ops?.source?.url ?? id}</p>
+        <p className="text-sm text-muted-foreground">{ops?.source?.name ?? ops?.source?.url ?? id}</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-white border rounded p-4 space-y-3">
+        <div className="bg-card border rounded p-4 space-y-3">
           <h2 className="font-semibold">Source Summary</h2>
           <div className="text-sm flex items-center gap-3">
             <StatusBadge status={ops?.source?.operational_status ?? ops?.source?.status ?? "unknown"} />
@@ -128,20 +128,20 @@ export function SourceOperations() {
           </div>
         </div>
 
-        <div className="bg-white border rounded p-4 space-y-3">
+        <div className="bg-card border rounded p-4 space-y-3">
           <h2 className="font-semibold">Moderated Action Queue</h2>
           <div className="space-y-2 max-h-56 overflow-auto">
             {(moderation?.items ?? []).map((item) => (
               <div key={item.id} className="border rounded p-2 text-sm space-y-2">
                 <div className="font-medium">Possible duplicate ({item.similarity_score ?? 0}%)</div>
-                <div className="text-gray-600">{item.left_record?.title ?? item.left_record?.id} ↔ {item.right_record?.title ?? item.right_record?.id}</div>
+                <div className="text-muted-foreground">{item.left_record?.title ?? item.left_record?.id} ↔ {item.right_record?.title ?? item.right_record?.id}</div>
                 <div className="flex gap-2">
                   <Button size="sm" variant="primary" onClick={() => moderationMutation.mutate({ actionId: item.id, decision: "approve" })}>Approve</Button>
                   <Button size="sm" variant="danger" onClick={() => moderationMutation.mutate({ actionId: item.id, decision: "reject" })}>Reject</Button>
                 </div>
               </div>
             ))}
-            {(moderation?.items?.length ?? 0) === 0 && <p className="text-sm text-gray-500">No pending moderated actions.</p>}
+            {(moderation?.items?.length ?? 0) === 0 && <p className="text-sm text-muted-foreground">No pending moderated actions.</p>}
           </div>
         </div>
       </div>
@@ -167,10 +167,10 @@ export function SourceOperations() {
         </div>
       </div>
 
-      <div className="bg-white border rounded overflow-hidden">
+      <div className="bg-card border rounded overflow-hidden">
         <div className="p-3 border-b font-semibold">Recent Run History</div>
         <table className="w-full">
-          <thead className="bg-gray-50 text-xs uppercase text-gray-600">
+          <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
             <tr>
               <th className="p-2 text-left">Type</th>
               <th className="p-2 text-left">Status</th>

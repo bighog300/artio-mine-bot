@@ -130,41 +130,41 @@ export function Sources() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Sources</h1>
+        <h1 className="text-2xl font-bold text-foreground">Sources</h1>
         <Button onClick={() => setShowDialog(true)}>Add Source</Button>
       </div>
 
       {actionFeedback && <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm">{actionFeedback}</div>}
 
-      <div className="bg-white rounded-lg border overflow-hidden">
+      <div className="bg-card rounded-lg border overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-muted/40">
             <tr>
-              <th className="text-left p-3 font-medium text-gray-600">Name / URL</th>
-              <th className="text-left p-3 font-medium text-gray-600">Status</th>
-              <th className="text-left p-3 font-medium text-gray-600">Pages</th>
-              <th className="text-left p-3 font-medium text-gray-600">Records</th>
-              <th className="text-left p-3 font-medium text-gray-600">Last Run</th>
-              <th className="text-left p-3 font-medium text-gray-600">Actions</th>
+              <th className="text-left p-3 font-medium text-muted-foreground">Name / URL</th>
+              <th className="text-left p-3 font-medium text-muted-foreground">Status</th>
+              <th className="text-left p-3 font-medium text-muted-foreground">Pages</th>
+              <th className="text-left p-3 font-medium text-muted-foreground">Records</th>
+              <th className="text-left p-3 font-medium text-muted-foreground">Last Run</th>
+              <th className="text-left p-3 font-medium text-muted-foreground">Actions</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={6} className="p-6 text-center text-gray-400">Loading...</td></tr>
+              <tr><td colSpan={6} className="p-6 text-center text-muted-foreground/80">Loading...</td></tr>
             )}
             {data?.items.map((source) => (
-              <tr key={source.id} className="border-t hover:bg-gray-50">
+              <tr key={source.id} className="border-t hover:bg-muted/40">
                 <td className="p-3">
                   <div className="font-medium">{source.name ?? source.url}</div>
-                  <div className="text-xs text-gray-500 truncate max-w-xs">{source.url}</div>
+                  <div className="text-xs text-muted-foreground truncate max-w-xs">{source.url}</div>
                 </td>
                 <td className="p-3"><StatusBadge status={source.operational_status ?? source.status} /></td>
                 <td className="p-3">{source.total_pages}</td>
                 <td className="p-3">{source.total_records}</td>
-                <td className="p-3 text-gray-500">{source.last_crawled_at ? formatRelative(source.last_crawled_at) : "Never"}</td>
+                <td className="p-3 text-muted-foreground">{source.last_crawled_at ? formatRelative(source.last_crawled_at) : "Never"}</td>
                 <td className="p-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <button onClick={() => navigate(`/sources/${source.id}`)} className="p-1 text-gray-500 hover:text-blue-600" title="View"><Eye size={16} /></button>
+                    <button onClick={() => navigate(`/sources/${source.id}`)} className="p-1 text-muted-foreground hover:text-blue-600" title="View"><Eye size={16} /></button>
                     <button
                       disabled={actionMutation.isPending}
                       onClick={() => actionMutation.mutate({ sourceId: source.id, action: "start-discovery" })}
@@ -179,15 +179,15 @@ export function Sources() {
                     >
                       {actionMutation.isPending ? "Loading..." : "Start Full Mining"}
                     </button>
-                    <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "pause" })} className="p-1 text-gray-500 hover:text-amber-600" title="Pause"><Pause size={16} /></button>
-                    <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "resume" })} className="p-1 text-gray-500 hover:text-green-600" title="Resume"><Play size={16} /></button>
-                    <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "stop" })} className="p-1 text-gray-500 hover:text-red-600" title="Stop"><Square size={16} /></button>
-                    <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "retry-failed" })} className="p-1 text-gray-500 hover:text-indigo-600" title="Retry Failed"><RotateCcw size={16} /></button>
+                    <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "pause" })} className="p-1 text-muted-foreground hover:text-amber-600" title="Pause"><Pause size={16} /></button>
+                    <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "resume" })} className="p-1 text-muted-foreground hover:text-green-600" title="Resume"><Play size={16} /></button>
+                    <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "stop" })} className="p-1 text-muted-foreground hover:text-red-600" title="Stop"><Square size={16} /></button>
+                    <button onClick={() => actionMutation.mutate({ sourceId: source.id, action: "retry-failed" })} className="p-1 text-muted-foreground hover:text-indigo-600" title="Retry Failed"><RotateCcw size={16} /></button>
                     <button
                       onClick={() => {
                         if (confirm("Delete this source and all its data?")) deleteMutation.mutate(source.id);
                       }}
-                      className="p-1 text-gray-500 hover:text-red-600"
+                      className="p-1 text-muted-foreground hover:text-red-600"
                       title="Delete"
                     >
                       <Trash2 size={16} />
@@ -202,7 +202,7 @@ export function Sources() {
 
       {showDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl shadow-xl">
+          <div className="bg-card rounded-lg p-6 w-full max-w-2xl shadow-xl">
             <h2 className="text-lg font-semibold mb-4">Add Source</h2>
             {error && <p className="text-red-600 text-sm mb-3">{error}</p>}
             <div className="grid grid-cols-2 gap-3 text-sm">

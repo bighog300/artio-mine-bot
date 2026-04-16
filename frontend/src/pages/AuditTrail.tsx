@@ -78,10 +78,10 @@ export function AuditTrail() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Audit Trail</h1>
-          <p className="text-sm text-gray-600">Track create/update/delete/approval activity across sources and records.</p>
+          <h1 className="text-2xl font-bold text-foreground">Audit Trail</h1>
+          <p className="text-sm text-muted-foreground">Track create/update/delete/approval activity across sources and records.</p>
         </div>
-        <div className="text-sm text-gray-600">Auto-refresh: every 30s</div>
+        <div className="text-sm text-muted-foreground">Auto-refresh: every 30s</div>
       </div>
 
       <AuditFilterBar
@@ -95,7 +95,7 @@ export function AuditTrail() {
       />
 
       {eventsQuery.isLoading ? (
-        <div className="rounded-lg border bg-white p-6 text-sm text-gray-500">Loading audit events…</div>
+        <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">Loading audit events…</div>
       ) : eventsQuery.isError ? (
         <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-sm text-red-700">
           Failed to load audit events: {(eventsQuery.error as Error).message}
@@ -104,7 +104,7 @@ export function AuditTrail() {
         <AuditTimeline events={eventsQuery.data?.items ?? []} onSelectEvent={(event) => setSelectedEventId(event.id)} />
       )}
 
-      <div className="flex items-center justify-between rounded-lg border bg-white px-4 py-3 text-sm">
+      <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3 text-sm">
         <p>
           Showing {eventsQuery.data?.items.length ?? 0} of {eventsQuery.data?.total ?? 0} events
         </p>

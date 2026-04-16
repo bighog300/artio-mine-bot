@@ -32,7 +32,7 @@ export function TagInput({ values, onChange, placeholder = "Add tag..." }: TagIn
   };
 
   return (
-    <div className="flex flex-wrap gap-1 p-2 border border-gray-300 rounded-md min-h-[40px] focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent">
+    <div className="flex flex-wrap gap-1 p-2 border border-border rounded-md min-h-[40px] focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent">
       {values.map((tag, i) => (
         <span
           key={i}

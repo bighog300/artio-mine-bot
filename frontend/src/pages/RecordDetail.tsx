@@ -110,7 +110,7 @@ export function RecordDetail() {
     return () => document.removeEventListener("keydown", handler);
   }, [approveMutation, rejectMutation]);
 
-  if (isLoading) return <div className="p-6 text-gray-400">Loading...</div>;
+  if (isLoading) return <div className="p-6 text-muted-foreground/80">Loading...</div>;
   if (!record) return <div className="p-6 text-red-500">Record not found</div>;
 
   const dirty = JSON.stringify(formData) !== JSON.stringify(record);
@@ -153,7 +153,7 @@ export function RecordDetail() {
       </div>
 
       <div className="grid grid-cols-3 gap-6">
-        <div className="col-span-2 bg-white border rounded-lg p-4 space-y-3">
+        <div className="col-span-2 bg-card border rounded-lg p-4 space-y-3">
           <h1 className="text-xl font-bold">{record.title ?? "Untitled"}</h1>
           {hasConflictSignals && (
             <Alert
@@ -172,7 +172,7 @@ export function RecordDetail() {
               {renderFieldRow("Nationality", "nationality", getField, setField, false)}
               {renderFieldRow("Website", "website_url", getField, setField, false)}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Mediums</label>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">Mediums</label>
                 <TagInput
                   values={(formData["mediums"] as string[]) ?? []}
                   onChange={(v) => setField("mediums", v)}
@@ -198,10 +198,10 @@ export function RecordDetail() {
           )}
 
           <div className="border-t pt-3">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Confidence</label>
+            <label className="block text-sm font-medium text-muted-foreground mb-2">Confidence</label>
             <ConfidenceBar score={record.confidence_score} reasons={record.confidence_reasons} />
             {record.confidence_reasons?.length > 0 && (
-              <p className="text-xs text-gray-500 mt-2">
+              <p className="text-xs text-muted-foreground mt-2">
                 Confidence signals: {record.confidence_reasons.join(" · ")}
               </p>
             )}
@@ -235,7 +235,7 @@ export function RecordDetail() {
                 href={record.source_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex h-10 flex-1 items-center justify-center rounded-md border border-gray-300 px-4 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="inline-flex h-10 flex-1 items-center justify-center rounded-md border border-border px-4 text-sm font-medium text-muted-foreground hover:bg-muted/40"
               >
                 Source →
               </a>
@@ -267,7 +267,7 @@ function renderFieldRow(
   const value = getField(key);
   return (
     <div key={String(key)}>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+      <label className="block text-sm font-medium text-muted-foreground mb-1">{label}</label>
       {textarea ? (
         <TextArea
           value={value ?? ""}
