@@ -1,0 +1,95 @@
+You are working in the artio-mine-bot repository.
+
+At the repository root, read and follow these documents before making any changes:
+
+- 01-overview.md
+- 02-backend-runtime-spec.md
+- 03-preset-application-spec.md
+- 04-crawl-and-extraction-spec.md
+- 05-operator-visibility-spec.md
+- 06-implementation-plan.md
+- 07-codex-implementation-brief.md
+
+Treat those documents as the source of truth for scope, architecture, and acceptance criteria.
+
+OBJECTIVE
+
+Implement an AI-optional crawler mode so the ingestion system can run without OpenAI when a usable runtime map already exists.
+
+The intended behavior is:
+- if a source has an existing runtime map or applied preset, skip AI site mapping
+- if deterministic classification/extraction rules are sufficient, run without OpenAI
+- if no usable runtime map exists, use AI only when allowed and available
+- saved presets can be applied to a source and used operationally by the crawler/extractor
+
+REQUIRED OUTCOMES
+
+1. OpenAI becomes optional in deterministic mode
+2. `run_full_pipeline()` skips AI mapping when runtime map exists
+3. presets can be applied to a source as runtime config
+4. crawl/extract can operate deterministically without OpenAI
+5. operator can see whether the job is deterministic or AI-assisted
+
+BACKEND REQUIREMENTS
+
+Implement at minimum:
+
+- optional OpenAI config/runtime behavior
+- `PipelineRunner` support for `ai_client=None`
+- runtime map detection/loading helpers
+- source preset apply flow
+- source runtime-map retrieval/use
+- deterministic-first classification/extraction
+- clear skip behavior when deterministic rules do not match and AI is unavailable
+
+Likely files include:
+- app/config.py
+- app/pipeline/runner.py
+- app/pipeline/job_progress.py
+- source mapper / preset service code
+- app/db/models.py
+- app/db/crud.py
+- app/api/routes/*
+- frontend operator views if needed
+- Alembic migrations if source fields are added
+
+CONSTRAINTS
+
+- do not redesign the platform from scratch
+- preserve AI-assisted mode as an available path
+- avoid unrelated refactors
+- keep preset apply/import focused on runtime configuration for this task
+- do not widen scope beyond the supplied documents
+
+WORKFLOW
+
+1. Read the spec documents
+2. Inspect the current runtime, preset, and crawler code
+3. Implement optional OpenAI runtime first
+4. Implement runtime-map detection and AI-skip logic
+5. Implement preset application to source runtime config
+6. Implement deterministic crawl/extract behavior
+7. Update operator visibility
+8. Run relevant checks/tests if available
+9. Summarize files changed, migrations, routes, and caveats
+
+DEFINITION OF DONE
+
+The task is complete when:
+- a source with an applied preset or usable structure map can crawl/extract without OpenAI
+- the system no longer hard-requires `OPENAI_API_KEY` for deterministic runs
+- jobs skip AI mapping when runtime config already exists
+- presets are operationally useful at runtime
+- operators can tell which mode a run is using
+
+FINAL OUTPUT
+
+Provide:
+- files changed
+- migrations added
+- routes/endpoints added or changed
+- runtime behavior changes
+- preset/runtime-map changes
+- any limitations or follow-up recommendations
+
+Begin by reading the spec documents and inspecting the repo before editing.
