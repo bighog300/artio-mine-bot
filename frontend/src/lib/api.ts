@@ -614,6 +614,37 @@ export interface DuplicateCandidate {
   reviewed_by: string | null;
 }
 
+export interface DuplicatePair {
+  id: string;
+  record_a_id: string;
+  record_b_id: string;
+  similarity_score: number;
+  matching_fields: string[];
+  conflicting_fields: Array<{
+    field: string;
+    value_a: unknown;
+    value_b: unknown;
+  }>;
+  suggested_action: "merge" | "keep_both";
+  status: "pending" | "merge" | "ignore" | "not_duplicate" | "reviewed";
+  merged_record_id?: string;
+  merge_strategy?: Record<string, "a" | "b" | "both">;
+  created_at?: string;
+  resolved_at?: string;
+  reason?: string;
+}
+
+export interface DuplicatePairWithRecords {
+  pair: DuplicatePair;
+  record_a: ArtRecord;
+  record_b: ArtRecord;
+}
+
+export interface DuplicatesResponse {
+  items: DuplicatePair[];
+  total: number;
+}
+
 export interface AuditAction {
   id: string;
   action_type: string;
@@ -1116,6 +1147,157 @@ export const getDuplicateReviews = (
   status?: string
 ): Promise<{ items: DuplicateCandidate[]; total: number }> =>
   api.get("/duplicates/reviews", { params: { status } }).then((r) => r.data);
+
+export const detectDuplicates = (params?: {
+  min_score?: number;
+  limit?: number;
+}): Promise<{ items: DuplicateCandidate[]; total: number }> =>
+  api.get("/suggest/duplicates", { params }).then((r) => r.data);
+
+export const getDuplicates = async (params: {
+  status?: string;
+  min_similarity?: number;
+  skip?: number;
+  limit?: number;
+}): Promise<DuplicatesResponse> => {
+  const response = await api.get<{ items: DuplicateCandidate[]; total: number }>("/duplicates/reviews", {
+    params: {
+      status: params.status,
+      skip: params.skip,
+      limit: params.limit,
+    },
+  });
+
+  let items = response.data.items;
+
+  const minSimilarity = params.min_similarity;
+  if (typeof minSimilarity === "number") {
+    items = items.filter((item) => item.similarity_score * 100 >= minSimilarity);
+  }
+
+  return {
+    items: items.map((item) => ({
+      id: item.id,
+      record_a_id: item.left_id,
+      record_b_id: item.right_id,
+      similarity_score: item.similarity_score * 100,
+      matching_fields: [],
+      conflicting_fields: [],
+      suggested_action: "merge",
+      status: item.status as DuplicatePair["status"],
+      reason: item.reason,
+    })),
+    total: response.data.total,
+  };
+};
+
+function buildConflicts(recordA: ArtRecord, recordB: ArtRecord): DuplicatePair["conflicting_fields"] {
+  const fields: Array<keyof ArtRecord> = [
+    "title",
+    "description",
+    "bio",
+    "nationality",
+    "birth_year",
+    "city",
+    "country",
+    "website_url",
+    "email",
+    "source_url",
+  ];
+
+  return fields
+    .filter((field) => {
+      const left = recordA[field];
+      const right = recordB[field];
+      return Boolean(left) && Boolean(right) && left !== right;
+    })
+    .map((field) => ({
+      field: String(field),
+      value_a: recordA[field],
+      value_b: recordB[field],
+    }));
+}
+
+function buildMatchingFields(recordA: ArtRecord, recordB: ArtRecord): string[] {
+  const fields: Array<keyof ArtRecord> = ["title", "nationality", "birth_year", "city", "country"];
+
+  return fields
+    .filter((field) => {
+      const left = recordA[field];
+      const right = recordB[field];
+      return Boolean(left) && Boolean(right) && left === right;
+    })
+    .map(String);
+}
+
+export const getDuplicatePair = async (pairId: string): Promise<DuplicatePairWithRecords> => {
+  const reviews = await api.get<{ items: DuplicateCandidate[]; total: number }>("/duplicates/reviews", {
+    params: { skip: 0, limit: 200 },
+  });
+  const pair = reviews.data.items.find((item) => item.id === pairId);
+
+  if (!pair) {
+    throw new Error("Failed to fetch duplicate pair");
+  }
+
+  const [recordA, recordB] = await Promise.all([getRecord(pair.left_id), getRecord(pair.right_id)]);
+  const conflicts = buildConflicts(recordA, recordB);
+
+  return {
+    pair: {
+      id: pair.id,
+      record_a_id: pair.left_id,
+      record_b_id: pair.right_id,
+      similarity_score: pair.similarity_score * 100,
+      matching_fields: buildMatchingFields(recordA, recordB),
+      conflicting_fields: conflicts,
+      suggested_action: pair.similarity_score >= 0.85 ? "merge" : "keep_both",
+      status: pair.status as DuplicatePair["status"],
+      reason: pair.reason,
+    },
+    record_a: recordA,
+    record_b: recordB,
+  };
+};
+
+export const mergeDuplicates = (
+  pairId: string,
+  keepRecordId: string,
+  mergeStrategy: Record<string, "a" | "b" | "both">
+): Promise<{ status: string }> =>
+  getDuplicatePair(pairId).then((pair) =>
+    api
+      .post("/duplicates/decision", {
+        left_id: pair.pair.record_a_id,
+        right_id: pair.pair.record_b_id,
+        decision: "merge",
+        primary_id: keepRecordId,
+        merge_strategy: mergeStrategy,
+      })
+      .then((r) => r.data)
+  );
+
+export const dismissDuplicate = (pairId: string): Promise<DuplicatePair> =>
+  getDuplicatePair(pairId)
+    .then((pair) =>
+      api
+        .post<{ id: string; status: string }>("/duplicates/decision", {
+          left_id: pair.pair.record_a_id,
+          right_id: pair.pair.record_b_id,
+          decision: "not_duplicate",
+        })
+        .then((r) => r.data)
+    )
+    .then((decision) => ({
+      id: pairId,
+      record_a_id: "",
+      record_b_id: "",
+      similarity_score: 0,
+      matching_fields: [],
+      conflicting_fields: [],
+      suggested_action: "keep_both",
+      status: decision.status as DuplicatePair["status"],
+    }));
 
 export const decideDuplicate = (payload: {
   left_id: string;
