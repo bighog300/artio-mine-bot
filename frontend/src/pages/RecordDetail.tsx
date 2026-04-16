@@ -11,10 +11,9 @@ import {
   type ArtRecord,
 } from "@/lib/api";
 import { ConfidenceBar } from "@/components/shared/ConfidenceBar";
-import { RecordTypeBadge } from "@/components/shared/RecordTypeBadge";
-import { StatusBadge } from "@/components/shared/StatusBadge";
 import { TagInput } from "@/components/shared/TagInput";
 import { ImageSelectionPanel } from "@/components/records/ImageSelectionPanel";
+import { Alert, Badge, Button, Input, TextArea } from "@/components/ui";
 
 export function RecordDetail() {
   const { id } = useParams<{ id: string }>();
@@ -115,6 +114,9 @@ export function RecordDetail() {
   if (!record) return <div className="p-6 text-red-500">Record not found</div>;
 
   const dirty = JSON.stringify(formData) !== JSON.stringify(record);
+  const hasConflictSignals =
+    record.confidence_band === "LOW" ||
+    record.confidence_reasons.some((reason) => reason.toLowerCase().includes("conflict"));
 
   const getField = (key: keyof ArtRecord) => formData[key] as string | null | undefined;
   const setField = (key: keyof ArtRecord, value: unknown) =>
@@ -124,33 +126,42 @@ export function RecordDetail() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate(-1)} className="text-sm text-gray-500 hover:text-gray-700">
+          <Button onClick={() => navigate(-1)} variant="ghost" size="sm">
             ← Back
-          </button>
-          <RecordTypeBadge type={record.record_type} />
-          <StatusBadge status={record.status} />
+          </Button>
+          <Badge>{record.record_type}</Badge>
+          <Badge>{record.status}</Badge>
         </div>
         <div className="flex items-center gap-2">
-          <button
+          <Button
             onClick={() => goToAdjacent(adjacent?.prev_id ?? null)}
             disabled={!adjacent?.prev_id}
-            className="px-3 py-1.5 border border-gray-300 rounded text-sm disabled:opacity-50"
+            variant="secondary"
+            size="sm"
           >
             Prev
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => goToAdjacent(adjacent?.next_id ?? null)}
             disabled={!adjacent?.next_id}
-            className="px-3 py-1.5 border border-gray-300 rounded text-sm disabled:opacity-50"
+            variant="secondary"
+            size="sm"
           >
             Next
-          </button>
+          </Button>
         </div>
       </div>
 
       <div className="grid grid-cols-3 gap-6">
         <div className="col-span-2 bg-white border rounded-lg p-4 space-y-3">
           <h1 className="text-xl font-bold">{record.title ?? "Untitled"}</h1>
+          {hasConflictSignals && (
+            <Alert
+              variant="warning"
+              title="Potential record conflict detected"
+              description="Review this record carefully before approving. Confidence signals indicate conflicting or low-confidence extracted fields."
+            />
+          )}
 
           {renderFieldRow("Title", "title", getField, setField, false)}
           {renderFieldRow("Description", "description", getField, setField, true)}
@@ -206,24 +217,25 @@ export function RecordDetail() {
           </div>
 
           <div className="flex gap-2 border-t pt-3">
-            <button
+            <Button
               onClick={() => approveMutation.mutate()}
-              className="flex-1 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm font-medium"
+              className="flex-1"
             >
               Approve (a)
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => rejectMutation.mutate()}
-              className="flex-1 py-2 border border-red-300 text-red-600 rounded hover:bg-red-50 text-sm"
+              className="flex-1"
+              variant="danger"
             >
               Reject (r)
-            </button>
+            </Button>
             {record.source_url && (
               <a
                 href={record.source_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex-1 py-2 border border-gray-300 rounded text-sm text-center hover:bg-gray-50"
+                className="inline-flex h-10 flex-1 items-center justify-center rounded-md border border-gray-300 px-4 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
                 Source →
               </a>
@@ -231,12 +243,13 @@ export function RecordDetail() {
           </div>
 
           {dirty && (
-            <button
+            <Button
               onClick={() => updateMutation.mutate(formData)}
-              className="w-full py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+              className="w-full"
+              loading={updateMutation.isPending}
             >
               Save changes
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -256,17 +269,16 @@ function renderFieldRow(
     <div key={String(key)}>
       <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
       {textarea ? (
-        <textarea
+        <TextArea
           value={value ?? ""}
           onChange={(e) => setField(key, e.target.value)}
-          className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm h-20 focus:ring-2 focus:ring-blue-500"
+          className="h-20"
         />
       ) : (
-        <input
+        <Input
           type="text"
           value={value ?? ""}
           onChange={(e) => setField(key, e.target.value)}
-          className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500"
         />
       )}
     </div>

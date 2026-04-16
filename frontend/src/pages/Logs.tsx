@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Terminal, Trash2, Download } from "lucide-react";
 import { deleteLogs, getLogs, getSources, type LogEntry } from "@/lib/api";
+import { Badge, Button, Input, Select, Switch } from "@/components/ui";
 
 const LEVEL_COLORS: Record<string, string> = {
   error: "bg-red-100 text-red-700",
@@ -138,57 +139,68 @@ export function Logs() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Logs</h1>
         <div className="flex items-center gap-2">
-          <button
+          <Button
             onClick={() => exportLogs("json")}
-            className="flex items-center gap-2 px-3 py-2 border rounded-md bg-white hover:bg-gray-50 text-sm"
+            variant="secondary"
+            icon={<Download size={16} />}
           >
-            <Download size={16} /> Export JSON
-          </button>
-          <button
+            Export JSON
+          </Button>
+          <Button
             onClick={() => exportLogs("csv")}
-            className="flex items-center gap-2 px-3 py-2 border rounded-md bg-white hover:bg-gray-50 text-sm"
+            variant="secondary"
+            icon={<Download size={16} />}
           >
-            <Download size={16} /> Export CSV
-          </button>
+            Export CSV
+          </Button>
         </div>
       </div>
 
       <div className="bg-white border rounded-lg p-3 space-y-3">
         <div className="flex flex-wrap gap-2">
-          <select value={level} onChange={(e) => setLevel(e.target.value)} className="border rounded px-2 py-1.5 text-sm">
-            <option value="">All Levels</option>
-            <option value="debug">Debug</option>
-            <option value="info">Info</option>
-            <option value="warning">Warning</option>
-            <option value="error">Error</option>
-          </select>
-          <select value={service} onChange={(e) => setService(e.target.value)} className="border rounded px-2 py-1.5 text-sm">
-            <option value="">All Services</option>
-            <option value="api">API</option>
-            <option value="worker">Worker</option>
-          </select>
-          <select value={sourceId} onChange={(e) => setSourceId(e.target.value)} className="border rounded px-2 py-1.5 text-sm">
-            <option value="">All Sources</option>
-            {sources?.items.map((s) => (
-              <option key={s.id} value={s.id}>{s.name ?? s.url}</option>
-            ))}
-          </select>
-          <input
+          <Select
+            value={level}
+            onChange={(e) => setLevel(e.target.value)}
+            className="min-w-40"
+            options={[
+              { value: "", label: "All Levels" },
+              { value: "debug", label: "Debug" },
+              { value: "info", label: "Info" },
+              { value: "warning", label: "Warning" },
+              { value: "error", label: "Error" },
+            ]}
+          />
+          <Select
+            value={service}
+            onChange={(e) => setService(e.target.value)}
+            className="min-w-40"
+            options={[
+              { value: "", label: "All Services" },
+              { value: "api", label: "API" },
+              { value: "worker", label: "Worker" },
+            ]}
+          />
+          <Select
+            value={sourceId}
+            onChange={(e) => setSourceId(e.target.value)}
+            className="min-w-56"
+            options={[{ value: "", label: "All Sources" }, ...(sources?.items.map((s) => ({ value: s.id, label: s.name ?? s.url })) ?? [])]}
+          />
+          <Input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search logs"
-            className="border rounded px-2 py-1.5 text-sm min-w-52"
+            className="min-w-52"
           />
-          <input value={jobId} onChange={(e) => setJobId(e.target.value)} placeholder="job_id" className="border rounded px-2 py-1.5 text-sm min-w-36" />
-          <input value={workerId} onChange={(e) => setWorkerId(e.target.value)} placeholder="worker_id" className="border rounded px-2 py-1.5 text-sm min-w-36" />
-          <input value={stage} onChange={(e) => setStage(e.target.value)} placeholder="stage" className="border rounded px-2 py-1.5 text-sm min-w-28" />
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="border rounded px-2 py-1.5 text-sm" />
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="border rounded px-2 py-1.5 text-sm" />
-          <label className="inline-flex items-center gap-2 text-sm px-2">
-            <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />
-            Auto-refresh (5s)
-          </label>
-          <button
+          <Input value={jobId} onChange={(e) => setJobId(e.target.value)} placeholder="job_id" className="min-w-36" />
+          <Input value={workerId} onChange={(e) => setWorkerId(e.target.value)} placeholder="worker_id" className="min-w-36" />
+          <Input value={stage} onChange={(e) => setStage(e.target.value)} placeholder="stage" className="min-w-28" />
+          <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+          <div className="px-2">
+            <Switch id="auto-refresh" label="Auto-refresh (5s)" checked={autoRefresh} onChange={setAutoRefresh} />
+          </div>
+          <Button
             onClick={() => {
               const answer = prompt("Delete logs older than days (7 / 30 / 90 / all)", "30");
               if (!answer) return;
@@ -198,10 +210,11 @@ export function Logs() {
                 deleteMutation.mutate({ days: value, levelFilter: level || undefined });
               }
             }}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm border rounded hover:bg-red-50 text-red-700"
+            variant="danger"
+            icon={<Trash2 size={16} />}
           >
-            <Trash2 size={16} /> Clear Logs
-          </button>
+            Clear Logs
+          </Button>
         </div>
       </div>
 
@@ -228,9 +241,9 @@ export function Logs() {
                   >
                     <div className="p-3 truncate">{new Date(log.timestamp).toLocaleString()}</div>
                     <div className="p-3">
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${LEVEL_COLORS[log.level] ?? LEVEL_COLORS.info}`}>
+                      <Badge className={LEVEL_COLORS[log.level] ?? LEVEL_COLORS.info}>
                         {log.level.toUpperCase()}
-                      </span>
+                      </Badge>
                     </div>
                     <div className="p-3 uppercase text-xs">{log.service}</div>
                     <div className="p-3 truncate text-xs text-gray-500">{log.source_id ?? "—"}</div>
@@ -258,23 +271,26 @@ export function Logs() {
       <div className="flex items-center justify-between">
         <div className="text-sm text-gray-600">Showing {Math.min(skip + 1, total)}–{Math.min(skip + limit, total)} of {total}</div>
         <div className="flex items-center gap-2">
-          <select value={String(limit)} onChange={(e) => setLimit(Number(e.target.value))} className="border rounded px-2 py-1.5 text-sm">
-            {[25, 50, 100, 500].map((size) => (
-              <option key={size} value={size}>{size}</option>
-            ))}
-          </select>
-          <button onClick={() => setSkip(Math.max(0, skip - limit))} disabled={skip === 0} className="px-3 py-1.5 border rounded disabled:opacity-50 text-sm">Previous</button>
-          <button onClick={() => setSkip(skip + limit)} disabled={skip + limit >= total} className="px-3 py-1.5 border rounded disabled:opacity-50 text-sm">Next</button>
+          <Select
+            value={String(limit)}
+            onChange={(e) => setLimit(Number(e.target.value))}
+            className="w-24"
+            options={[25, 50, 100, 500].map((size) => ({ value: String(size), label: String(size) }))}
+          />
+          <Button onClick={() => setSkip(Math.max(0, skip - limit))} disabled={skip === 0} variant="secondary" size="sm">Previous</Button>
+          <Button onClick={() => setSkip(skip + limit)} disabled={skip + limit >= total} variant="secondary" size="sm">Next</Button>
         </div>
       </div>
 
       <div className="bg-white border rounded-lg overflow-hidden">
-        <button
+        <Button
           onClick={() => setStreamOn((v) => !v)}
-          className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium border-b bg-gray-50 hover:bg-gray-100"
+          variant="secondary"
+          className="h-auto w-full justify-start rounded-none border-b bg-gray-50 px-3 py-2"
+          icon={<Terminal size={16} />}
         >
-          <Terminal size={16} /> Live Stream {streamOn ? "ON" : "OFF"}
-        </button>
+          Live Stream {streamOn ? "ON" : "OFF"}
+        </Button>
         <div ref={streamRef} className="max-h-64 overflow-auto bg-gray-900 text-green-400 font-mono text-sm p-3 space-y-1">
           {streamLines.slice(-200).map((line, i) => (
             <div key={`${line.timestamp}-${i}`} className={line.level === "error" ? "text-red-400" : line.level === "warning" ? "text-yellow-400" : line.level === "info" ? "text-blue-300" : "text-gray-300"}>

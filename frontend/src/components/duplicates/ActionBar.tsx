@@ -1,4 +1,5 @@
 import { Check, SkipForward, Undo, X } from "lucide-react";
+import { Button } from "@/components/ui";
 
 interface ActionBarProps {
   onMerge: () => void;
@@ -21,44 +22,48 @@ export function ActionBar({
     <footer className="bg-white border-t px-6 py-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex gap-3 flex-wrap">
-          <button
+          <Button
             onClick={onMerge}
             disabled={mergeDisabled}
-            className="px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            variant="primary"
+            className="px-6"
+            icon={<Check className="h-5 w-5" />}
             title="Merge records (M)"
           >
-            <Check className="h-5 w-5" />
             Merge Records
-          </button>
+          </Button>
 
-          <button
+          <Button
             onClick={onDismiss}
-            className="px-6 py-2.5 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium flex items-center gap-2"
+            variant="secondary"
+            className="px-6"
+            icon={<X className="h-5 w-5" />}
             title="Not a duplicate (D)"
           >
-            <X className="h-5 w-5" />
             Not Duplicate
-          </button>
+          </Button>
 
-          <button
+          <Button
             onClick={onSkip}
-            className="px-6 py-2.5 border border-gray-300 hover:bg-gray-50 rounded-lg font-medium flex items-center gap-2"
+            variant="ghost"
+            className="px-6 border border-gray-300"
+            icon={<SkipForward className="h-5 w-5" />}
             title="Skip for now (S)"
           >
-            <SkipForward className="h-5 w-5" />
             Skip
-          </button>
+          </Button>
         </div>
 
         {canUndo && onUndo && (
-          <button
+          <Button
             onClick={onUndo}
-            className="px-4 py-2 border border-gray-300 hover:bg-gray-50 rounded-lg text-sm flex items-center gap-2"
-            type="button"
+            variant="ghost"
+            size="sm"
+            className="border border-gray-300"
+            icon={<Undo className="h-4 w-4" />}
           >
-            <Undo className="h-4 w-4" />
             Undo Last Action
-          </button>
+          </Button>
         )}
       </div>
 

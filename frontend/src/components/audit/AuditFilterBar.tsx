@@ -1,4 +1,5 @@
 import { Download } from "lucide-react";
+import { Button, Input, Select } from "@/components/ui";
 
 interface AuditFilters {
   event_type: string;
@@ -25,50 +26,45 @@ export function AuditFilterBar({ filters, onChange, onExport, isExporting }: Aud
   return (
     <div className="rounded-lg border bg-white p-4">
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-6">
-        <input
-          className="rounded border px-3 py-2 text-sm"
+        <Input
           placeholder="Search message, entity, user"
           value={filters.search}
           onChange={(e) => patch({ search: e.target.value })}
         />
-        <select className="rounded border px-3 py-2 text-sm" value={filters.event_type} onChange={(e) => patch({ event_type: e.target.value })}>
-          <option value="">All events</option>
-          {EVENT_TYPES.map((value) => (
-            <option key={value} value={value}>{value}</option>
-          ))}
-        </select>
-        <select className="rounded border px-3 py-2 text-sm" value={filters.entity_type} onChange={(e) => patch({ entity_type: e.target.value })}>
-          <option value="">All entities</option>
-          {ENTITY_TYPES.map((value) => (
-            <option key={value} value={value}>{value}</option>
-          ))}
-        </select>
-        <input
-          className="rounded border px-3 py-2 text-sm"
+        <Select
+          value={filters.event_type}
+          onChange={(e) => patch({ event_type: e.target.value })}
+          options={[{ value: "", label: "All events" }, ...EVENT_TYPES.map((value) => ({ value, label: value }))]}
+        />
+        <Select
+          value={filters.entity_type}
+          onChange={(e) => patch({ entity_type: e.target.value })}
+          options={[{ value: "", label: "All entities" }, ...ENTITY_TYPES.map((value) => ({ value, label: value }))]}
+        />
+        <Input
           placeholder="User ID"
           value={filters.user_id}
           onChange={(e) => patch({ user_id: e.target.value })}
         />
-        <input className="rounded border px-3 py-2 text-sm" type="date" value={filters.date_from} onChange={(e) => patch({ date_from: e.target.value })} />
-        <input className="rounded border px-3 py-2 text-sm" type="date" value={filters.date_to} onChange={(e) => patch({ date_to: e.target.value })} />
+        <Input type="date" value={filters.date_from} onChange={(e) => patch({ date_from: e.target.value })} />
+        <Input type="date" value={filters.date_to} onChange={(e) => patch({ date_to: e.target.value })} />
       </div>
       <div className="mt-3 flex justify-end gap-2">
-        <button
-          type="button"
+        <Button
           onClick={() => onChange({ event_type: "", entity_type: "", user_id: "", date_from: "", date_to: "", search: "" })}
-          className="rounded border px-3 py-2 text-sm"
+          variant="secondary"
         >
           Reset
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
           onClick={onExport}
           disabled={isExporting}
-          className="inline-flex items-center gap-2 rounded bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+          variant="primary"
+          icon={<Download className="h-4 w-4" />}
+          loading={isExporting}
         >
-          <Download className="h-4 w-4" />
           {isExporting ? "Exporting..." : "Export CSV"}
-        </button>
+        </Button>
       </div>
     </div>
   );
