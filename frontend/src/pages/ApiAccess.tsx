@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createApiKey, deleteApiKey, getApiKeys, getApiUsage } from "@/lib/api";
+import { Badge, Button, Input } from "@/components/ui";
 
 export function ApiAccess() {
   const [name, setName] = useState("");
@@ -34,12 +35,7 @@ export function ApiAccess() {
       <div className="bg-white border rounded-lg p-4 space-y-3">
         <h2 className="font-semibold">Create API key</h2>
         <div className="grid grid-cols-3 gap-3">
-          <input
-            className="border rounded px-3 py-2"
-            placeholder="Key name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
+          <Input placeholder="Key name" value={name} onChange={(e) => setName(e.target.value)} />
           <input
             className="border rounded px-3 py-2"
             placeholder="Tenant ID"

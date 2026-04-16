@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getReviewArtist, resolveReviewConflict, rerunReviewArtist, searchReviewArtists } from "@/lib/api";
+import { Button, Input } from "@/components/ui";
 
 export function AdminReview() {
   const [query, setQuery] = useState("");
@@ -13,11 +14,8 @@ export function AdminReview() {
   });
 
   const filtered = useMemo(
-    () =>
-      (artistsQuery.data?.items ?? []).filter((artist) =>
-        (artist.title || "").toLowerCase().includes(query.toLowerCase())
-      ),
-    [artistsQuery.data?.items, query]
+    () => (artistsQuery.data?.items ?? []).filter((artist) => (artist.title || "").toLowerCase().includes(query.toLowerCase())),
+    [artistsQuery.data?.items, query],
   );
 
   const activeId = selectedId ?? filtered[0]?.id;
@@ -29,8 +27,7 @@ export function AdminReview() {
   });
 
   const resolveMutation = useMutation({
-    mutationFn: ({ field, value }: { field: string; value: string }) =>
-      resolveReviewConflict(activeId as string, field, value),
+    mutationFn: ({ field, value }: { field: string; value: string }) => resolveReviewConflict(activeId as string, field, value),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["review-artist", activeId] }),
   });
 
@@ -44,24 +41,20 @@ export function AdminReview() {
       <h1 className="text-2xl font-bold text-gray-900">Admin Review</h1>
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-white rounded border p-3 space-y-3">
-          <input
-            placeholder="Search artists..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="w-full border rounded px-2 py-1.5 text-sm"
-          />
+          <Input placeholder="Search artists..." value={query} onChange={(e) => setQuery(e.target.value)} />
           <div className="space-y-2 max-h-[620px] overflow-auto">
             {filtered.map((artist) => (
-              <button
+              <Button
                 key={artist.id}
                 onClick={() => setSelectedId(artist.id)}
-                className={`w-full text-left border rounded p-2 ${activeId === artist.id ? "border-blue-500 bg-blue-50" : ""}`}
+                variant="secondary"
+                className={`w-full !justify-start h-auto py-2 ${activeId === artist.id ? "ring-2 ring-blue-500" : ""}`}
               >
-                <div className="font-medium">{artist.title}</div>
-                <div className="text-xs text-gray-500">
-                  Completeness: {artist.completeness_score} · Missing: {artist.missing_fields.length}
-                </div>
-              </button>
+                <span>
+                  <span className="font-medium block">{artist.title}</span>
+                  <span className="text-xs text-gray-500">Completeness: {artist.completeness_score} · Missing: {artist.missing_fields.length}</span>
+                </span>
+              </Button>
             ))}
           </div>
         </div>
@@ -75,12 +68,7 @@ export function AdminReview() {
                   <h2 className="text-xl font-semibold">{artistDetail.data.title}</h2>
                   <p className="text-sm text-gray-500">Completeness: {artistDetail.data.completeness_score}</p>
                 </div>
-                <button
-                  onClick={() => rerunMutation.mutate()}
-                  className="px-3 py-1.5 text-sm bg-purple-600 text-white rounded"
-                >
-                  Trigger rerun
-                </button>
+                <Button onClick={() => rerunMutation.mutate()} loading={rerunMutation.isPending}>Trigger rerun</Button>
               </div>
 
               <section>
@@ -96,32 +84,20 @@ export function AdminReview() {
                       <div className="font-medium text-sm mb-2">{field}</div>
                       <div className="space-y-2">
                         {options.map((opt) => (
-                          <button
+                          <Button
                             key={`${field}-${opt.value}`}
                             onClick={() => resolveMutation.mutate({ field, value: opt.value })}
-                            className="w-full text-left px-2 py-1.5 border rounded text-sm hover:bg-gray-50"
+                            className="w-full !justify-start"
+                            variant="secondary"
+                            size="sm"
                           >
                             {opt.value}
-                          </button>
+                          </Button>
                         ))}
                       </div>
                     </div>
                   ))}
-                  {Object.keys(artistDetail.data.conflicts).length === 0 && (
-                    <div className="text-sm text-gray-500">No conflicts pending.</div>
-                  )}
-                </div>
-              </section>
-
-              <section>
-                <h3 className="font-medium mb-2">Related data</h3>
-                <div className="grid grid-cols-3 gap-3 text-sm">
-                  {(["exhibitions", "articles", "press"] as const).map((key) => (
-                    <div key={key} className="border rounded p-2">
-                      <div className="font-medium capitalize">{key}</div>
-                      <div className="text-gray-600 mt-1">{artistDetail.data.related?.[key]?.length ?? 0} items</div>
-                    </div>
-                  ))}
+                  {Object.keys(artistDetail.data.conflicts).length === 0 && <div className="text-sm text-gray-500">No conflicts pending.</div>}
                 </div>
               </section>
             </>

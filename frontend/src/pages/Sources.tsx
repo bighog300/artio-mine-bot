@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { formatRelative } from "@/lib/utils";
+import { Button, Input, Select } from "@/components/ui";
 
 type SourceAction = "start-discovery" | "start-full" | "pause" | "resume" | "stop" | "retry-failed";
 
@@ -130,12 +131,7 @@ export function Sources() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Sources</h1>
-        <button
-          onClick={() => setShowDialog(true)}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-        >
-          Add Source
-        </button>
+        <Button onClick={() => setShowDialog(true)}>Add Source</Button>
       </div>
 
       {actionFeedback && <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm">{actionFeedback}</div>}
@@ -212,25 +208,28 @@ export function Sources() {
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="col-span-2">
                 <label className="block mb-1">URL *</label>
-                <input type="url" value={form.url ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, url: e.target.value }))} className="w-full border rounded px-3 py-2" />
+                <Input type="url" value={form.url ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, url: e.target.value }))} className="w-full" />
               </div>
               <div>
                 <label className="block mb-1">Name</label>
-                <input value={form.name ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} className="w-full border rounded px-3 py-2" />
+                <Input value={form.name ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} className="w-full" />
               </div>
               <div>
                 <label className="block mb-1">Crawl intent</label>
-                <select value={form.crawl_intent ?? "site_root"} onChange={(e) => setForm((prev) => ({ ...prev, crawl_intent: e.target.value as CreateSourceInput["crawl_intent"] }))} className="w-full border rounded px-3 py-2 bg-white">
-                  {CRAWL_INTENT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
+                <Select
+                  value={form.crawl_intent ?? "site_root"}
+                  onChange={(e) => setForm((prev) => ({ ...prev, crawl_intent: e.target.value as CreateSourceInput["crawl_intent"] }))}
+                  className="w-full"
+                  options={CRAWL_INTENT_OPTIONS.map((option) => ({ value: String(option.value ?? "site_root"), label: option.label }))}
+                />
               </div>
               <div>
                 <label className="block mb-1">Max pages</label>
-                <input type="number" min={1} value={form.max_pages ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, max_pages: e.target.value ? Number(e.target.value) : undefined }))} className="w-full border rounded px-3 py-2" />
+                <Input type="number" min={1} value={form.max_pages ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, max_pages: e.target.value ? Number(e.target.value) : undefined }))} className="w-full" />
               </div>
               <div>
                 <label className="block mb-1">Max depth</label>
-                <input type="number" min={1} value={form.max_depth ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, max_depth: e.target.value ? Number(e.target.value) : undefined }))} className="w-full border rounded px-3 py-2" />
+                <Input type="number" min={1} value={form.max_depth ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, max_depth: e.target.value ? Number(e.target.value) : undefined }))} className="w-full" />
               </div>
               <div className="col-span-2">
                 <label className="block mb-1">Crawl hints (JSON)</label>
@@ -262,11 +261,11 @@ export function Sources() {
               </label>
             </div>
             <div className="flex flex-wrap gap-2 mt-4">
-              <button disabled={!canSubmit || isCreateBusy} onClick={() => createMutation.mutate(form)} className="px-3 py-2 bg-slate-700 text-white rounded disabled:opacity-60">Save Source</button>
-              <button disabled={!canSubmit || isCreateBusy} onClick={() => createAndOpenMappingMutation.mutate()} className="px-3 py-2 bg-purple-600 text-white rounded disabled:opacity-60">Save & Open Mapping Scan</button>
-              <button disabled={!canSubmit || isCreateBusy} onClick={() => createAndRunMutation.mutate({ action: "start-discovery" })} className="px-3 py-2 bg-blue-600 text-white rounded disabled:opacity-60">Save & Start Discovery</button>
-              <button disabled={!canSubmit || isCreateBusy} onClick={() => createAndRunMutation.mutate({ action: "start-full" })} className="px-3 py-2 bg-green-600 text-white rounded disabled:opacity-60">Save & Start Full Mining</button>
-              <button onClick={() => setShowDialog(false)} className="px-3 py-2 border rounded">Cancel</button>
+              <Button disabled={!canSubmit || isCreateBusy} onClick={() => createMutation.mutate(form)} variant="secondary">Save Source</Button>
+              <Button disabled={!canSubmit || isCreateBusy} onClick={() => createAndOpenMappingMutation.mutate()} variant="secondary">Save & Open Mapping Scan</Button>
+              <Button disabled={!canSubmit || isCreateBusy} onClick={() => createAndRunMutation.mutate({ action: "start-discovery" })}>Save & Start Discovery</Button>
+              <Button disabled={!canSubmit || isCreateBusy} onClick={() => createAndRunMutation.mutate({ action: "start-full" })}>Save & Start Full Mining</Button>
+              <Button onClick={() => setShowDialog(false)} variant="ghost">Cancel</Button>
             </div>
           </div>
         </div>

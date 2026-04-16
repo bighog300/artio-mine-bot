@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getSettings, saveSettings, testArtioConnection } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { Alert, Button, Input } from "@/components/ui";
 
 // ── Connection status union ───────────────────────────────────────────────────
 
@@ -86,21 +87,18 @@ export function Settings() {
 
       {/* ── Warning banner ─────────────────────────────────────────────────── */}
       {!data?.artio_configured && (
-        <div className="flex items-start gap-2 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
-          <span className="mt-0.5 shrink-0">⚠</span>
-          <span>
-            <strong>Artio API not configured</strong> — Set ARTIO_API_URL and ARTIO_API_KEY
-            below to enable export.
-          </span>
-        </div>
+        <Alert
+          variant="warning"
+          title="Artio API not configured"
+          description="Set ARTIO_API_URL and ARTIO_API_KEY below to enable export."
+        />
       )}
       {!data?.openai_configured && (
-        <div className="flex items-start gap-2 rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
-          <span className="mt-0.5 shrink-0">⚠</span>
-          <span>
-            <strong>OpenAI key not configured</strong> — Add OPENAI_API_KEY below to enable mining.
-          </span>
-        </div>
+        <Alert
+          variant="warning"
+          title="OpenAI key not configured"
+          description="Add OPENAI_API_KEY below to enable mining."
+        />
       )}
 
       {/* ── Artio API card ──────────────────────────────────────────────────── */}
@@ -117,7 +115,7 @@ export function Settings() {
 
         <div className="space-y-4 p-4">
           <Field label="API URL" hint="e.g. https://api.artio.io">
-            <input
+            <Input
               type="url"
               value={artioUrl}
               onChange={(e) => setArtioUrl(e.target.value)}
@@ -130,7 +128,7 @@ export function Settings() {
             label="API Key"
             hint="Your key is masked after saving. Enter a new value to rotate it."
           >
-            <input
+            <Input
               type="password"
               value={artioKey}
               onChange={(e) => {
@@ -146,7 +144,7 @@ export function Settings() {
             label="OpenAI API Key"
             hint="Used by the mining pipeline. Your key is masked after saving."
           >
-            <input
+            <Input
               type="password"
               value={openaiKey}
               onChange={(e) => {
@@ -159,13 +157,13 @@ export function Settings() {
           </Field>
 
           <div className="pt-1">
-            <button
+            <Button
               onClick={() => testMutation.mutate()}
               disabled={!artioUrl || testMutation.isPending}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+              variant="secondary"
             >
               {testMutation.isPending ? "Testing…" : "Test Connection"}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -181,7 +179,7 @@ export function Settings() {
 
         <div className="space-y-4 p-4">
           <Field label="Max Crawl Depth" hint="How many link-levels deep to follow (1–10)">
-            <input
+            <Input
               type="number"
               min={1}
               max={10}
@@ -195,7 +193,7 @@ export function Settings() {
             label="Max Pages per Source"
             hint="Hard cap on pages crawled in a single source run"
           >
-            <input
+            <Input
               type="number"
               min={1}
               max={5000}
@@ -209,7 +207,7 @@ export function Settings() {
             label="Crawl Delay (ms)"
             hint="Minimum milliseconds between requests to the same domain"
           >
-            <input
+            <Input
               type="number"
               min={0}
               max={30000}
@@ -223,13 +221,12 @@ export function Settings() {
 
       {/* ── Save row ────────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3">
-        <button
+        <Button
           onClick={() => saveMutation.mutate()}
           disabled={saveMutation.isPending}
-          className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
         >
           {saveMutation.isPending ? "Saving…" : "Save Settings"}
-        </button>
+        </Button>
 
         {savedAt && Date.now() - savedAt < 3000 && (
           <span className="text-sm font-medium text-green-600">✓ Saved</span>

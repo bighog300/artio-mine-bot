@@ -18,6 +18,7 @@ import {
 } from "@/lib/api";
 import { MiningProgress } from "@/components/shared/MiningProgress";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { Button, Checkbox, Input, Select } from "@/components/ui";
 
 export function SourceDetail() {
   const { id } = useParams<{ id: string }>();
@@ -102,7 +103,7 @@ export function SourceDetail() {
   return (
     <div className="space-y-4">
       <div>
-        <button onClick={() => navigate("/sources")} className="text-sm text-gray-500 hover:text-gray-700 mb-1">← Sources</button>
+        <Button variant="ghost" size="sm" onClick={() => navigate("/sources")} className="mb-1">← Sources</Button>
         <h1 className="text-2xl font-bold">{source.name ?? source.url}</h1>
         <p className="text-sm text-gray-500">{source.url}</p>
       </div>
@@ -113,14 +114,14 @@ export function SourceDetail() {
         <h2 className="font-semibold mb-3">Operational Controls</h2>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <StatusBadge status={source.operational_status ?? source.status} />
-          <button className="px-2 py-1 border rounded" onClick={() => navigate(`/sources/${id}/operations`)}>Open Operations Console</button>
-          <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate("discovery")}>Start Discovery</button>
-          <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate("full")}>Start Full Mining</button>
-          <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate("pause")}>Pause</button>
-          <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate("resume")}>Resume</button>
-          <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate("stop")}>Stop</button>
-          <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate("retry")}>Retry Failed</button>
-          <button className="px-2 py-1 border border-red-300 text-red-600 rounded" onClick={() => { if (confirm("Delete this source and all data?")) deleteMutation.mutate(); }}>Delete</button>
+          <Button size="sm" variant="secondary" onClick={() => navigate(`/sources/${id}/operations`)}>Open Operations Console</Button>
+          <Button size="sm" variant="primary" onClick={() => actionMutation.mutate("discovery")}>Start Discovery</Button>
+          <Button size="sm" variant="primary" onClick={() => actionMutation.mutate("full")}>Start Full Mining</Button>
+          <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("pause")}>Pause</Button>
+          <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("resume")}>Resume</Button>
+          <Button size="sm" variant="danger" onClick={() => actionMutation.mutate("stop")}>Stop</Button>
+          <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("retry")}>Retry Failed</Button>
+          <Button size="sm" variant="danger" onClick={() => { if (confirm("Delete this source and all data?")) deleteMutation.mutate(); }}>Delete</Button>
         </div>
         <div className="mt-3">
           <MiningProgress
@@ -160,9 +161,9 @@ export function SourceDetail() {
       {activeTab === "mapping" && (
         <div className="bg-white border rounded p-4 text-sm space-y-3">
           <p>Configure AI Source Mapper scans, mappings, and preview output for this source.</p>
-          <button className="px-3 py-2 bg-blue-600 text-white rounded" onClick={() => navigate(`/sources/${id}/mapping`)}>
+          <Button className="w-fit" onClick={() => navigate(`/sources/${id}/mapping`)}>
             Open Mapping Workspace
-          </button>
+          </Button>
         </div>
       )}
 
@@ -180,27 +181,32 @@ export function SourceDetail() {
           <div className="grid grid-cols-2 gap-3">
             <label className="space-y-1">
               <span className="text-gray-600">Crawl intent</span>
-              <select className="w-full border rounded px-2 py-1" value={source.crawl_intent ?? "site_root"} onChange={(e) => queryClient.setQueryData(["source", id], { ...source, crawl_intent: e.target.value })}>
-                <option value="site_root">Site root</option>
-                <option value="directory_listing">Directory/listing page</option>
-                <option value="detail_entity">Detail/entity page</option>
-                <option value="test_crawl">Test crawl</option>
-              </select>
+              <Select
+                className="w-full"
+                value={source.crawl_intent ?? "site_root"}
+                onChange={(e) => queryClient.setQueryData(["source", id], { ...source, crawl_intent: e.target.value })}
+                options={[
+                  { value: "site_root", label: "Site root" },
+                  { value: "directory_listing", label: "Directory/listing page" },
+                  { value: "detail_entity", label: "Detail/entity page" },
+                  { value: "test_crawl", label: "Test crawl" },
+                ]}
+              />
             </label>
             <label className="space-y-1">
               <span className="text-gray-600">Max pages</span>
-              <input type="number" className="w-full border rounded px-2 py-1" value={source.max_pages ?? ""} onChange={(e) => queryClient.setQueryData(["source", id], { ...source, max_pages: e.target.value ? Number(e.target.value) : undefined })} />
+              <Input type="number" className="w-full" value={source.max_pages ?? ""} onChange={(e) => queryClient.setQueryData(["source", id], { ...source, max_pages: e.target.value ? Number(e.target.value) : undefined })} />
             </label>
             <label className="space-y-1">
               <span className="text-gray-600">Max depth</span>
-              <input type="number" className="w-full border rounded px-2 py-1" value={source.max_depth ?? ""} onChange={(e) => queryClient.setQueryData(["source", id], { ...source, max_depth: e.target.value ? Number(e.target.value) : undefined })} />
+              <Input type="number" className="w-full" value={source.max_depth ?? ""} onChange={(e) => queryClient.setQueryData(["source", id], { ...source, max_depth: e.target.value ? Number(e.target.value) : undefined })} />
             </label>
             <label className="flex items-center gap-2 mt-6">
-              <input type="checkbox" checked={source.enabled ?? true} onChange={(e) => queryClient.setQueryData(["source", id], { ...source, enabled: e.target.checked })} />
+              <Checkbox id="source-enabled" checked={source.enabled ?? true} onChange={(checked) => queryClient.setQueryData(["source", id], { ...source, enabled: checked })} label="" />
               Enabled
             </label>
           </div>
-          <button className="px-3 py-2 bg-blue-600 text-white rounded" onClick={() => updateSettingsMutation.mutate()}>Save Settings</button>
+          <Button onClick={() => updateSettingsMutation.mutate()}>Save Settings</Button>
         </div>
       )}
     </div>

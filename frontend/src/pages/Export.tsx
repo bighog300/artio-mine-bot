@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { getExportPreview, pushToArtio, getSources } from "@/lib/api";
+import { Alert, Button, Select } from "@/components/ui";
 
 export function Export() {
   const [sourceId, setSourceId] = useState("");
@@ -22,16 +23,11 @@ export function Export() {
       <h1 className="text-2xl font-bold text-gray-900">Export to Artio</h1>
 
       {/* Connection status */}
-      <div className={`p-4 rounded-lg border ${preview?.artio_configured ? "bg-green-50 border-green-200" : "bg-yellow-50 border-yellow-200"}`}>
-        <div className="text-sm font-medium">
-          {preview?.artio_configured ? "Artio API configured" : "Artio API not configured"}
-        </div>
-        {!preview?.artio_configured && (
-          <div className="text-xs text-yellow-700 mt-1">
-            Set ARTIO_API_URL and ARTIO_API_KEY in your .env file to enable export.
-          </div>
-        )}
-      </div>
+      <Alert
+        variant={preview?.artio_configured ? "success" : "warning"}
+        title={preview?.artio_configured ? "Artio API configured" : "Artio API not configured"}
+        description={preview?.artio_configured ? undefined : "Set ARTIO_API_URL and ARTIO_API_KEY in your .env file to enable export."}
+      />
 
       {/* Preview */}
       <div className="bg-white border rounded-lg p-4 space-y-4">

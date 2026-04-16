@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getJobs, getQueues, getWorkers, pauseQueue, resumeQueue } from "@/lib/api";
+import { Badge, Button } from "@/components/ui";
 
 export function Queues() {
   const queryClient = useQueryClient();
@@ -19,10 +20,10 @@ export function Queues() {
         {data?.items.map((queue) => (
           <div key={queue.name} className="bg-white border rounded p-4">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="font-semibold">{queue.name}</h2>
+              <div className="flex items-center gap-2"><h2 className="font-semibold">{queue.name}</h2><Badge variant={queue.paused > 0 ? "warning" : "success"}>{queue.paused > 0 ? "Paused" : "Active"}</Badge></div>
               <div className="flex gap-2 text-sm">
-                <button className="px-2 py-1 border rounded" onClick={() => queueMutation.mutate({ name: queue.name, action: "pause" })}>Pause</button>
-                <button className="px-2 py-1 border rounded" onClick={() => queueMutation.mutate({ name: queue.name, action: "resume" })}>Resume</button>
+                <Button size="sm" variant="secondary" onClick={() => queueMutation.mutate({ name: queue.name, action: "pause" })}>Pause</Button>
+                <Button size="sm" variant="secondary" onClick={() => queueMutation.mutate({ name: queue.name, action: "resume" })}>Resume</Button>
               </div>
             </div>
             <div className="grid grid-cols-5 gap-2 text-sm">

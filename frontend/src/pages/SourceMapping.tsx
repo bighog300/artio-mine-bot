@@ -30,6 +30,7 @@ import { SampleRunReview } from "@/components/source-mapper/SampleRunReview";
 import { ScanSetupForm } from "@/components/source-mapper/ScanSetupForm";
 import { VersionHistoryPanel } from "@/components/source-mapper/VersionHistoryPanel";
 import { CreatePresetDialog } from "@/components/source-mapper/CreatePresetDialog";
+import { Button } from "@/components/ui";
 
 export function SourceMapping() {
   const { id } = useParams<{ id: string }>();
@@ -224,7 +225,7 @@ export function SourceMapping() {
   return (
     <div className="space-y-4">
       <div>
-        <button onClick={() => navigate(`/sources/${id}`)} className="text-sm text-gray-500 hover:text-gray-700">← Back to source</button>
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/sources/${id}`)}>← Back to source</Button>
         <h1 className="text-2xl font-bold">AI Source Mapper</h1>
         <p className="text-sm text-gray-500">{source?.url ?? "Loading source..."}</p>
       </div>
@@ -282,9 +283,9 @@ export function SourceMapping() {
 
       {selectedCount > 0 && (
         <div className="flex gap-2 text-xs">
-          <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate({ rowIds: selectedRowIds, action: "approve" })}>Bulk approve ({selectedCount})</button>
-          <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate({ rowIds: selectedRowIds, action: "reject" })}>Bulk reject</button>
-          <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate({ rowIds: selectedRowIds, action: "ignore" })}>Bulk ignore</button>
+          <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate({ rowIds: selectedRowIds, action: "approve" })}>Bulk approve ({selectedCount})</Button>
+          <Button size="sm" variant="danger" onClick={() => actionMutation.mutate({ rowIds: selectedRowIds, action: "reject" })}>Bulk reject</Button>
+          <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate({ rowIds: selectedRowIds, action: "ignore" })}>Bulk ignore</Button>
         </div>
       )}
 

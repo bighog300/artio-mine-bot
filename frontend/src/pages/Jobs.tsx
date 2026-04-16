@@ -4,6 +4,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { JobProgressBar } from "@/components/jobs/JobProgressBar";
 import { HeartbeatBadge } from "@/components/jobs/HeartbeatBadge";
 import { Link } from "react-router-dom";
+import { Button } from "@/components/ui";
 
 export function Jobs() {
   const queryClient = useQueryClient();
@@ -62,11 +63,11 @@ export function Jobs() {
                 <td className="p-3"><HeartbeatBadge job={job} /></td>
                 <td className="p-3">
                   <div className="flex gap-2 text-xs">
-                    <Link className="px-2 py-1 border rounded" to={`/jobs/${job.id}`}>Details</Link>
-                    <button className="px-2 py-1 border rounded" onClick={() => mutate.mutate({ id: job.id, action: "retry" })}>Retry</button>
-                    <button className="px-2 py-1 border rounded" onClick={() => mutate.mutate({ id: job.id, action: "pause" })}>Pause</button>
-                    <button className="px-2 py-1 border rounded" onClick={() => mutate.mutate({ id: job.id, action: "resume" })}>Resume</button>
-                    <button className="px-2 py-1 border rounded" onClick={() => mutate.mutate({ id: job.id, action: "cancel" })}>Cancel</button>
+                    <Link className="inline-flex h-8 items-center justify-center rounded-md bg-gray-100 px-3 text-sm font-medium hover:bg-gray-200" to={`/jobs/${job.id}`}>Details</Link>
+                    <Button size="sm" variant="secondary" onClick={() => mutate.mutate({ id: job.id, action: "retry" })}>Retry</Button>
+                    <Button size="sm" variant="secondary" onClick={() => mutate.mutate({ id: job.id, action: "pause" })}>Pause</Button>
+                    <Button size="sm" variant="secondary" onClick={() => mutate.mutate({ id: job.id, action: "resume" })}>Resume</Button>
+                    <Button size="sm" variant="danger" onClick={() => mutate.mutate({ id: job.id, action: "cancel" })}>Cancel</Button>
                   </div>
                 </td>
               </tr>
