@@ -13,6 +13,7 @@ from app.db.models import (
     APIKey,
     APIUsageEvent,
     AuditAction,
+    AuditEvent,
     DuplicateReview,
     EntityRelationship,
     Image,
@@ -1931,6 +1932,20 @@ async def create_audit_action(
         details_json=json.dumps(details) if details is not None else None,
     )
     db.add(action)
+    db.add(
+        AuditEvent(
+            event_type=action_type,
+            entity_type="record" if record_id else ("source" if source_id else "system"),
+            entity_id=record_id or source_id or action.id,
+            user_id=user_id,
+            user_name=user_id,
+            source_id=source_id,
+            record_id=record_id,
+            message=f"Audit action: {action_type}",
+            metadata_json=json.dumps(details or {}),
+            changes_json=None,
+        )
+    )
     await db.commit()
     await db.refresh(action)
     return action
@@ -1963,6 +1978,115 @@ async def count_audit_actions(db: AsyncSession, *, action_type: str | None = Non
         stmt = stmt.where(AuditAction.action_type == action_type)
     result = await db.execute(stmt)
     return result.scalar_one()
+
+
+async def create_audit_event(
+    db: AsyncSession,
+    *,
+    event_type: str,
+    entity_type: str,
+    entity_id: str,
+    user_id: str | None = None,
+    user_name: str | None = None,
+    source_id: str | None = None,
+    record_id: str | None = None,
+    message: str | None = None,
+    changes: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> AuditEvent:
+    event = AuditEvent(
+        event_type=event_type,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        user_id=user_id,
+        user_name=user_name,
+        source_id=source_id,
+        record_id=record_id,
+        message=message,
+        changes_json=json.dumps(changes) if changes is not None else None,
+        metadata_json=json.dumps(metadata) if metadata is not None else None,
+    )
+    db.add(event)
+    await db.commit()
+    await db.refresh(event)
+    return event
+
+
+async def get_audit_event(db: AsyncSession, event_id: str) -> AuditEvent | None:
+    stmt = select(AuditEvent).where(AuditEvent.id == event_id)
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def list_audit_events(
+    db: AsyncSession,
+    *,
+    event_type: str | None = None,
+    entity_type: str | None = None,
+    user_id: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    search: str | None = None,
+    skip: int = 0,
+    limit: int = 50,
+) -> list[AuditEvent]:
+    stmt = select(AuditEvent).order_by(AuditEvent.created_at.desc())
+    if event_type:
+        stmt = stmt.where(AuditEvent.event_type == event_type)
+    if entity_type:
+        stmt = stmt.where(AuditEvent.entity_type == entity_type)
+    if user_id:
+        stmt = stmt.where(AuditEvent.user_id == user_id)
+    if date_from:
+        stmt = stmt.where(AuditEvent.created_at >= date_from)
+    if date_to:
+        stmt = stmt.where(AuditEvent.created_at <= date_to)
+    if search:
+        wildcard = f"%{search}%"
+        stmt = stmt.where(
+            or_(
+                AuditEvent.message.ilike(wildcard),
+                AuditEvent.entity_id.ilike(wildcard),
+                AuditEvent.user_id.ilike(wildcard),
+                AuditEvent.user_name.ilike(wildcard),
+            )
+        )
+    result = await db.execute(stmt.offset(skip).limit(limit))
+    return list(result.scalars().all())
+
+
+async def count_audit_events(
+    db: AsyncSession,
+    *,
+    event_type: str | None = None,
+    entity_type: str | None = None,
+    user_id: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    search: str | None = None,
+) -> int:
+    stmt = select(func.count(AuditEvent.id))
+    if event_type:
+        stmt = stmt.where(AuditEvent.event_type == event_type)
+    if entity_type:
+        stmt = stmt.where(AuditEvent.entity_type == entity_type)
+    if user_id:
+        stmt = stmt.where(AuditEvent.user_id == user_id)
+    if date_from:
+        stmt = stmt.where(AuditEvent.created_at >= date_from)
+    if date_to:
+        stmt = stmt.where(AuditEvent.created_at <= date_to)
+    if search:
+        wildcard = f"%{search}%"
+        stmt = stmt.where(
+            or_(
+                AuditEvent.message.ilike(wildcard),
+                AuditEvent.entity_id.ilike(wildcard),
+                AuditEvent.user_id.ilike(wildcard),
+                AuditEvent.user_name.ilike(wildcard),
+            )
+        )
+    result = await db.execute(stmt)
+    return int(result.scalar_one())
 
 
 async def create_scheduled_job(

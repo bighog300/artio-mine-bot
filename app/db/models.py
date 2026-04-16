@@ -718,6 +718,33 @@ class AuditAction(Base):
     )
 
 
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    event_type: Mapped[str] = mapped_column(String, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String, nullable=False)
+    entity_id: Mapped[str] = mapped_column(String, nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    user_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    source_id: Mapped[str | None] = mapped_column(String, ForeignKey("sources.id"), nullable=True)
+    record_id: Mapped[str | None] = mapped_column(String, ForeignKey("records.id"), nullable=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    changes_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+
+    __table_args__ = (
+        Index("ix_audit_events_created_at", "created_at"),
+        Index("ix_audit_events_entity_type", "entity_type"),
+        Index("ix_audit_events_entity_id", "entity_id"),
+        Index("ix_audit_events_event_type", "event_type"),
+        Index("ix_audit_events_record_id", "record_id"),
+        Index("ix_audit_events_source_id", "source_id"),
+        Index("ix_audit_events_user_id", "user_id"),
+    )
+
+
 class ScheduledJob(Base):
     __tablename__ = "scheduled_jobs"
 

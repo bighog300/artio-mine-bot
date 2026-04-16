@@ -625,6 +625,24 @@ export interface AuditAction {
   timestamp: string;
 }
 
+export interface AuditEvent {
+  id: string;
+  timestamp: string;
+  event_type: "create" | "update" | "delete" | "approve" | "reject" | "merge" | string;
+  entity_type: "source" | "record" | "page" | "job" | "system" | string;
+  entity_id: string;
+  user_id?: string | null;
+  user_name?: string | null;
+  source_id?: string | null;
+  record_id?: string | null;
+  message?: string | null;
+  changes?: {
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+  } | null;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ApiKeyItem {
   id: string;
   tenant_id: string;
@@ -1123,6 +1141,36 @@ export const getAuditActions = (params?: {
   record_id?: string;
 }): Promise<PaginatedResponse<AuditAction>> =>
   api.get("/audit", { params }).then((r) => r.data);
+
+export const getAuditTrail = (params?: {
+  event_type?: string;
+  entity_type?: string;
+  user_id?: string;
+  date_from?: string;
+  date_to?: string;
+  search?: string;
+  skip?: number;
+  limit?: number;
+}): Promise<PaginatedResponse<AuditEvent>> =>
+  api.get("/audit/events", { params }).then((r) => r.data);
+
+export const getAuditEvent = (eventId: string): Promise<AuditEvent> =>
+  api.get(`/audit/events/${eventId}`).then((r) => r.data);
+
+export const exportAuditTrail = async (params?: {
+  event_type?: string;
+  entity_type?: string;
+  user_id?: string;
+  date_from?: string;
+  date_to?: string;
+  search?: string;
+}): Promise<string> => {
+  const response = await api.get("/audit/events/export", {
+    params,
+    responseType: "text",
+  });
+  return response.data as string;
+};
 
 export const createApiKey = (
   data: ApiKeyCreateInput
