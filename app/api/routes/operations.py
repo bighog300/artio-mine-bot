@@ -45,7 +45,13 @@ def _progress_percent(job: Job) -> int | None:
 def _is_job_stale(job: Job) -> bool:
     if job.status != "running" or job.last_heartbeat_at is None:
         return False
-    return (datetime.now(UTC) - job.last_heartbeat_at) > timedelta(minutes=2)
+
+    now = datetime.now(UTC)
+    last_heartbeat = job.last_heartbeat_at
+    if last_heartbeat.tzinfo is None:
+        last_heartbeat = last_heartbeat.replace(tzinfo=UTC)
+
+    return (now - last_heartbeat) > timedelta(minutes=2)
 
 
 def _serialize_job(job: Job, source_name: str | None) -> dict[str, Any]:
