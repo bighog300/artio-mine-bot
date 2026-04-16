@@ -50,6 +50,58 @@ async def test_jobs_pause_resume_and_cancel(test_client: AsyncClient, db_session
 
 
 @pytest.mark.asyncio
+async def test_jobs_include_runtime_visibility_fields(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://jobs-runtime.example")
+    job = await crud.create_job(db_session, source_id=source.id, job_type="crawl_section", payload={})
+    await crud.update_job_status(db_session, job.id, "running")
+    await crud.update_job_progress(
+        db_session,
+        job.id,
+        stage="crawling",
+        item="https://jobs-runtime.example/page-1",
+        progress_current=2,
+        progress_total=10,
+        last_log_message="Crawling page",
+        metrics={"pages_seen": 2},
+    )
+
+    response = await test_client.get("/api/jobs")
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["current_stage"] == "crawling"
+    assert item["current_item"] == "https://jobs-runtime.example/page-1"
+    assert item["progress_current"] == 2
+    assert item["progress_total"] == 10
+    assert item["progress_percent"] == 20
+    assert item["metrics"]["pages_seen"] == 2
+
+
+@pytest.mark.asyncio
+async def test_job_detail_and_events_endpoint(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://jobs-events.example")
+    job = await crud.create_job(db_session, source_id=source.id, job_type="extract_page", payload={})
+    await crud.append_job_event(
+        db_session,
+        job_id=job.id,
+        source_id=source.id,
+        event_type="stage_changed",
+        stage="extracting",
+        message="Started extraction",
+        context={"url": "https://jobs-events.example/a"},
+    )
+
+    detail = await test_client.get(f"/api/jobs/{job.id}")
+    assert detail.status_code == 200
+    assert detail.json()["id"] == job.id
+    assert "result" in detail.json()
+
+    events = await test_client.get(f"/api/jobs/{job.id}/events")
+    assert events.status_code == 200
+    assert events.json()["total"] == 1
+    assert events.json()["items"][0]["event_type"] == "stage_changed"
+
+
+@pytest.mark.asyncio
 async def test_queues_summary_pause_and_resume(test_client: AsyncClient, db_session: AsyncSession):
     source = await crud.create_source(db_session, url="https://queue-source.example")
     await crud.create_job(db_session, source_id=source.id, job_type="crawl_section", payload={})

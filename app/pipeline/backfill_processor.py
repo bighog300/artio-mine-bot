@@ -13,12 +13,37 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crawler.fetcher import fetch
 from app.db.database import AsyncSessionLocal
+from app.db.log_writer import log_stream_manager
 from app.db.models import BackfillCampaign, BackfillJob, Page, Record
 from app.queue import QueueUnavailableError, get_default_queue
 from app.services.completeness import calculate_completeness, update_record_completeness
 
 logger = structlog.get_logger()
 BACKFILL_JOB_TIMEOUT_SECONDS = 600
+
+
+async def _emit_backfill_progress(
+    *,
+    backfill_job_id: str,
+    source_id: str,
+    stage: str,
+    message: str,
+    item: str | None = None,
+    level: str = "info",
+) -> None:
+    await log_stream_manager.publish(
+        {
+            "stream_type": "job_progress",
+            "job_id": backfill_job_id,
+            "source_id": source_id,
+            "stage": stage,
+            "message": message,
+            "event_type": "progress",
+            "level": level,
+            "item": item,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+    )
 
 
 async def enqueue_backfill_campaign(db: AsyncSession, campaign_id: str) -> int:
@@ -85,13 +110,34 @@ async def _process_backfill_job_async(job_id: str) -> None:
             record = await db.get(Record, job.record_id)
             if record is None:
                 raise ValueError(f"Record {job.record_id} not found")
+            await _emit_backfill_progress(
+                backfill_job_id=job.id,
+                source_id=record.source_id,
+                stage="backfill_fetch",
+                item=job.url_to_crawl,
+                message="Backfill record job started",
+            )
 
             before = job.before_completeness
             if before is None:
                 before = calculate_completeness(record)["score"]
 
             html = await _get_or_fetch_page_html(db, job.url_to_crawl, record.source_id)
+            await _emit_backfill_progress(
+                backfill_job_id=job.id,
+                source_id=record.source_id,
+                stage="backfill_extract",
+                item=job.url_to_crawl,
+                message="Extracting missing fields",
+            )
             extracted_data = _extract_record_data(html, record.record_type)
+            await _emit_backfill_progress(
+                backfill_job_id=job.id,
+                source_id=record.source_id,
+                stage="backfill_merge",
+                item=record.id,
+                message="Merging extracted fields into record",
+            )
             updated_fields = _merge_data_into_record(record, extracted_data)
 
             after_data = await update_record_completeness(db, record)
@@ -116,6 +162,13 @@ async def _process_backfill_job_async(job_id: str) -> None:
                 improvement=after - before,
                 fields_updated=updated_fields,
             )
+            await _emit_backfill_progress(
+                backfill_job_id=job.id,
+                source_id=record.source_id,
+                stage="finalizing",
+                item=record.id,
+                message="Backfill record completed",
+            )
         except Exception as exc:
             logger.exception("backfill_job_failed", backfill_job_id=job_id, error=str(exc))
             job.status = "failed"
@@ -123,6 +176,15 @@ async def _process_backfill_job_async(job_id: str) -> None:
             job.error_message = str(exc)
             await _update_campaign_stats(db, job.campaign_id, success=False)
             await db.commit()
+            source_id = record.source_id if "record" in locals() and record is not None else "unknown"
+            await _emit_backfill_progress(
+                backfill_job_id=job.id,
+                source_id=source_id,
+                stage="finalizing",
+                item=job.record_id,
+                message=f"Backfill record failed: {exc}",
+                level="error",
+            )
             raise
 
 

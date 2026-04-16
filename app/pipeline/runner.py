@@ -39,6 +39,7 @@ from app.extraction.artist_merge import (
 from app.extraction.artist_related import extract_artist_related_items
 from app.metrics import metrics
 from app.pipeline.image_collector import collect_images
+from app.pipeline.job_progress import report_job_progress
 
 worker_log_processor = configure_structlog_for_service("worker")
 logger = structlog.get_logger()
@@ -70,9 +71,14 @@ class PipelineRunner:
         self,
         db: AsyncSession,
         ai_client: OpenAIClient,
+        *,
+        job_id: str | None = None,
+        source_id: str | None = None,
     ) -> None:
         self.db = db
         self.ai_client = ai_client
+        self.job_id = job_id
+        self.source_id = source_id
         self.robots_checker = RobotsChecker()
         self._extractors = {
             "artist": ArtistExtractor(ai_client),
@@ -83,15 +89,55 @@ class PipelineRunner:
         }
         self._crawl_hints_cache: dict[str, dict[str, Any]] = {}
 
+    async def _report(
+        self,
+        *,
+        stage: str | None = None,
+        item: str | None = None,
+        message: str | None = None,
+        progress_current: int | None = None,
+        progress_total: int | None = None,
+        metrics_payload: dict[str, Any] | None = None,
+        event_type: str = "progress",
+        level: str = "info",
+    ) -> None:
+        if not self.job_id:
+            return
+        await report_job_progress(
+            self.db,
+            self.job_id,
+            source_id=self.source_id,
+            stage=stage,
+            item=item,
+            message=message,
+            progress_current=progress_current,
+            progress_total=progress_total,
+            metrics=metrics_payload,
+            event_type=event_type,
+            level=level,
+        )
+
     async def run_full_pipeline(self, source_id: str) -> None:
         """Run complete pipeline: map → crawl → extract."""
         if settings.environment == "production":
             raise RuntimeError("This task must run in a worker environment, not Vercel.")
         crawl_exception: Exception | None = None
         try:
+            await self._report(
+                stage="mapping",
+                item=source_id,
+                message="Starting site mapping",
+                event_type="stage_changed",
+            )
             await crud.update_source(self.db, source_id, status="mapping")
             site_map = await self.run_map_site(source_id)
 
+            await self._report(
+                stage="crawling",
+                item=source_id,
+                message="Starting crawl stage",
+                event_type="stage_changed",
+            )
             await crud.update_source(self.db, source_id, status="crawling")
             try:
                 await self.run_crawl(source_id, site_map=site_map)
@@ -102,6 +148,12 @@ class PipelineRunner:
             # Ensure crawl writes are committed before extraction reads pages.
             await self.db.commit()
 
+            await self._report(
+                stage="extracting",
+                item=source_id,
+                message="Starting extraction stage",
+                event_type="stage_changed",
+            )
             await crud.update_source(self.db, source_id, status="extracting")
             await self.run_extract(source_id)
 
@@ -116,9 +168,24 @@ class PipelineRunner:
                 status="done",
                 last_crawled_at=datetime.now(UTC),
             )
+            await self._report(
+                stage="finalizing",
+                item=source_id,
+                message="Pipeline completed",
+                event_type="job_completed",
+                progress_current=100,
+                progress_total=100,
+            )
             logger.info("pipeline_complete", source_id=source_id)
         except Exception as exc:
             logger.error("pipeline_error", source_id=source_id, error=str(exc))
+            await self._report(
+                stage="finalizing",
+                item=source_id,
+                message=f"Pipeline failed: {exc}",
+                event_type="job_failed",
+                level="error",
+            )
             try:
                 await crud.update_source(
                     self.db, source_id, status="error", error_message=str(exc)
@@ -280,8 +347,17 @@ class PipelineRunner:
             )
         stats = ExtractionStats()
         structure_map = await self._get_structure_map(source_id)
+        total_pages = len(pages)
+        await self._report(
+            stage="extracting",
+            item=source_id,
+            message="Extraction loop started",
+            progress_current=0,
+            progress_total=total_pages,
+            event_type="stage_changed",
+        )
 
-        for page in pages:
+        for idx, page in enumerate(pages, start=1):
             try:
                 record = await self.run_extraction_for_page(page, structure_map=structure_map)
                 if record:
@@ -290,6 +366,20 @@ class PipelineRunner:
             except Exception as exc:
                 logger.error("extract_page_error", page_id=page.id, error=str(exc))
                 stats.records_failed += 1
+            if idx == 1 or idx == total_pages or idx % 5 == 0:
+                await self._report(
+                    stage="extracting",
+                    item=page.url,
+                    message="Extraction progress",
+                    progress_current=idx,
+                    progress_total=total_pages,
+                    metrics_payload={
+                        "records_created": stats.records_created,
+                        "records_failed": stats.records_failed,
+                        "pages_processed": stats.pages_processed,
+                    },
+                    event_type="progress",
+                )
 
         logger.info(
             "pages_processed",
@@ -1020,13 +1110,24 @@ async def _run_pipeline_job_async(
                 return
 
             ai_client = OpenAIClient()
-            runner = PipelineRunner(db=db, ai_client=ai_client)
+            runner = PipelineRunner(db=db, ai_client=ai_client, job_id=job_id, source_id=source_id)
             try:
                 await crud.update_job_status(
                     db,
                     job_id,
                     "running",
                     started_at=datetime.now(UTC),
+                )
+                await report_job_progress(
+                    db,
+                    job_id,
+                    source_id=source_id,
+                    stage="starting",
+                    item=source_id,
+                    message=f"Job started ({job_type})",
+                    progress_current=0,
+                    progress_total=100,
+                    event_type="job_started",
                 )
             except ValueError:
                 logger.error("pipeline_job_missing_job_row_on_start", job_id=job_id, source_id=source_id)
@@ -1058,6 +1159,18 @@ async def _run_pipeline_job_async(
                     result=result,
                     completed_at=datetime.now(UTC),
                 )
+                await report_job_progress(
+                    db,
+                    job_id,
+                    source_id=source_id,
+                    stage="finalizing",
+                    item=source_id,
+                    message="Job completed",
+                    progress_current=100,
+                    progress_total=100,
+                    metrics=result if isinstance(result, dict) else None,
+                    event_type="job_completed",
+                )
             except Exception as exc:
                 logger.exception("pipeline_job_failed", job_id=job_id, error=str(exc))
                 try:
@@ -1067,6 +1180,16 @@ async def _run_pipeline_job_async(
                         "failed",
                         error_message=str(exc),
                         completed_at=datetime.now(UTC),
+                    )
+                    await report_job_progress(
+                        db,
+                        job_id,
+                        source_id=source_id,
+                        stage="finalizing",
+                        item=source_id,
+                        message=f"Job failed: {exc}",
+                        event_type="job_failed",
+                        level="error",
                     )
                 except ValueError:
                     logger.warning(
