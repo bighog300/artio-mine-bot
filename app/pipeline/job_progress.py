@@ -21,6 +21,7 @@ async def report_job_progress(
     metrics: dict[str, Any] | None = None,
     event_type: str = "progress",
     level: str = "info",
+    worker_id: str | None = None,
 ) -> None:
     updated = await crud.update_job_progress(
         db,
@@ -32,6 +33,7 @@ async def report_job_progress(
         last_log_message=message,
         metrics=metrics,
         heartbeat=True,
+        worker_id=worker_id,
     )
     if updated is None:
         return
@@ -40,6 +42,7 @@ async def report_job_progress(
         db,
         job_id=job_id,
         source_id=source_id,
+        worker_id=worker_id,
         event_type=event_type,
         message=message or event_type,
         level=level,
@@ -56,6 +59,7 @@ async def report_job_progress(
         {
             "stream_type": "job_progress",
             "job_id": job_id,
+            "worker_id": worker_id,
             "source_id": source_id,
             "stage": stage,
             "message": message,
@@ -65,4 +69,13 @@ async def report_job_progress(
             "level": level,
             "timestamp": event.timestamp.isoformat(),
         }
+    )
+
+    await crud.heartbeat_worker(
+        db,
+        worker_id=worker_id or (updated.worker_id or "unknown"),
+        status=updated.status,
+        current_job_id=job_id,
+        current_stage=stage,
+        metrics=metrics,
     )

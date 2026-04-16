@@ -30,9 +30,11 @@ from app.db.models import (
     SourceMappingSampleRun,
     SourceMappingVersion,
     Tenant,
+    WorkerState,
 )
 
 logger = structlog.get_logger()
+TERMINAL_JOB_STATUSES = {"done", "completed", "failed", "cancelled"}
 
 MAPPING_ALLOWED_FIELDS: dict[str, set[str]] = {
     "artist": {"title", "description", "bio", "nationality", "birth_year", "website_url", "instagram_url", "email"},
@@ -1326,6 +1328,34 @@ async def update_job_status(
     return job
 
 
+async def claim_job_for_worker(
+    db: AsyncSession,
+    *,
+    job_id: str,
+    worker_id: str,
+    max_concurrent_jobs: int,
+) -> Job | None:
+    running_count = (
+        await db.execute(select(func.count(Job.id)).where(Job.status == "running"))
+    ).scalar_one()
+    if int(running_count or 0) >= max_concurrent_jobs:
+        return None
+
+    job = await get_job(db, job_id)
+    if job is None:
+        return None
+    if job.status in TERMINAL_JOB_STATUSES | {"paused"}:
+        return None
+
+    job.status = "running"
+    job.worker_id = worker_id
+    if job.started_at is None:
+        job.started_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(job)
+    return job
+
+
 async def list_jobs(
     db: AsyncSession,
     source_id: str | None = None,
@@ -1354,6 +1384,7 @@ async def update_job_progress(
     last_log_message: str | None = None,
     metrics: dict[str, Any] | None = None,
     heartbeat: bool = True,
+    worker_id: str | None = None,
 ) -> Job | None:
     job = await get_job(db, job_id)
     if job is None:
@@ -1373,6 +1404,8 @@ async def update_job_progress(
         job.metrics_json = json.dumps(metrics)
     if heartbeat:
         job.last_heartbeat_at = datetime.now(UTC)
+    if worker_id is not None:
+        job.worker_id = worker_id
 
     await db.commit()
     await db.refresh(job)
@@ -1384,6 +1417,7 @@ async def append_job_event(
     *,
     job_id: str,
     source_id: str | None,
+    worker_id: str | None = None,
     event_type: str,
     message: str,
     level: str = "info",
@@ -1396,6 +1430,7 @@ async def append_job_event(
         tenant_id=tenant_id,
         job_id=job_id,
         source_id=source_id,
+        worker_id=worker_id,
         event_type=event_type,
         message=message,
         level=level,
@@ -1420,6 +1455,55 @@ async def list_job_events(
         stmt = stmt.where(JobEvent.timestamp < before)
     stmt = stmt.order_by(JobEvent.timestamp.desc()).limit(limit)
     rows = (await db.execute(stmt)).scalars().all()
+    return list(rows)
+
+
+async def upsert_worker_state(
+    db: AsyncSession,
+    *,
+    worker_id: str,
+    status: str,
+    current_job_id: str | None = None,
+    current_stage: str | None = None,
+    metrics: dict[str, Any] | None = None,
+) -> WorkerState:
+    worker = await db.get(WorkerState, worker_id)
+    if worker is None:
+        worker = WorkerState(worker_id=worker_id)
+        db.add(worker)
+
+    worker.status = status
+    worker.current_job_id = current_job_id
+    worker.current_stage = current_stage
+    worker.last_heartbeat_at = datetime.now(UTC)
+    if metrics is not None:
+        worker.metrics_json = json.dumps(metrics, default=str)
+    await db.commit()
+    await db.refresh(worker)
+    return worker
+
+
+async def heartbeat_worker(
+    db: AsyncSession,
+    *,
+    worker_id: str,
+    status: str,
+    current_job_id: str | None = None,
+    current_stage: str | None = None,
+    metrics: dict[str, Any] | None = None,
+) -> WorkerState:
+    return await upsert_worker_state(
+        db,
+        worker_id=worker_id,
+        status=status,
+        current_job_id=current_job_id,
+        current_stage=current_stage,
+        metrics=metrics,
+    )
+
+
+async def list_worker_states(db: AsyncSession) -> list[WorkerState]:
+    rows = (await db.execute(select(WorkerState).order_by(WorkerState.worker_id.asc()))).scalars().all()
     return list(rows)
 
 

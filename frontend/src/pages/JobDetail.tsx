@@ -1,7 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
-import { getJob, getJobEvents } from "@/lib/api";
+import { cancelJob, getJob, getJobEvents, pauseJob, resumeJob, retryJob } from "@/lib/api";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { JobProgressBar } from "@/components/jobs/JobProgressBar";
 import { HeartbeatBadge } from "@/components/jobs/HeartbeatBadge";
@@ -9,6 +10,20 @@ import { JobEventTimeline } from "@/components/jobs/JobEventTimeline";
 
 export function JobDetail() {
   const { id = "" } = useParams();
+  const queryClient = useQueryClient();
+  const [liveLines, setLiveLines] = useState<string[]>([]);
+  const actionMutation = useMutation({
+    mutationFn: async (action: "retry" | "pause" | "resume" | "cancel") => {
+      if (action === "retry") return retryJob(id);
+      if (action === "pause") return pauseJob(id);
+      if (action === "resume") return resumeJob(id);
+      return cancelJob(id);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["job", id] });
+      await queryClient.invalidateQueries({ queryKey: ["jobs"] });
+    },
+  });
   const { data: job, isLoading } = useQuery({
     queryKey: ["job", id],
     queryFn: () => getJob(id),
@@ -24,6 +39,18 @@ export function JobDetail() {
     enabled: id.length > 0,
     refetchInterval: 3000,
   });
+
+  useEffect(() => {
+    const base = import.meta.env.VITE_API_URL || "/api";
+    const stream = new EventSource(`${base.replace(/\/$/, "")}/logs/stream`);
+    stream.onmessage = (event) => {
+      const parsed = JSON.parse(event.data) as Record<string, unknown>;
+      if (parsed.stream_type !== "job_progress" || parsed.job_id !== id) return;
+      const line = `[${new Date(String(parsed.timestamp)).toLocaleTimeString()}] ${String(parsed.stage ?? "stage")} | ${String(parsed.message ?? "")}`;
+      setLiveLines((prev) => [...prev.slice(-199), line]);
+    };
+    return () => stream.close();
+  }, [id]);
 
   if (isLoading || !job) {
     return <div className="text-sm text-gray-500">Loading job...</div>;
@@ -41,6 +68,11 @@ export function JobDetail() {
           <div className="font-semibold">{job.source ?? job.source_id}</div>
           <StatusBadge status={job.status} />
           <HeartbeatBadge job={job} />
+          <span className="text-xs font-mono text-gray-500">{job.worker_id ?? "unassigned"}</span>
+          <button className="px-2 py-1 border rounded text-xs" onClick={() => actionMutation.mutate("retry")}>Retry</button>
+          <button className="px-2 py-1 border rounded text-xs" onClick={() => actionMutation.mutate("pause")}>Pause</button>
+          <button className="px-2 py-1 border rounded text-xs" onClick={() => actionMutation.mutate("resume")}>Resume</button>
+          <button className="px-2 py-1 border rounded text-xs" onClick={() => actionMutation.mutate("cancel")}>Cancel</button>
         </div>
         {job.error_message && <div className="text-sm text-red-600">{job.error_message}</div>}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
@@ -60,6 +92,13 @@ export function JobDetail() {
       <div>
         <h2 className="font-semibold mb-2">Event timeline</h2>
         <JobEventTimeline items={events?.items ?? []} />
+      </div>
+
+      <div>
+        <h2 className="font-semibold mb-2">Live console</h2>
+        <pre className="bg-gray-900 text-green-300 text-xs p-3 rounded max-h-72 overflow-auto">
+          {(liveLines.length ? liveLines : ["Waiting for job activity..."]).join("\n")}
+        </pre>
       </div>
     </div>
   );

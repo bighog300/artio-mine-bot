@@ -33,6 +33,9 @@ export function Logs() {
   const [sourceId, setSourceId] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [jobId, setJobId] = useState("");
+  const [workerId, setWorkerId] = useState("");
+  const [stage, setStage] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -52,18 +55,21 @@ export function Logs() {
 
   useEffect(() => {
     setSkip(0);
-  }, [level, service, sourceId, search, dateFrom, dateTo, limit]);
+  }, [level, service, sourceId, search, jobId, workerId, stage, dateFrom, dateTo, limit]);
 
   const { data: sources } = useQuery({ queryKey: ["sources"], queryFn: getSources });
 
   const { data, isLoading } = useQuery({
-    queryKey: ["logs", { level, service, sourceId, search, dateFrom, dateTo, skip, limit }],
+    queryKey: ["logs", { level, service, sourceId, search, jobId, workerId, stage, dateFrom, dateTo, skip, limit }],
     queryFn: () =>
       getLogs({
         level: level || undefined,
         service: service || undefined,
         source_id: sourceId || undefined,
         search: search || undefined,
+        job_id: jobId || undefined,
+        worker_id: workerId || undefined,
+        stage: stage || undefined,
         date_from: dateFrom ? new Date(`${dateFrom}T00:00:00Z`).toISOString() : undefined,
         date_to: dateTo ? new Date(`${dateTo}T23:59:59Z`).toISOString() : undefined,
         skip,
@@ -173,6 +179,9 @@ export function Logs() {
             placeholder="Search logs"
             className="border rounded px-2 py-1.5 text-sm min-w-52"
           />
+          <input value={jobId} onChange={(e) => setJobId(e.target.value)} placeholder="job_id" className="border rounded px-2 py-1.5 text-sm min-w-36" />
+          <input value={workerId} onChange={(e) => setWorkerId(e.target.value)} placeholder="worker_id" className="border rounded px-2 py-1.5 text-sm min-w-36" />
+          <input value={stage} onChange={(e) => setStage(e.target.value)} placeholder="stage" className="border rounded px-2 py-1.5 text-sm min-w-28" />
           <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="border rounded px-2 py-1.5 text-sm" />
           <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="border rounded px-2 py-1.5 text-sm" />
           <label className="inline-flex items-center gap-2 text-sm px-2">

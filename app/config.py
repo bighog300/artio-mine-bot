@@ -90,6 +90,7 @@ class Settings(BaseSettings):
     # None means "use environment-based default": True in dev, False in production.
     playwright_enabled: bool | None = None
     cors_origins: str = "http://localhost:5173"
+    max_concurrent_jobs: int = 5
 
     @model_validator(mode="after")
     def _set_playwright_default(self) -> "Settings":

@@ -263,6 +263,7 @@ class Job(Base):
     source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
     job_type: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, default="pending", nullable=False)
+    worker_id: Mapped[str | None] = mapped_column(String, nullable=True)
     payload: Mapped[str | None] = mapped_column(Text, nullable=True)
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -286,6 +287,7 @@ class Job(Base):
         Index("ix_jobs_tenant_id", "tenant_id"),
         Index("ix_jobs_source_id", "source_id"),
         Index("ix_jobs_status", "status"),
+        Index("ix_jobs_worker_id", "worker_id"),
     )
 
 
@@ -296,6 +298,7 @@ class JobEvent(Base):
     tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
     job_id: Mapped[str] = mapped_column(String, ForeignKey("jobs.id"), nullable=False)
     source_id: Mapped[str | None] = mapped_column(String, ForeignKey("sources.id"), nullable=True)
+    worker_id: Mapped[str | None] = mapped_column(String, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
     level: Mapped[str] = mapped_column(String, default="info", nullable=False)
     event_type: Mapped[str] = mapped_column(String, nullable=False)
@@ -310,6 +313,23 @@ class JobEvent(Base):
         Index("ix_job_events_job_id_timestamp", "job_id", "timestamp"),
         Index("ix_job_events_source_id_timestamp", "source_id", "timestamp"),
         Index("ix_job_events_event_type", "event_type"),
+        Index("ix_job_events_worker_id_timestamp", "worker_id", "timestamp"),
+    )
+
+
+class WorkerState(Base):
+    __tablename__ = "worker_states"
+
+    worker_id: Mapped[str] = mapped_column(String, primary_key=True)
+    status: Mapped[str] = mapped_column(String, default="idle", nullable=False)
+    current_job_id: Mapped[str | None] = mapped_column(String, ForeignKey("jobs.id"), nullable=True)
+    current_stage: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_heartbeat_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    metrics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_worker_states_status", "status"),
+        Index("ix_worker_states_last_heartbeat_at", "last_heartbeat_at"),
     )
 
 

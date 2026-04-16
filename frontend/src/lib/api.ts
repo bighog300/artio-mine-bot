@@ -214,6 +214,7 @@ export interface Job {
   source_id: string;
   job_type: string;
   status: string;
+  worker_id?: string | null;
   message?: string;
   attempts?: number;
   started_at?: string | null;
@@ -240,12 +241,22 @@ export interface JobEvent {
   timestamp: string;
   level: string;
   event_type: string;
+  worker_id?: string | null;
   stage: string | null;
   message: string;
   context: Record<string, unknown>;
 }
 
 export type JobDetail = Job;
+
+export interface WorkerState {
+  worker_id: string;
+  status: string;
+  current_job_id: string | null;
+  stage: string | null;
+  heartbeat: string | null;
+  metrics: Record<string, unknown>;
+}
 
 export interface QueueState {
   name: string;
@@ -501,6 +512,9 @@ export interface LogFilters {
   service?: string;
   source_id?: string;
   search?: string;
+  job_id?: string;
+  worker_id?: string;
+  stage?: string;
   date_from?: string;
   date_to?: string;
   skip?: number;
@@ -871,6 +885,9 @@ export const resumeJob = (jobId: string): Promise<{ id: string; status: string }
 
 export const getQueues = (): Promise<{ items: QueueState[]; total: number }> =>
   api.get("/queues").then((r) => r.data);
+
+export const getWorkers = (): Promise<{ items: WorkerState[]; total: number }> =>
+  api.get("/workers").then((r) => r.data);
 
 export const pauseQueue = (name: string): Promise<{ name: string; status: string }> =>
   api.post(`/queues/${name}/pause`).then((r) => r.data);

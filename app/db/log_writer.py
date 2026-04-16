@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import AsyncSessionLocal
@@ -145,6 +145,9 @@ async def list_logs(
     service: str | None,
     source_id: str | None,
     search: str | None,
+    job_id: str | None,
+    worker_id: str | None,
+    stage: str | None,
     date_from: datetime | None,
     date_to: datetime | None,
     skip: int,
@@ -161,7 +164,13 @@ async def list_logs(
     if source_id:
         filters.append(Log.source_id == source_id)
     if search:
-        filters.append(Log.message.ilike(f"%{search}%"))
+        filters.append(or_(Log.message.ilike(f"%{search}%"), Log.context.ilike(f"%{search}%")))
+    if job_id:
+        filters.append(Log.context.ilike(f"%{job_id}%"))
+    if worker_id:
+        filters.append(Log.context.ilike(f"%{worker_id}%"))
+    if stage:
+        filters.append(Log.context.ilike(f"%{stage}%"))
     if date_from:
         filters.append(Log.timestamp >= date_from)
     if date_to:

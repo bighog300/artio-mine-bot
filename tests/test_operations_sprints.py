@@ -63,6 +63,7 @@ async def test_jobs_include_runtime_visibility_fields(test_client: AsyncClient, 
         progress_total=10,
         last_log_message="Crawling page",
         metrics={"pages_seen": 2},
+        worker_id="worker-test-1",
     )
 
     response = await test_client.get("/api/jobs")
@@ -74,6 +75,8 @@ async def test_jobs_include_runtime_visibility_fields(test_client: AsyncClient, 
     assert item["progress_total"] == 10
     assert item["progress_percent"] == 20
     assert item["metrics"]["pages_seen"] == 2
+    assert item["worker_id"] == "worker-test-1"
+    assert item["stage"] == "crawling"
 
 
 @pytest.mark.asyncio
@@ -84,6 +87,7 @@ async def test_job_detail_and_events_endpoint(test_client: AsyncClient, db_sessi
         db_session,
         job_id=job.id,
         source_id=source.id,
+        worker_id="worker-events",
         event_type="stage_changed",
         stage="extracting",
         message="Started extraction",
@@ -99,6 +103,24 @@ async def test_job_detail_and_events_endpoint(test_client: AsyncClient, db_sessi
     assert events.status_code == 200
     assert events.json()["total"] == 1
     assert events.json()["items"][0]["event_type"] == "stage_changed"
+    assert events.json()["items"][0]["worker_id"] == "worker-events"
+
+
+@pytest.mark.asyncio
+async def test_workers_endpoint(test_client: AsyncClient, db_session: AsyncSession):
+    await crud.heartbeat_worker(
+        db_session,
+        worker_id="worker-1",
+        status="running",
+        current_job_id=None,
+        current_stage="extracting",
+        metrics={"jobs": 1},
+    )
+    response = await test_client.get("/api/workers")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["worker_id"] == "worker-1"
 
 
 @pytest.mark.asyncio
