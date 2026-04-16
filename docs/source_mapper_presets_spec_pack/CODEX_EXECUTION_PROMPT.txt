@@ -1,0 +1,130 @@
+You are working in the artio-mine-bot repository.
+
+At the repository root, read and follow these documents before making changes:
+
+- 01-overview.md
+- 02-backend-spec.md
+- 03-frontend-spec.md
+- 04-implementation-plan.md
+- 05-known-issues-and-guardrails.md
+- CODEX_IMPLEMENTATION_BRIEF.md
+
+Treat those documents as the source of truth for scope, design, and acceptance criteria.
+
+--------------------------------------------------
+OBJECTIVE
+--------------------------------------------------
+
+Implement Source Mapper Presets for the AI Source Mapper.
+
+The feature must support:
+
+- preset create
+- preset delete
+- saving mapper findings as presets
+
+--------------------------------------------------
+REQUIRED OUTCOMES
+--------------------------------------------------
+
+Build a production-ready v1 preset system that lets an operator:
+
+1. Save a source mapper draft/version as a reusable preset
+2. See existing presets for that source
+3. Delete a preset
+
+--------------------------------------------------
+BACKEND REQUIREMENTS
+--------------------------------------------------
+
+Read the spec docs and implement the backend exactly as described there.
+
+At minimum, implement:
+
+- new preset parent and preset row tables
+- Alembic migration
+- CRUD/service helpers
+- request/response schemas
+- routes:
+  - GET /sources/{source_id}/mapping-presets
+  - POST /sources/{source_id}/mapping-presets
+  - DELETE /sources/{source_id}/mapping-presets/{preset_id}
+
+Required backend behavior:
+- preset rows are copied snapshots, not references
+- preset creation validates source ownership
+- preset creation validates that the source draft/version belongs to the same source
+- default include_statuses is ["approved"]
+- creating a preset with zero matching rows must fail clearly
+- deleting a preset removes child rows as well
+
+--------------------------------------------------
+FRONTEND REQUIREMENTS
+--------------------------------------------------
+
+Extend the current source mapper UI to support presets.
+
+At minimum, implement:
+
+- preset list/panel
+- “Save as Preset” action
+- create preset dialog/modal
+- delete preset action with confirmation
+- frontend API methods for list/create/delete
+
+Required frontend behavior:
+- refresh preset list after create/delete
+- show row counts and metadata where practical
+- disable create while request is in flight
+- use existing UI patterns in the repo
+- do not build preset apply/import yet
+
+--------------------------------------------------
+CONSTRAINTS
+--------------------------------------------------
+
+- Reuse existing FastAPI, SQLAlchemy, Alembic, and React patterns
+- Avoid unrelated refactors
+- Keep presets source-local in v1
+- Do not redesign the mapper architecture
+- Do not implement preset apply/import/versioning in this task
+- Do not silently widen scope
+
+--------------------------------------------------
+IMPLEMENTATION ORDER
+--------------------------------------------------
+
+1. Inspect the current source mapper models, routes, and UI
+2. Implement schema + migration
+3. Implement backend CRUD/helpers
+4. Implement backend schemas/routes
+5. Implement frontend API methods
+6. Implement presets panel + create/delete flows
+7. Run relevant checks/tests if available
+8. Summarize changed files, endpoints, migration, and any caveats
+
+--------------------------------------------------
+DEFINITION OF DONE
+--------------------------------------------------
+
+The task is complete when:
+
+- a preset can be created from mapper findings
+- the preset is stored in dedicated preset tables
+- presets can be listed for a source
+- a preset can be deleted
+- the UI exposes create/list/delete clearly
+- implementation follows the uploaded spec docs
+
+--------------------------------------------------
+FINAL OUTPUT
+--------------------------------------------------
+
+Provide:
+- files changed
+- migration added
+- endpoints added/changed
+- UI changes
+- any limitations or follow-up recommendations
+
+Begin by reading the spec documents and inspecting the repo before making changes.
