@@ -5,12 +5,15 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from redis.exceptions import RedisError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.api.rbac import require_permission
 from app.db.models import BackfillCampaign, BackfillJob, Record
+from app.pipeline.backfill_processor import check_campaign_completion, enqueue_backfill_campaign
+from app.queue import QueueUnavailableError
 from app.services.backfill_query import BackfillQuery
 from app.services.completeness import calculate_completeness
 
@@ -135,6 +138,60 @@ async def create_backfill_campaign(
         "total_candidates": len(records),
         "jobs_created": jobs_created,
         "dry_run": payload.dry_run,
+    }
+
+
+@router.post("/campaigns/{campaign_id}/start")
+async def start_backfill_campaign(
+    campaign_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("manage_jobs")),
+):
+    campaign = await db.get(BackfillCampaign, campaign_id)
+    if campaign is None:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    if campaign.status == "dry_run":
+        raise HTTPException(status_code=400, detail="Dry-run campaigns cannot be started")
+
+    try:
+        jobs_enqueued = await enqueue_backfill_campaign(db, campaign_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (QueueUnavailableError, RedisError, OSError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Redis queue unavailable. Check that Redis server and workers are running.",
+        ) from exc
+
+    return {
+        "campaign_id": campaign_id,
+        "status": "running",
+        "jobs_enqueued": jobs_enqueued,
+        "message": f"Campaign started. {jobs_enqueued} jobs enqueued to workers.",
+    }
+
+
+@router.post("/campaigns/{campaign_id}/check-completion")
+async def check_campaign_completion_endpoint(
+    campaign_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    try:
+        summary = await check_campaign_completion(db, campaign_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    campaign = await db.get(BackfillCampaign, campaign_id)
+    if campaign is None:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    return {
+        "campaign_id": campaign_id,
+        "status": campaign.status,
+        "processed": campaign.processed_records,
+        "total": campaign.total_records,
+        **summary,
     }
 
 
