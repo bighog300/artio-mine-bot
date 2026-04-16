@@ -74,6 +74,8 @@ class SourceResponse(BaseModel):
     enabled: bool = True
     queue_paused: bool = False
     health_status: str = "unknown"
+    active_mapping_preset_id: str | None = None
+    runtime_mapping_updated_at: datetime | None = None
     stats: SourceStats | None = None
 
     @field_validator("crawl_hints", mode="before")

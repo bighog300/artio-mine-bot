@@ -82,3 +82,55 @@ async def delete_mapping_preset(
     if not deleted:
         raise HTTPException(status_code=404, detail="Mapping preset not found")
     return {"ok": True}
+
+
+@router.post("/{preset_id}/apply", response_model=dict)
+async def apply_mapping_preset(
+    source_id: str,
+    preset_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    source = await crud.get_source(db, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    try:
+        updated = await crud.apply_source_mapping_preset_to_source(
+            db,
+            source_id=source_id,
+            preset_id=preset_id,
+            tenant_id=source.tenant_id,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "not found" in message:
+            raise HTTPException(status_code=404, detail=message) from exc
+        raise HTTPException(status_code=400, detail=message) from exc
+
+    runtime_map, runtime_map_source = await crud.get_active_runtime_map(db, source_id)
+    return {
+        "source_id": updated.id,
+        "active_mapping_preset_id": updated.active_mapping_preset_id,
+        "runtime_mapping_updated_at": updated.runtime_mapping_updated_at,
+        "runtime_map_source": runtime_map_source,
+        "has_runtime_map": runtime_map is not None,
+    }
+
+
+@router.get("/runtime-map", response_model=dict)
+async def get_source_runtime_map(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    source = await crud.get_source(db, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    runtime_map, runtime_map_source = await crud.get_active_runtime_map(db, source_id)
+    return {
+        "source_id": source_id,
+        "runtime_map_source": runtime_map_source,
+        "active_mapping_preset_id": source.active_mapping_preset_id,
+        "runtime_mapping_updated_at": source.runtime_mapping_updated_at,
+        "runtime_map": runtime_map,
+    }
