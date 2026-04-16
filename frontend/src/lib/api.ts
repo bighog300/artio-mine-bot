@@ -249,6 +249,41 @@ export interface JobEvent {
 
 export type JobDetail = Job;
 
+export interface SourceEvent {
+  id: string;
+  job_id: string;
+  source_id: string;
+  worker_id?: string | null;
+  timestamp: string;
+  level: string;
+  event_type: string;
+  stage: string | null;
+  message: string;
+  context: Record<string, unknown>;
+}
+
+export interface ModeratedAction {
+  id: string;
+  source_id: string;
+  status: string;
+  kind: string;
+  created_at: string;
+  similarity_score?: number;
+  reason?: string | null;
+  left_record?: { id: string; title: string | null; record_type: string } | null;
+  right_record?: { id: string; title: string | null; record_type: string } | null;
+  reviewed_at?: string | null;
+  reviewed_by?: string | null;
+}
+
+export interface SourceOperationsSummary {
+  source: Source;
+  active_jobs: Job[];
+  recent_runs: Job[];
+  pending_moderation_count: number;
+  pending_duplicate_review_count: number;
+}
+
 export interface WorkerState {
   worker_id: string;
   status: string;
@@ -632,6 +667,54 @@ export const stopSource = (sourceId: string): Promise<{ source_id: string; statu
 
 export const retryFailedSource = (sourceId: string): Promise<{ source_id: string; status: string }> =>
   api.post(`/sources/${sourceId}/actions/retry-failed`).then((r) => r.data);
+
+export const getSourceOperations = (sourceId: string): Promise<SourceOperationsSummary> =>
+  api.get(`/sources/${sourceId}/operations`).then((r) => r.data);
+
+export const getSourceRuns = (
+  sourceId: string,
+  params?: { limit?: number }
+): Promise<{ items: Job[]; total: number }> =>
+  api.get(`/sources/${sourceId}/runs`, { params }).then((r) => r.data);
+
+export const getSourceEvents = (
+  sourceId: string,
+  params?: { limit?: number; event_type?: string; stage?: string }
+): Promise<{ items: SourceEvent[]; total: number }> =>
+  api.get(`/sources/${sourceId}/events`, { params }).then((r) => r.data);
+
+export const runSource = (sourceId: string): Promise<{ source_id: string; status: string }> =>
+  api.post(`/sources/${sourceId}/run`).then((r) => r.data);
+
+export const pauseSourceRun = (sourceId: string): Promise<{ source_id: string; status: string }> =>
+  api.post(`/sources/${sourceId}/pause`).then((r) => r.data);
+
+export const resumeSourceRun = (sourceId: string): Promise<{ source_id: string; status: string }> =>
+  api.post(`/sources/${sourceId}/resume`).then((r) => r.data);
+
+export const cancelActiveSourceRuns = (sourceId: string): Promise<{ source_id: string; status: string }> =>
+  api.post(`/sources/${sourceId}/cancel-active`).then((r) => r.data);
+
+export const backfillSource = (sourceId: string): Promise<{ source_id: string; status: string }> =>
+  api.post(`/sources/${sourceId}/backfill`).then((r) => r.data);
+
+export const getSourceModeratedActions = (
+  sourceId: string,
+  params?: { status?: string; limit?: number }
+): Promise<{ items: ModeratedAction[]; total: number }> =>
+  api.get(`/sources/${sourceId}/moderated-actions`, { params }).then((r) => r.data);
+
+export const approveSourceModeratedAction = (
+  sourceId: string,
+  actionId: string
+): Promise<{ id: string; status: string }> =>
+  api.post(`/sources/${sourceId}/moderated-actions/${actionId}/approve`).then((r) => r.data);
+
+export const rejectSourceModeratedAction = (
+  sourceId: string,
+  actionId: string
+): Promise<{ id: string; status: string }> =>
+  api.post(`/sources/${sourceId}/moderated-actions/${actionId}/reject`).then((r) => r.data);
 
 const sourceMappingDraftPath = (sourceId: string, draftId?: string): string =>
   draftId ? `/sources/${sourceId}/mapping-drafts/${draftId}` : `/sources/${sourceId}/mapping-drafts`;

@@ -80,6 +80,70 @@ async def test_jobs_include_runtime_visibility_fields(test_client: AsyncClient, 
 
 
 @pytest.mark.asyncio
+async def test_source_operations_console_endpoints(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://source-ops.example")
+    job = await crud.create_job(db_session, source_id=source.id, job_type="run_full_pipeline", payload={})
+    await crud.append_job_event(
+        db_session,
+        job_id=job.id,
+        source_id=source.id,
+        event_type="job_started",
+        message="Pipeline started",
+        stage="starting",
+    )
+
+    ops = await test_client.get(f"/api/sources/{source.id}/operations")
+    assert ops.status_code == 200
+    assert ops.json()["source"]["id"] == source.id
+
+    runs = await test_client.get(f"/api/sources/{source.id}/runs")
+    assert runs.status_code == 200
+    assert runs.json()["total"] == 1
+
+    events = await test_client.get(f"/api/sources/{source.id}/events")
+    assert events.status_code == 200
+    assert events.json()["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_source_moderated_actions_approve_and_reject(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://source-moderation.example")
+    left = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        page_id=None,
+        record_type="artist",
+        title="Artist A",
+    )
+    right = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        page_id=None,
+        record_type="artist",
+        title="Artist B",
+    )
+    review = await crud.upsert_duplicate_review(
+        db_session,
+        left_record_id=left.id,
+        right_record_id=right.id,
+        similarity_score=92,
+        reason="high title similarity",
+    )
+
+    listing = await test_client.get(f"/api/sources/{source.id}/moderated-actions")
+    assert listing.status_code == 200
+    assert listing.json()["total"] == 1
+
+    approve = await test_client.post(f"/api/sources/{source.id}/moderated-actions/{review.id}/approve")
+    assert approve.status_code == 200
+    assert approve.json()["status"] == "approved"
+
+    reject = await test_client.post(f"/api/sources/{source.id}/moderated-actions/{review.id}/reject")
+    assert reject.status_code == 200
+    assert reject.json()["status"] == "rejected"
+
+
+@pytest.mark.asyncio
 async def test_job_detail_and_events_endpoint(test_client: AsyncClient, db_session: AsyncSession):
     source = await crud.create_source(db_session, url="https://jobs-events.example")
     job = await crud.create_job(db_session, source_id=source.id, job_type="extract_page", payload={})

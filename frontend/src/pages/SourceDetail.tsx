@@ -113,6 +113,7 @@ export function SourceDetail() {
         <h2 className="font-semibold mb-3">Operational Controls</h2>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <StatusBadge status={source.operational_status ?? source.status} />
+          <button className="px-2 py-1 border rounded" onClick={() => navigate(`/sources/${id}/operations`)}>Open Operations Console</button>
           <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate("discovery")}>Start Discovery</button>
           <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate("full")}>Start Full Mining</button>
           <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate("pause")}>Pause</button>

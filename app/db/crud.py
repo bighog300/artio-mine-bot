@@ -5,6 +5,7 @@ from typing import Any
 
 import structlog
 from sqlalchemy import Select, delete, func, or_, select
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.embeddings import cosine_similarity, create_embedding
@@ -1719,6 +1720,37 @@ async def set_duplicate_review_status(
     await db.commit()
     await db.refresh(review)
     return review
+
+
+async def get_duplicate_review(
+    db: AsyncSession,
+    review_id: str,
+) -> DuplicateReview | None:
+    stmt = select(DuplicateReview).where(DuplicateReview.id == review_id)
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def list_duplicate_reviews_for_source(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    status: str | None = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> list[DuplicateReview]:
+    left_record = aliased(Record)
+    right_record = aliased(Record)
+    stmt = (
+        select(DuplicateReview)
+        .join(left_record, DuplicateReview.left_record_id == left_record.id)
+        .join(right_record, DuplicateReview.right_record_id == right_record.id)
+        .where(or_(left_record.source_id == source_id, right_record.source_id == source_id))
+    )
+    if status:
+        stmt = stmt.where(DuplicateReview.status == status)
+    stmt = stmt.order_by(DuplicateReview.created_at.desc()).offset(skip).limit(limit)
+    rows = (await db.execute(stmt)).scalars().all()
+    return list(rows)
 
 
 async def create_audit_action(
