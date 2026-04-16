@@ -1,7 +1,26 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Globe, Database, Image, Upload, FileText, Settings, TerminalSquare, GitMerge, SearchCheck, Compass, History, KeyRound, ListChecks, Layers3, RefreshCw, ActivitySquare } from "lucide-react";
+import {
+  ActivitySquare,
+  Compass,
+  Database,
+  FileText,
+  GitMerge,
+  Globe,
+  History,
+  Image,
+  KeyRound,
+  Layers3,
+  LayoutDashboard,
+  ListChecks,
+  RefreshCw,
+  SearchCheck,
+  Settings,
+  TerminalSquare,
+  Upload,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/shared/ThemeToggle";
+import { MobileNav } from "@/components/shared/MobileNav";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -21,6 +40,7 @@ const navItems = [
   { to: "/logs", label: "Logs", icon: TerminalSquare },
   { to: "/settings", label: "Settings", icon: Settings },
   { to: "/api-access", label: "API Access", icon: KeyRound },
+  { to: "/mobile-test", label: "Mobile Test", icon: TerminalSquare },
 ];
 
 interface LayoutProps {
@@ -30,8 +50,7 @@ interface LayoutProps {
 export function Layout({ children }: LayoutProps) {
   return (
     <div className="flex h-screen bg-background text-foreground transition-colors">
-      {/* Sidebar */}
-      <aside className="flex w-56 flex-col border-r border-border bg-card transition-colors">
+      <aside className="hidden w-56 flex-col border-r border-border bg-card transition-colors lg:flex">
         <div className="border-b border-border p-4">
           <div className="flex items-center justify-between gap-2">
             <div>
@@ -41,7 +60,7 @@ export function Layout({ children }: LayoutProps) {
             <ThemeToggle />
           </div>
         </div>
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 space-y-1 p-3">
           {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
@@ -49,10 +68,8 @@ export function Layout({ children }: LayoutProps) {
               end={to === "/"}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-primary/15 text-primary"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  "flex min-h-[44px] items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  isActive ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                 )
               }
             >
@@ -63,9 +80,10 @@ export function Layout({ children }: LayoutProps) {
         </nav>
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 overflow-auto">
-        <div className="p-6">{children}</div>
+      <MobileNav />
+
+      <main className="flex-1 overflow-auto pt-14 lg:pt-0">
+        <div className="px-4 py-4 lg:p-6">{children}</div>
       </main>
     </div>
   );
