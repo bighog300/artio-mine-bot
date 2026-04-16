@@ -91,6 +91,7 @@ class Source(Base):
         "SourceMappingPreset",
         back_populates="source",
         cascade="all, delete-orphan",
+        primaryjoin="Source.id == SourceMappingPreset.source_id",
         foreign_keys="SourceMappingPreset.source_id",
     )
     active_mapping_version: Mapped["SourceMappingVersion | None"] = relationship(
@@ -100,6 +101,7 @@ class Source(Base):
     )
     active_mapping_preset: Mapped["SourceMappingPreset | None"] = relationship(
         "SourceMappingPreset",
+        primaryjoin="Source.active_mapping_preset_id == SourceMappingPreset.id",
         foreign_keys=[active_mapping_preset_id],
         post_update=True,
     )
@@ -543,6 +545,7 @@ class SourceMappingPreset(Base):
     source: Mapped["Source"] = relationship(
         "Source",
         back_populates="mapping_presets",
+        primaryjoin="SourceMappingPreset.source_id == Source.id",
         foreign_keys=[source_id],
     )
     rows: Mapped[list["SourceMappingPresetRow"]] = relationship(
