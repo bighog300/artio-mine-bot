@@ -653,3 +653,43 @@ async def test_analyze_source_structure_endpoint_runs_analysis(test_client: Asyn
     payload = resp.json()
     assert payload["status"] == "analyzed"
     assert payload["structure"]["crawl_targets"][0]["url_pattern"] == "/artists/[letter]"
+
+
+@pytest.mark.asyncio
+async def test_create_and_list_backfill_schedule(test_client: AsyncClient):
+    create_resp = await test_client.post(
+        "/api/backfill/schedules",
+        json={
+            "name": "Weekly Artist Refresh",
+            "schedule_type": "recurring",
+            "cron_expression": "0 2 * * 0",
+            "filters": {"record_type": "artist", "min_completeness": 0, "max_completeness": 70},
+            "options": {"limit": 10},
+            "auto_start": False,
+        },
+    )
+    assert create_resp.status_code == 200
+    payload = create_resp.json()
+    assert payload["name"] == "Weekly Artist Refresh"
+    assert payload["cron_expression"] == "0 2 * * 0"
+
+    list_resp = await test_client.get("/api/backfill/schedules")
+    assert list_resp.status_code == 200
+    data = list_resp.json()
+    assert data["total"] >= 1
+    assert any(item["id"] == payload["id"] for item in data["items"])
+
+
+@pytest.mark.asyncio
+async def test_create_backfill_schedule_invalid_cron(test_client: AsyncClient):
+    resp = await test_client.post(
+        "/api/backfill/schedules",
+        json={
+            "name": "Bad Cron",
+            "schedule_type": "recurring",
+            "cron_expression": "not a cron",
+            "filters": {},
+            "options": {},
+        },
+    )
+    assert resp.status_code == 400

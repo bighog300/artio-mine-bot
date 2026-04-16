@@ -684,6 +684,54 @@ class BackfillJob(Base):
     )
 
 
+class BackfillSchedule(Base):
+    """Scheduled backfill campaign template."""
+
+    __tablename__ = "backfill_schedules"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    schedule_type: Mapped[str] = mapped_column(String, nullable=False, default="recurring")
+    cron_expression: Mapped[str | None] = mapped_column(String, nullable=True)
+    filters_json: Mapped[str] = mapped_column(Text, nullable=False)
+    options_json: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    auto_start: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_run_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
+
+    __table_args__ = (
+        Index("ix_backfill_schedules_tenant_id", "tenant_id"),
+        Index("ix_backfill_schedules_enabled", "enabled"),
+        Index("ix_backfill_schedules_next_run_at", "next_run_at"),
+    )
+
+
+class BackfillPolicy(Base):
+    """Automation rules for backfill triggering."""
+
+    __tablename__ = "backfill_policies"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    trigger_type: Mapped[str] = mapped_column(String, nullable=False)
+    conditions_json: Mapped[str] = mapped_column(Text, nullable=False)
+    action_json: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_triggered_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
+
+    __table_args__ = (
+        Index("ix_backfill_policies_tenant_id", "tenant_id"),
+        Index("ix_backfill_policies_enabled", "enabled"),
+    )
+
+
 class MetricSnapshot(Base):
     __tablename__ = "metric_snapshots"
 

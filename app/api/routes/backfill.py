@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.api.rbac import require_permission
-from app.db.models import BackfillCampaign, BackfillJob, Record
+from app.db.models import BackfillCampaign, BackfillJob, BackfillSchedule, Record
 from app.pipeline.backfill_processor import check_campaign_completion, enqueue_backfill_campaign
 from app.queue import QueueUnavailableError
 from app.services.backfill_query import BackfillQuery
@@ -28,6 +28,55 @@ class CampaignCreateRequest(BaseModel):
     max_completeness: int = 70
     limit: int = 100
     dry_run: bool = False
+
+
+class ScheduleCreateRequest(BaseModel):
+    name: str
+    schedule_type: str = Field(default="recurring")
+    cron_expression: str | None = None
+    filters: dict[str, object] = Field(default_factory=dict)
+    options: dict[str, object] = Field(default_factory=dict)
+    enabled: bool = True
+    auto_start: bool = False
+
+
+class ScheduleUpdateRequest(BaseModel):
+    name: str | None = None
+    schedule_type: str | None = None
+    cron_expression: str | None = None
+    filters: dict[str, object] | None = None
+    options: dict[str, object] | None = None
+    enabled: bool | None = None
+    auto_start: bool | None = None
+
+
+def _schedule_to_dict(schedule: BackfillSchedule) -> dict[str, object]:
+    return {
+        "id": schedule.id,
+        "name": schedule.name,
+        "schedule_type": schedule.schedule_type,
+        "cron_expression": schedule.cron_expression,
+        "filters": json.loads(schedule.filters_json),
+        "options": json.loads(schedule.options_json),
+        "enabled": schedule.enabled,
+        "auto_start": schedule.auto_start,
+        "last_run_at": schedule.last_run_at,
+        "next_run_at": schedule.next_run_at,
+        "created_at": schedule.created_at,
+        "updated_at": schedule.updated_at,
+    }
+
+
+def _compute_next_run(cron_expression: str | None) -> datetime | None:
+    if cron_expression is None:
+        return None
+
+    from croniter import croniter
+
+    if not croniter.is_valid(cron_expression):
+        raise HTTPException(status_code=400, detail="Invalid cron expression")
+
+    return croniter(cron_expression, datetime.now(UTC)).get_next(datetime)
 
 
 @router.get("/preview")
@@ -295,3 +344,84 @@ async def calculate_existing_completeness(
 
     await db.commit()
     return {"updated": updated, "record_type": record_type}
+
+
+@router.get("/schedules")
+async def list_backfill_schedules(
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    result = await db.execute(select(BackfillSchedule).order_by(BackfillSchedule.created_at.desc()))
+    schedules = result.scalars().all()
+    return {"items": [_schedule_to_dict(schedule) for schedule in schedules], "total": len(schedules)}
+
+
+@router.post("/schedules")
+async def create_backfill_schedule(
+    payload: ScheduleCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("manage_jobs")),
+):
+    next_run_at = _compute_next_run(payload.cron_expression)
+    schedule = BackfillSchedule(
+        name=payload.name,
+        schedule_type=payload.schedule_type,
+        cron_expression=payload.cron_expression,
+        filters_json=json.dumps(payload.filters),
+        options_json=json.dumps(payload.options),
+        enabled=payload.enabled,
+        auto_start=payload.auto_start,
+        next_run_at=next_run_at,
+    )
+    db.add(schedule)
+    await db.commit()
+    await db.refresh(schedule)
+    return _schedule_to_dict(schedule)
+
+
+@router.patch("/schedules/{schedule_id}")
+async def update_backfill_schedule(
+    schedule_id: str,
+    payload: ScheduleUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("manage_jobs")),
+):
+    schedule = await db.get(BackfillSchedule, schedule_id)
+    if schedule is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    patch_data = payload.model_dump(exclude_unset=True)
+    if "name" in patch_data:
+        schedule.name = patch_data["name"]
+    if "schedule_type" in patch_data:
+        schedule.schedule_type = patch_data["schedule_type"]
+    if "cron_expression" in patch_data:
+        schedule.cron_expression = patch_data["cron_expression"]
+        schedule.next_run_at = _compute_next_run(schedule.cron_expression)
+    if "filters" in patch_data:
+        schedule.filters_json = json.dumps(patch_data["filters"])
+    if "options" in patch_data:
+        schedule.options_json = json.dumps(patch_data["options"])
+    if "enabled" in patch_data:
+        schedule.enabled = patch_data["enabled"]
+    if "auto_start" in patch_data:
+        schedule.auto_start = patch_data["auto_start"]
+
+    await db.commit()
+    await db.refresh(schedule)
+    return _schedule_to_dict(schedule)
+
+
+@router.delete("/schedules/{schedule_id}")
+async def delete_backfill_schedule(
+    schedule_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("manage_jobs")),
+):
+    schedule = await db.get(BackfillSchedule, schedule_id)
+    if schedule is None:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+
+    await db.delete(schedule)
+    await db.commit()
+    return {"deleted": True, "schedule_id": schedule_id}
