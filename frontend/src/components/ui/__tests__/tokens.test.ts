@@ -6,6 +6,8 @@ describe("design tokens", () => {
     expect(colors.primary[600]).toBe("#2563eb");
     expect(colors.gray[900]).toBe("#111827");
     expect(colors.error).toBe("#ef4444");
+    expect(colors.theme.dark.background).toBe("#111827");
+    expect(colors.theme.light.foreground).toBe("#111827");
   });
 
   it("exports spacing and typography scales", () => {

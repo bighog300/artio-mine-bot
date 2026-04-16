@@ -10,7 +10,7 @@ export function Select({ label, error, hint, options, placeholder, id, className
   return (
     <div className="space-y-1.5">
       {label ? (
-        <label htmlFor={selectId} className="block text-sm font-medium text-gray-700">
+        <label htmlFor={selectId} className="block text-sm font-medium text-foreground">
           {label}
         </label>
       ) : null}
@@ -19,10 +19,10 @@ export function Select({ label, error, hint, options, placeholder, id, className
         aria-invalid={Boolean(error)}
         aria-describedby={describedBy}
         className={cn(
-          "w-full rounded-md border bg-white px-3 py-2 text-sm shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-1",
+          "w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-background",
           error
-            ? "border-red-500 focus-visible:ring-red-500"
-            : "border-gray-300 focus-visible:border-blue-500 focus-visible:ring-blue-500",
+            ? "border-destructive focus-visible:ring-destructive"
+            : "focus-visible:border-primary focus-visible:ring-ring",
           className,
         )}
         {...props}
@@ -34,8 +34,8 @@ export function Select({ label, error, hint, options, placeholder, id, className
           </option>
         ))}
       </select>
-      {error ? <p id={`${selectId}-error`} className="text-xs text-red-600">{error}</p> : null}
-      {!error && hint ? <p id={`${selectId}-hint`} className="text-xs text-gray-500">{hint}</p> : null}
+      {error ? <p id={`${selectId}-error`} className="text-xs text-destructive">{error}</p> : null}
+      {!error && hint ? <p id={`${selectId}-hint`} className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }

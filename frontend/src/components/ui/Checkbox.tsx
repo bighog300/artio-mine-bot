@@ -7,7 +7,7 @@ export function Checkbox({ id, name, label, checked, disabled, onChange }: Choic
   };
 
   return (
-    <label htmlFor={id} className="inline-flex items-center gap-2 text-sm text-gray-700">
+    <label htmlFor={id} className="inline-flex items-center gap-2 text-sm text-foreground">
       <input
         id={id}
         type="checkbox"
@@ -15,7 +15,7 @@ export function Checkbox({ id, name, label, checked, disabled, onChange }: Choic
         checked={checked}
         disabled={disabled}
         onChange={handleChange}
-        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+        className="h-4 w-4 rounded border-input bg-background text-primary focus:ring-ring disabled:cursor-not-allowed"
       />
       <span>{label}</span>
     </label>

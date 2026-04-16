@@ -8,7 +8,7 @@ export function Switch({ id, label, checked = false, disabled, onChange }: Switc
   };
 
   return (
-    <label htmlFor={id} className="inline-flex items-center gap-3 text-sm text-gray-700">
+    <label htmlFor={id} className="inline-flex items-center gap-3 text-sm text-foreground">
       <span>{label}</span>
       <span className="relative inline-flex items-center">
         <input id={id} type="checkbox" className="peer sr-only" checked={checked} onChange={handleChange} disabled={disabled} />
@@ -16,14 +16,14 @@ export function Switch({ id, label, checked = false, disabled, onChange }: Switc
           aria-hidden
           className={cn(
             "h-6 w-11 rounded-full transition-colors",
-            checked ? "bg-blue-600" : "bg-gray-300",
+            checked ? "bg-primary" : "bg-muted",
             disabled ? "opacity-60" : "",
           )}
         />
         <span
           aria-hidden
           className={cn(
-            "absolute left-0.5 h-5 w-5 rounded-full bg-white transition-transform",
+            "absolute left-0.5 h-5 w-5 rounded-full bg-background transition-transform",
             checked ? "translate-x-5" : "translate-x-0",
           )}
         />

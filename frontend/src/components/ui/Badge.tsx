@@ -8,11 +8,11 @@ interface BadgeProps {
 }
 
 const variantStyles: Record<BadgeVariant, string> = {
-  default: "bg-gray-100 text-gray-800",
-  success: "bg-green-100 text-green-800",
-  warning: "bg-yellow-100 text-yellow-800",
-  error: "bg-red-100 text-red-800",
-  info: "bg-blue-100 text-blue-800",
+  default: "bg-muted text-muted-foreground",
+  success: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-100",
+  warning: "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-100",
+  error: "bg-red-100 text-red-900 dark:bg-red-900/40 dark:text-red-100",
+  info: "bg-blue-100 text-blue-900 dark:bg-blue-900/40 dark:text-blue-100",
 };
 
 export function Badge({ variant = "default", children, className }: BadgeProps) {
