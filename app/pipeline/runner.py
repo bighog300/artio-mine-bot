@@ -75,7 +75,7 @@ class PipelineRunner:
     def __init__(
         self,
         db: AsyncSession,
-        ai_client: OpenAIClient,
+        ai_client: OpenAIClient | None,
         *,
         job_id: str | None = None,
         source_id: str | None = None,
@@ -85,13 +85,17 @@ class PipelineRunner:
         self.job_id = job_id
         self.source_id = source_id
         self.robots_checker = RobotsChecker()
-        self._extractors = {
-            "artist": ArtistExtractor(ai_client),
-            "event": EventExtractor(ai_client),
-            "exhibition": ExhibitionExtractor(ai_client),
-            "venue": VenueExtractor(ai_client),
-            "artwork": ArtworkExtractor(ai_client),
-        }
+        self._extractors = (
+            {
+                "artist": ArtistExtractor(ai_client),
+                "event": EventExtractor(ai_client),
+                "exhibition": ExhibitionExtractor(ai_client),
+                "venue": VenueExtractor(ai_client),
+                "artwork": ArtworkExtractor(ai_client),
+            }
+            if ai_client is not None
+            else {}
+        )
         self._crawl_hints_cache: dict[str, dict[str, Any]] = {}
 
     async def _control_checkpoint(self) -> None:
@@ -149,14 +153,52 @@ class PipelineRunner:
         crawl_exception: Exception | None = None
         try:
             await self._control_checkpoint()
+            runtime_map, runtime_map_source = await crud.get_active_runtime_map(self.db, source_id)
+            has_runtime_map = crud.has_usable_runtime_map_payload(runtime_map)
+            mode = "deterministic" if has_runtime_map or self.ai_client is None else "ai_assisted"
             await self._report(
-                stage="mapping",
+                stage="starting",
                 item=source_id,
-                message="Starting site mapping",
-                event_type="stage_changed",
+                message=f"Runtime mode selected: {mode}",
+                event_type="runtime_mode_selected",
+                metrics_payload={
+                    "mode": mode,
+                    "runtime_map_source": runtime_map_source,
+                    "has_runtime_map": has_runtime_map,
+                },
             )
-            await crud.update_source(self.db, source_id, status="mapping")
-            site_map = await self.run_map_site(source_id)
+            site_map: SiteMap | None = None
+            if has_runtime_map:
+                await self._report(
+                    stage="mapping",
+                    item=source_id,
+                    message="Skipping AI mapping; existing runtime map loaded",
+                    event_type="ai_mapping_skipped_existing_runtime_map",
+                    metrics_payload={
+                        "mode": "deterministic",
+                        "runtime_map_source": runtime_map_source,
+                    },
+                )
+            else:
+                if self.ai_client is None or not settings.crawler_allow_ai:
+                    await self._report(
+                        stage="mapping",
+                        item=source_id,
+                        message="Runtime map missing and AI unavailable",
+                        event_type="runtime_map_missing",
+                        level="error",
+                    )
+                    raise RuntimeError(
+                        "No usable runtime map exists for source and AI mapping is unavailable."
+                    )
+                await self._report(
+                    stage="mapping",
+                    item=source_id,
+                    message="Starting site mapping",
+                    event_type="stage_changed",
+                )
+                await crud.update_source(self.db, source_id, status="mapping")
+                site_map = await self.run_map_site(source_id)
 
             await self._control_checkpoint()
             await self._report(
@@ -272,12 +314,9 @@ class PipelineRunner:
         if source is None:
             raise ValueError(f"Source {source_id} not found")
 
-        if source.structure_map:
-            try:
-                structure_map = json.loads(source.structure_map)
-            except json.JSONDecodeError as exc:
-                logger.warning("crawl_structure_map_invalid_json", source_id=source_id, error=str(exc))
-                raise ValueError("Structure map JSON is invalid; re-run /analyze-structure endpoint") from exc
+        runtime_map, runtime_map_source = await crud.get_active_runtime_map(self.db, source_id)
+        if runtime_map is not None:
+            structure_map = runtime_map
 
             try:
                 crawler = AutomatedCrawler(structure_map, self.db, self.ai_client)
@@ -289,6 +328,7 @@ class PipelineRunner:
                 logger.info(
                     "crawl_stats",
                     source_id=source_id,
+                    runtime_map_source=runtime_map_source,
                     pages_crawled=stats.get("pages_crawled", 0),
                     deterministic_rate=round(deterministic_rate, 4),
                     ai_fallback_rate=round(ai_fallback_rate, 4),
@@ -308,6 +348,8 @@ class PipelineRunner:
                 "crawl_structure_map_missing_falling_back",
                 source_id=source_id,
             )
+            if settings.crawler_require_runtime_map:
+                raise RuntimeError("Runtime map required for crawl but none exists.")
 
         if site_map is None:
             if source and source.site_map:
@@ -477,10 +519,34 @@ class PipelineRunner:
                     },
                 )()
                 expected_fields = structured.get("expected_fields") or None
-            else:
-                classify_result = await classify_page(
-                    url=page.url, html=page.html, ai_client=self.ai_client
+                await self._report(
+                    stage="extracting",
+                    item=page.url,
+                    message=f"Deterministic classification hit: {structured['page_type']}",
+                    event_type="deterministic_classification_hit",
                 )
+            else:
+                if self.ai_client is None:
+                    classify_result = type(
+                        "NoAIClassifyResult",
+                        (),
+                        {
+                            "page_type": "unknown",
+                            "confidence": 0,
+                            "reasoning": "deterministic_rules_miss_ai_unavailable",
+                        },
+                    )()
+                    await self._report(
+                        stage="extracting",
+                        item=page.url,
+                        message="Deterministic classification miss; AI unavailable",
+                        event_type="deterministic_extraction_miss",
+                        level="warning",
+                    )
+                else:
+                    classify_result = await classify_page(
+                        url=page.url, html=page.html, ai_client=self.ai_client
+                    )
         logger.info(
             "page_classification_result",
             source_id=page.source_id,
@@ -527,6 +593,13 @@ class PipelineRunner:
         # Extract
         extractor = self._extractors.get(record_type)
         if extractor is None:
+            await self._report(
+                stage="extracting",
+                item=page.url,
+                message=f"Skipped page: no deterministic extractor and AI unavailable ({record_type})",
+                event_type="page_skipped_no_runtime_rule",
+                level="warning",
+            )
             logger.warning(
                 "page_extraction_skipped_missing_extractor",
                 source_id=page.source_id,
@@ -817,8 +890,19 @@ class PipelineRunner:
 
         extracted_data: dict[str, Any] = {}
         if page_type in {"artist_profile", "artist_profile_hub", "artist_biography"}:
+            artist_extractor = self._extractors.get("artist")
+            if artist_extractor is None:
+                await self._report(
+                    stage="extracting",
+                    item=page.url,
+                    message="Skipped artist extraction: AI unavailable and no deterministic extractor",
+                    event_type="page_skipped_no_runtime_rule",
+                    level="warning",
+                )
+                await crud.update_page(self.db, page.id, status="skipped")
+                return None
             try:
-                extracted_data = await self._extractors["artist"].extract(url=page.url, html=page.html or "")
+                extracted_data = await artist_extractor.extract(url=page.url, html=page.html or "")
             except Exception as exc:
                 logger.error("extractor_error", page_id=page.id, record_type="artist", error=str(exc))
                 existing_error_record = await crud.get_record_by_page_and_type(
@@ -1013,14 +1097,8 @@ class PipelineRunner:
         return {"family_key": family_key, "pages_reprocessed": rerun_count}
 
     async def _get_structure_map(self, source_id: str) -> dict[str, Any] | None:
-        source = await crud.get_source(self.db, source_id)
-        if source is None or not source.structure_map:
-            return None
-        try:
-            return json.loads(source.structure_map)
-        except json.JSONDecodeError:
-            logger.warning("source_structure_invalid_json", source_id=source_id)
-            return None
+        runtime_map, _runtime_map_source = await crud.get_active_runtime_map(self.db, source_id)
+        return runtime_map
 
     def classify_page_with_structure(
         self,
@@ -1145,7 +1223,9 @@ async def _run_pipeline_job_async(
                 )
                 return
 
-            ai_client = OpenAIClient()
+            ai_client: OpenAIClient | None = None
+            if settings.crawler_allow_ai and settings.openai_api_key:
+                ai_client = OpenAIClient()
             runner = PipelineRunner(db=db, ai_client=ai_client, job_id=job_id, source_id=source_id)
             try:
                 claimed = await crud.claim_job_for_worker(

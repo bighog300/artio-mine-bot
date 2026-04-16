@@ -945,6 +945,113 @@ async def create_source_mapping_preset_from_version(
     return preset
 
 
+def has_usable_runtime_map_payload(runtime_map: dict[str, Any] | None) -> bool:
+    if not isinstance(runtime_map, dict):
+        return False
+    if isinstance(runtime_map.get("crawl_plan"), dict) and runtime_map.get("crawl_plan"):
+        return True
+    if isinstance(runtime_map.get("mining_map"), dict) and runtime_map.get("mining_map"):
+        return True
+    if isinstance(runtime_map.get("extraction_rules"), dict) and runtime_map.get("extraction_rules"):
+        return True
+    return False
+
+
+def build_runtime_map_from_preset_rows(
+    preset: SourceMappingPreset,
+    rows: list[SourceMappingPresetRow],
+    *,
+    base_runtime_map: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    runtime_map: dict[str, Any] = dict(base_runtime_map or {})
+    extraction_rules = runtime_map.get("extraction_rules")
+    if not isinstance(extraction_rules, dict):
+        extraction_rules = {}
+        runtime_map["extraction_rules"] = extraction_rules
+
+    for row in rows:
+        if not row.is_enabled:
+            continue
+        page_type_key = row.page_type_key or "unknown"
+        page_rules = extraction_rules.setdefault(page_type_key, {})
+        css_selectors = page_rules.setdefault("css_selectors", {})
+        destination_field = row.destination_field or "raw_value"
+        if row.selector and destination_field not in css_selectors:
+            css_selectors[destination_field] = row.selector
+
+    runtime_map["runtime_map_source"] = "applied_preset"
+    runtime_map["applied_preset_id"] = preset.id
+    runtime_map["applied_preset_name"] = preset.name
+    return runtime_map
+
+
+async def get_active_runtime_map(
+    db: AsyncSession,
+    source_id: str,
+) -> tuple[dict[str, Any] | None, str]:
+    source = await get_source(db, source_id)
+    if source is None:
+        return None, "none"
+
+    if source.structure_map:
+        try:
+            payload = json.loads(source.structure_map)
+            if has_usable_runtime_map_payload(payload):
+                runtime_source = "applied_preset" if source.active_mapping_preset_id else "source_structure_map"
+                return payload, runtime_source
+        except json.JSONDecodeError:
+            logger.warning("source_runtime_map_invalid_json", source_id=source_id)
+
+    return None, "none"
+
+
+async def apply_source_mapping_preset_to_source(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    preset_id: str,
+    tenant_id: str = "public",
+) -> Source:
+    source = await get_source(db, source_id)
+    if source is None or source.tenant_id != tenant_id:
+        raise ValueError("Source not found")
+
+    preset = await get_source_mapping_preset(db, preset_id, source_id=source_id, tenant_id=tenant_id)
+    if preset is None:
+        raise ValueError("Mapping preset not found for source")
+
+    rows_result = await db.execute(
+        select(SourceMappingPresetRow)
+        .where(SourceMappingPresetRow.preset_id == preset.id)
+        .order_by(SourceMappingPresetRow.sort_order.asc())
+    )
+    rows = list(rows_result.scalars().all())
+    if not rows:
+        raise ValueError("Mapping preset has no rows")
+
+    base_runtime_map: dict[str, Any] | None = None
+    if source.structure_map:
+        try:
+            parsed = json.loads(source.structure_map)
+            if isinstance(parsed, dict):
+                base_runtime_map = parsed
+        except json.JSONDecodeError:
+            base_runtime_map = None
+
+    runtime_map = build_runtime_map_from_preset_rows(
+        preset,
+        rows,
+        base_runtime_map=base_runtime_map,
+    )
+    source.structure_map = json.dumps(runtime_map)
+    source.active_mapping_preset_id = preset.id
+    source.runtime_mapping_updated_at = datetime.now(UTC)
+    source.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(source)
+    return source
+
+
 # ---------------------------------------------------------------------------
 # Page CRUD
 # ---------------------------------------------------------------------------

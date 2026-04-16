@@ -260,6 +260,25 @@ async def list_source_jobs(
     }
 
 
+@router.get("/{source_id}/runtime-map", response_model=dict)
+async def get_source_runtime_map(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    source = await crud.get_source(db, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    runtime_map, runtime_map_source = await crud.get_active_runtime_map(db, source_id)
+    return {
+        "source_id": source_id,
+        "runtime_map_source": runtime_map_source,
+        "active_mapping_preset_id": source.active_mapping_preset_id,
+        "runtime_mapping_updated_at": source.runtime_mapping_updated_at,
+        "runtime_map": runtime_map,
+    }
+
+
 @router.get("/{source_id}/operations", response_model=dict)
 async def get_source_operations(
     source_id: str,

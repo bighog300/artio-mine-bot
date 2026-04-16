@@ -374,4 +374,9 @@ class AutomatedCrawler:
         return _generate_urls_from_pattern(base_url, pattern, limit=limit)
 
     def _should_use_ai_fallback(self) -> bool:
-        return settings.crawler_use_ai_fallback and self._ai_fallback_used < settings.max_ai_fallback_per_source
+        return (
+            self.ai_client is not None
+            and settings.crawler_allow_ai
+            and settings.crawler_use_ai_fallback
+            and self._ai_fallback_used < settings.max_ai_fallback_per_source
+        )

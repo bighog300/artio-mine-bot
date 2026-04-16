@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
+    openai_required: bool = False
     database_url: str = get_database_url()
     redis_url: str = os.environ.get("REDIS_URL", "redis://redis:6379/0")
     artio_api_url: str | None = None
@@ -87,6 +88,8 @@ class Settings(BaseSettings):
     crawler_rate_limit_ms: int = 1000
     crawler_respect_robots_txt: bool = True
     crawler_use_ai_fallback: bool = True
+    crawler_allow_ai: bool = True
+    crawler_require_runtime_map: bool = False
     # None means "use environment-based default": True in dev, False in production.
     playwright_enabled: bool | None = None
     cors_origins: str = "http://localhost:5173"
@@ -113,7 +116,7 @@ def validate_env() -> None:
 
     validate_async_driver(settings.database_url)
 
-    if settings.environment == "production" and not settings.openai_api_key:
+    if settings.openai_required and not settings.openai_api_key:
         raise RuntimeError("Missing env var: OPENAI_API_KEY")
 
 

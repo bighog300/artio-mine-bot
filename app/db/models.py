@@ -61,6 +61,12 @@ class Source(Base):
         ForeignKey("source_mapping_versions.id"),
         nullable=True,
     )
+    active_mapping_preset_id: Mapped[str | None] = mapped_column(
+        String,
+        ForeignKey("source_mapping_presets.id"),
+        nullable=True,
+    )
+    runtime_mapping_updated_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
     mapping_status: Mapped[str] = mapped_column(String, default="none", nullable=False)
     last_mapping_scan_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
     last_mapping_error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -89,6 +95,11 @@ class Source(Base):
     active_mapping_version: Mapped["SourceMappingVersion | None"] = relationship(
         "SourceMappingVersion",
         foreign_keys=[active_mapping_version_id],
+        post_update=True,
+    )
+    active_mapping_preset: Mapped["SourceMappingPreset | None"] = relationship(
+        "SourceMappingPreset",
+        foreign_keys=[active_mapping_preset_id],
         post_update=True,
     )
 
