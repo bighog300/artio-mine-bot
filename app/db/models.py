@@ -68,6 +68,7 @@ class Source(Base):
     pages: Mapped[list["Page"]] = relationship("Page", back_populates="source", cascade="all, delete-orphan")
     records: Mapped[list["Record"]] = relationship("Record", back_populates="source", cascade="all, delete-orphan")
     jobs: Mapped[list["Job"]] = relationship("Job", back_populates="source", cascade="all, delete-orphan")
+    job_events: Mapped[list["JobEvent"]] = relationship("JobEvent", back_populates="source")
     logs: Mapped[list["Log"]] = relationship("Log", back_populates="source")
     schedules: Mapped[list["ScheduledJob"]] = relationship(
         "ScheduledJob",
@@ -267,16 +268,48 @@ class Job(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    current_stage: Mapped[str | None] = mapped_column(String, nullable=True)
+    current_item: Mapped[str | None] = mapped_column(Text, nullable=True)
+    progress_current: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    progress_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    last_log_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metrics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
 
     source: Mapped["Source"] = relationship("Source", back_populates="jobs")
+    events: Mapped[list["JobEvent"]] = relationship("JobEvent", back_populates="job", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_jobs_tenant_id", "tenant_id"),
         Index("ix_jobs_source_id", "source_id"),
         Index("ix_jobs_status", "status"),
+    )
+
+
+class JobEvent(Base):
+    __tablename__ = "job_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
+    job_id: Mapped[str] = mapped_column(String, ForeignKey("jobs.id"), nullable=False)
+    source_id: Mapped[str | None] = mapped_column(String, ForeignKey("sources.id"), nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    level: Mapped[str] = mapped_column(String, default="info", nullable=False)
+    event_type: Mapped[str] = mapped_column(String, nullable=False)
+    stage: Mapped[str | None] = mapped_column(String, nullable=True)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    context: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    job: Mapped["Job"] = relationship("Job", back_populates="events")
+    source: Mapped["Source | None"] = relationship("Source", back_populates="job_events")
+
+    __table_args__ = (
+        Index("ix_job_events_job_id_timestamp", "job_id", "timestamp"),
+        Index("ix_job_events_source_id_timestamp", "source_id", "timestamp"),
+        Index("ix_job_events_event_type", "event_type"),
     )
 
 

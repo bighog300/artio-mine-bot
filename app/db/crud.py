@@ -16,6 +16,7 @@ from app.db.models import (
     EntityRelationship,
     Image,
     Job,
+    JobEvent,
     MergeHistory,
     MetricSnapshot,
     Page,
@@ -1340,6 +1341,86 @@ async def list_jobs(
     stmt = stmt.order_by(Job.created_at.desc()).offset(skip).limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def update_job_progress(
+    db: AsyncSession,
+    job_id: str,
+    *,
+    stage: str | None = None,
+    item: str | None = None,
+    progress_current: int | None = None,
+    progress_total: int | None = None,
+    last_log_message: str | None = None,
+    metrics: dict[str, Any] | None = None,
+    heartbeat: bool = True,
+) -> Job | None:
+    job = await get_job(db, job_id)
+    if job is None:
+        return None
+
+    if stage is not None:
+        job.current_stage = stage
+    if item is not None:
+        job.current_item = item
+    if progress_current is not None:
+        job.progress_current = progress_current
+    if progress_total is not None:
+        job.progress_total = progress_total
+    if last_log_message is not None:
+        job.last_log_message = last_log_message
+    if metrics is not None:
+        job.metrics_json = json.dumps(metrics)
+    if heartbeat:
+        job.last_heartbeat_at = datetime.now(UTC)
+
+    await db.commit()
+    await db.refresh(job)
+    return job
+
+
+async def append_job_event(
+    db: AsyncSession,
+    *,
+    job_id: str,
+    source_id: str | None,
+    event_type: str,
+    message: str,
+    level: str = "info",
+    stage: str | None = None,
+    context: dict[str, Any] | None = None,
+) -> JobEvent:
+    job = await get_job(db, job_id)
+    tenant_id = job.tenant_id if job else "public"
+    event = JobEvent(
+        tenant_id=tenant_id,
+        job_id=job_id,
+        source_id=source_id,
+        event_type=event_type,
+        message=message,
+        level=level,
+        stage=stage,
+        context=json.dumps(context, default=str) if context is not None else None,
+    )
+    db.add(event)
+    await db.commit()
+    await db.refresh(event)
+    return event
+
+
+async def list_job_events(
+    db: AsyncSession,
+    job_id: str,
+    *,
+    limit: int = 100,
+    before: datetime | None = None,
+) -> list[JobEvent]:
+    stmt = select(JobEvent).where(JobEvent.job_id == job_id)
+    if before is not None:
+        stmt = stmt.where(JobEvent.timestamp < before)
+    stmt = stmt.order_by(JobEvent.timestamp.desc()).limit(limit)
+    rows = (await db.execute(stmt)).scalars().all()
+    return list(rows)
 
 
 async def list_pages_for_artist_family(

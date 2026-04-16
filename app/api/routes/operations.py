@@ -36,6 +36,47 @@ def _duration_seconds(job: Job) -> int | None:
     return max(0, int((end - job.started_at).total_seconds()))
 
 
+def _progress_percent(job: Job) -> int | None:
+    if job.progress_total and job.progress_total > 0:
+        return int((job.progress_current / job.progress_total) * 100)
+    return None
+
+
+def _is_job_stale(job: Job) -> bool:
+    if job.status != "running" or job.last_heartbeat_at is None:
+        return False
+    return (datetime.now(UTC) - job.last_heartbeat_at) > timedelta(minutes=2)
+
+
+def _serialize_job(job: Job, source_name: str | None) -> dict[str, Any]:
+    return {
+        "id": job.id,
+        "source_id": job.source_id,
+        "source": source_name,
+        "job_type": job.job_type,
+        "status": _job_status_external(job.status),
+        "attempts": job.attempts,
+        "max_attempts": job.max_attempts,
+        "payload": _parse_json(job.payload, {}),
+        "error_message": job.error_message,
+        "processed_count": int(_parse_json(job.result, {}).get("processed_count", 0)),
+        "failure_count": int(_parse_json(job.result, {}).get("failure_count", 0)) + (1 if job.error_message else 0),
+        "duration_seconds": _duration_seconds(job),
+        "current_stage": job.current_stage,
+        "current_item": job.current_item,
+        "progress_current": job.progress_current,
+        "progress_total": job.progress_total,
+        "progress_percent": _progress_percent(job),
+        "last_heartbeat_at": job.last_heartbeat_at,
+        "last_log_message": job.last_log_message,
+        "metrics": _parse_json(job.metrics_json, {}),
+        "is_stale": _is_job_stale(job),
+        "started_at": job.started_at,
+        "completed_at": job.completed_at,
+        "created_at": job.created_at,
+    }
+
+
 @router.get("/jobs")
 async def list_jobs(
     source_id: str | None = None,
@@ -48,29 +89,54 @@ async def list_jobs(
     jobs = await crud.list_jobs(db, source_id=source_id, status=status, skip=skip, limit=limit)
     source_map = {source.id: source for source in await crud.list_sources(db, skip=0, limit=1000)}
     return {
-        "items": [
-            {
-                "id": job.id,
-                "source_id": job.source_id,
-                "source": source_map.get(job.source_id).name if source_map.get(job.source_id) else None,
-                "job_type": job.job_type,
-                "status": _job_status_external(job.status),
-                "attempts": job.attempts,
-                "max_attempts": job.max_attempts,
-                "payload": _parse_json(job.payload, {}),
-                "error_message": job.error_message,
-                "processed_count": int(_parse_json(job.result, {}).get("processed_count", 0)),
-                "failure_count": int(_parse_json(job.result, {}).get("failure_count", 0)) + (1 if job.error_message else 0),
-                "duration_seconds": _duration_seconds(job),
-                "started_at": job.started_at,
-                "completed_at": job.completed_at,
-                "created_at": job.created_at,
-            }
-            for job in jobs
-        ],
+        "items": [_serialize_job(job, source_map.get(job.source_id).name if source_map.get(job.source_id) else None) for job in jobs],
         "total": len(jobs),
         "skip": skip,
         "limit": limit,
+    }
+
+
+@router.get("/jobs/{job_id}")
+async def get_job_detail(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    job = await crud.get_job(db, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    source = await crud.get_source(db, job.source_id)
+    payload = _serialize_job(job, source.name if source else None)
+    payload["result"] = _parse_json(job.result, {})
+    return payload
+
+
+@router.get("/jobs/{job_id}/events")
+async def get_job_events(
+    job_id: str,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    job = await crud.get_job(db, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    events = await crud.list_job_events(db, job_id, limit=limit)
+    events = list(reversed(events))
+    return {
+        "items": [
+            {
+                "id": event.id,
+                "timestamp": event.timestamp,
+                "level": event.level,
+                "event_type": event.event_type,
+                "stage": event.stage,
+                "message": event.message,
+                "context": _parse_json(event.context, {}),
+            }
+            for event in events
+        ],
+        "total": len(events),
     }
 
 

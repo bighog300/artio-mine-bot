@@ -223,7 +223,29 @@ export interface Job {
   processed_count?: number;
   failure_count?: number;
   duration_seconds?: number | null;
+  current_stage?: string | null;
+  current_item?: string | null;
+  progress_current?: number;
+  progress_total?: number;
+  progress_percent?: number | null;
+  last_heartbeat_at?: string | null;
+  last_log_message?: string | null;
+  metrics?: Record<string, unknown>;
+  is_stale?: boolean;
+  result?: Record<string, unknown>;
 }
+
+export interface JobEvent {
+  id: string;
+  timestamp: string;
+  level: string;
+  event_type: string;
+  stage: string | null;
+  message: string;
+  context: Record<string, unknown>;
+}
+
+export type JobDetail = Job;
 
 export interface QueueState {
   name: string;
@@ -825,6 +847,15 @@ export const getJobs = (params?: {
   skip?: number;
   limit?: number;
 }): Promise<PaginatedResponse<Job>> => api.get("/jobs", { params }).then((r) => r.data);
+
+export const getJob = (jobId: string): Promise<JobDetail> =>
+  api.get(`/jobs/${jobId}`).then((r) => r.data);
+
+export const getJobEvents = (
+  jobId: string,
+  params?: { limit?: number }
+): Promise<{ items: JobEvent[]; total: number }> =>
+  api.get(`/jobs/${jobId}/events`, { params }).then((r) => r.data);
 
 export const retryJob = (jobId: string): Promise<{ id: string; status: string }> =>
   api.post(`/jobs/${jobId}/retry`).then((r) => r.data);
