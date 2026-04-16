@@ -22,6 +22,7 @@ import { Queues } from "@/pages/Queues";
 import { Backfill } from "@/pages/Backfill";
 import { JobDetail } from "@/pages/JobDetail";
 import { Workers } from "@/pages/Workers";
+import { MobileTest } from "@/pages/MobileTest";
 
 export default function App() {
   return (
@@ -50,6 +51,7 @@ export default function App() {
           <Route path="/settings" element={<Settings />} />
           <Route path="/api-access" element={<ApiAccess />} />
           <Route path="/backfill" element={<Backfill />} />
+          <Route path="/mobile-test" element={<MobileTest />} />
         </Routes>
       </Layout>
     </BrowserRouter>

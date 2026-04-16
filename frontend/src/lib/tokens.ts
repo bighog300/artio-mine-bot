@@ -32,12 +32,30 @@ export const colors = {
   info: "#3b82f6",
 } as const;
 
+export const breakpoints = {
+  sm: "640px",
+  md: "768px",
+  lg: "1024px",
+  xl: "1280px",
+  "2xl": "1536px",
+} as const;
+
 export const spacing = {
   xs: "0.25rem",
   sm: "0.5rem",
   md: "1rem",
   lg: "1.5rem",
   xl: "2rem",
+  mobile: {
+    padding: "1rem",
+    margin: "0.75rem",
+    gap: "0.75rem",
+  },
+  touch: {
+    minHeight: "44px",
+    minWidth: "44px",
+    preferred: "48px",
+  },
 } as const;
 
 export const typography = {
