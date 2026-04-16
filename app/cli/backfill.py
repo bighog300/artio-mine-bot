@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 
@@ -99,6 +100,46 @@ async def cmd_status(args: argparse.Namespace) -> None:
         )
 
 
+async def cmd_monitor(args: argparse.Namespace) -> None:
+    interval = max(args.interval, 1)
+    try:
+        while True:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    select(BackfillCampaign)
+                    .where(BackfillCampaign.status == "running")
+                    .order_by(BackfillCampaign.started_at.desc())
+                )
+                campaigns = result.scalars().all()
+
+                print("\033[2J\033[H", end="")
+                print("=" * 80)
+                print(f"Backfill Campaign Monitor - {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+                print("=" * 80)
+                print()
+
+                if not campaigns:
+                    print("No running campaigns.")
+                else:
+                    for c in campaigns:
+                        pct = int((c.processed_records / c.total_records) * 100) if c.total_records > 0 else 0
+                        bar_length = 40
+                        filled = int(bar_length * pct / 100)
+                        bar = "█" * filled + "░" * (bar_length - filled)
+
+                        print(c.name)
+                        print(f"  ID: {c.id}")
+                        print(f"  Progress: {c.processed_records}/{c.total_records} ({pct}%)")
+                        print(f"  Successful: {c.successful_updates} | Failed: {c.failed_updates}")
+                        print(f"  [{bar}] {pct}%")
+                        print()
+
+                print(f"Refreshing every {interval}s... (Ctrl+C to stop)")
+            await asyncio.sleep(interval)
+    except KeyboardInterrupt:
+        print("\nMonitoring stopped.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Backfill campaign commands")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -116,6 +157,9 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="Campaign status")
     status.add_argument("campaign_id")
 
+    monitor = sub.add_parser("monitor", help="Monitor running campaigns")
+    monitor.add_argument("--interval", type=int, default=5)
+
     return parser
 
 
@@ -127,6 +171,8 @@ def main() -> None:
         asyncio.run(cmd_list(args))
     elif args.command == "status":
         asyncio.run(cmd_status(args))
+    elif args.command == "monitor":
+        asyncio.run(cmd_monitor(args))
 
 
 if __name__ == "__main__":
