@@ -179,8 +179,40 @@ async def purge_logs(
 
 
 @router.get("/stream")
-async def stream_logs(request: Request):
+async def stream_logs(
+    request: Request,
+    source_id: str | None = Query(default=None),
+    job_id: str | None = Query(default=None),
+    worker_id: str | None = Query(default=None),
+    stage: str | None = Query(default=None),
+    event_type: str | None = Query(default=None),
+):
     queue = log_stream_manager.subscribe()
+
+    def _matches_filter(event: dict[str, object]) -> bool:
+        if source_id and str(event.get("source_id") or "") != source_id:
+            return False
+        context_raw = event.get("context")
+        context_obj: dict[str, object] = {}
+        if isinstance(context_raw, str):
+            try:
+                parsed = json.loads(context_raw)
+                if isinstance(parsed, dict):
+                    context_obj = parsed
+            except json.JSONDecodeError:
+                context_obj = {}
+        elif isinstance(context_raw, dict):
+            context_obj = context_raw
+
+        if job_id and str(context_obj.get("job_id") or "") != job_id:
+            return False
+        if worker_id and str(context_obj.get("worker_id") or "") != worker_id:
+            return False
+        if stage and str(context_obj.get("stage") or "") != stage:
+            return False
+        if event_type and str(context_obj.get("event_type") or "") != event_type:
+            return False
+        return True
 
     async def event_generator():
         try:
@@ -189,6 +221,8 @@ async def stream_logs(request: Request):
                     break
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=15)
+                    if not _matches_filter(event):
+                        continue
                     yield f"data: {json.dumps(event, default=str)}\n\n"
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"

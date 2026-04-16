@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException
 import json
 import structlog
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,10 +18,58 @@ from app.api.schemas import (
     SourceUpdate,
 )
 from app.db import crud
+from app.db.models import JobEvent, Record
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 logger = structlog.get_logger()
 SOURCE_OPERATIONAL_STATUSES = {"idle", "running", "paused", "stopping", "failed", "completed"}
+
+
+def _parse_json(value: str | None, default: object) -> object:
+    if not value:
+        return default
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return default
+
+
+def _serialize_job_run(job: object) -> dict[str, object]:
+    duration_seconds: int | None = None
+    started_at = getattr(job, "started_at", None)
+    completed_at = getattr(job, "completed_at", None)
+    if started_at is not None:
+        end = completed_at or datetime.now(UTC)
+        duration_seconds = max(0, int((end - started_at).total_seconds()))
+
+    return {
+        "id": getattr(job, "id"),
+        "source_id": getattr(job, "source_id"),
+        "job_type": getattr(job, "job_type"),
+        "status": getattr(job, "status"),
+        "worker_id": getattr(job, "worker_id", None),
+        "attempts": getattr(job, "attempts"),
+        "max_attempts": getattr(job, "max_attempts"),
+        "error_message": getattr(job, "error_message"),
+        "current_stage": getattr(job, "current_stage", None),
+        "current_item": getattr(job, "current_item", None),
+        "progress_current": getattr(job, "progress_current", 0),
+        "progress_total": getattr(job, "progress_total", 0),
+        "progress_percent": (
+            int((getattr(job, "progress_current", 0) / getattr(job, "progress_total", 0)) * 100)
+            if getattr(job, "progress_total", 0)
+            else None
+        ),
+        "last_heartbeat_at": getattr(job, "last_heartbeat_at", None),
+        "last_log_message": getattr(job, "last_log_message", None),
+        "metrics": _parse_json(getattr(job, "metrics_json", None), {}),
+        "payload": _parse_json(getattr(job, "payload", None), {}),
+        "result": _parse_json(getattr(job, "result", None), {}),
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "created_at": getattr(job, "created_at"),
+        "duration_seconds": duration_seconds,
+    }
 
 
 @router.get("", response_model=dict)
@@ -207,19 +256,87 @@ async def list_source_jobs(
         raise HTTPException(status_code=404, detail="Source not found")
     jobs = await crud.list_jobs(db, source_id=source_id)
     return {
+        "items": [_serialize_job_run(job) for job in jobs]
+    }
+
+
+@router.get("/{source_id}/operations", response_model=dict)
+async def get_source_operations(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    source = await _ensure_source(db, source_id)
+    jobs = await crud.list_jobs(db, source_id=source_id, skip=0, limit=20)
+    active_jobs = [job for job in jobs if job.status in {"queued", "pending", "running", "paused"}]
+
+    pending_stmt = (
+        select(func.count())
+        .select_from(Record)
+        .where(Record.source_id == source_id, Record.status == "needs_review")
+    )
+    pending_moderation = int((await db.execute(pending_stmt)).scalar_one() or 0)
+    pending_duplicate_reviews = await crud.list_duplicate_reviews_for_source(db, source_id=source_id, status="pending", limit=10)
+
+    return {
+        "source": SourceDetailResponse.model_validate(source).model_dump(),
+        "active_jobs": [_serialize_job_run(job) for job in active_jobs],
+        "recent_runs": [_serialize_job_run(job) for job in jobs[:10]],
+        "pending_moderation_count": pending_moderation + len(pending_duplicate_reviews),
+        "pending_duplicate_review_count": len(pending_duplicate_reviews),
+    }
+
+
+@router.get("/{source_id}/runs", response_model=dict)
+async def list_source_runs(
+    source_id: str,
+    limit: int = 30,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    await _ensure_source(db, source_id)
+    runs = await crud.list_jobs(db, source_id=source_id, skip=0, limit=max(1, min(limit, 200)))
+    return {"items": [_serialize_job_run(run) for run in runs], "total": len(runs)}
+
+
+@router.get("/{source_id}/events", response_model=dict)
+async def list_source_events(
+    source_id: str,
+    limit: int = 100,
+    event_type: str | None = None,
+    stage: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    await _ensure_source(db, source_id)
+    jobs = await crud.list_jobs(db, source_id=source_id, skip=0, limit=500)
+    job_ids = [job.id for job in jobs]
+    if not job_ids:
+        return {"items": [], "total": 0}
+
+    stmt = select(JobEvent).where(JobEvent.source_id == source_id).order_by(JobEvent.timestamp.desc()).limit(max(1, min(limit, 500)))
+    if event_type:
+        stmt = stmt.where(JobEvent.event_type == event_type)
+    if stage:
+        stmt = stmt.where(JobEvent.stage == stage)
+    events = (await db.execute(stmt)).scalars().all()
+    return {
         "items": [
             {
-                "id": job.id,
-                "source_id": job.source_id,
-                "job_type": job.job_type,
-                "status": job.status,
-                "attempts": job.attempts,
-                "started_at": job.started_at,
-                "completed_at": job.completed_at,
-                "error_message": job.error_message,
+                "id": event.id,
+                "job_id": event.job_id,
+                "source_id": event.source_id,
+                "worker_id": event.worker_id,
+                "timestamp": event.timestamp,
+                "level": event.level,
+                "event_type": event.event_type,
+                "stage": event.stage,
+                "message": event.message,
+                "context": _parse_json(event.context, {}),
             }
-            for job in jobs
-        ]
+            for event in reversed(list(events))
+        ],
+        "total": len(events),
     }
 
 
@@ -300,3 +417,131 @@ async def retry_failed_source_action(
     status = "running" if retried_jobs > 0 else "idle"
     source = await crud.set_source_operational_status(db, source_id, status, queue_paused=False)
     return SourceActionResponse(source_id=source.id, status=source.status, operational_status=source.operational_status, queued_jobs=retried_jobs)
+
+
+@router.post("/{source_id}/run", response_model=SourceActionResponse)
+async def run_source(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    return await start_full_mining_action(source_id=source_id, db=db, _role=_role)
+
+
+@router.post("/{source_id}/pause", response_model=SourceActionResponse)
+async def pause_source(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    return await pause_source_action(source_id=source_id, db=db, _role=_role)
+
+
+@router.post("/{source_id}/resume", response_model=SourceActionResponse)
+async def resume_source(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    return await resume_source_action(source_id=source_id, db=db, _role=_role)
+
+
+@router.post("/{source_id}/cancel-active", response_model=SourceActionResponse)
+async def cancel_source_active(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    return await stop_source_action(source_id=source_id, db=db, _role=_role)
+
+
+@router.post("/{source_id}/backfill", response_model=SourceActionResponse)
+async def backfill_source(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    await _ensure_source(db, source_id)
+    job = await crud.create_job(db, source_id=source_id, job_type="run_backfill_campaign", payload={})
+    source = await crud.set_source_operational_status(db, source_id, "running", queue_paused=False, error_message=None)
+    return SourceActionResponse(
+        source_id=source.id,
+        status=source.status,
+        operational_status=source.operational_status,
+        queued_jobs=1 if job else 0,
+    )
+
+
+@router.get("/{source_id}/moderated-actions", response_model=dict)
+async def list_source_moderated_actions(
+    source_id: str,
+    status: str = "pending",
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    await _ensure_source(db, source_id)
+    reviews = await crud.list_duplicate_reviews_for_source(
+        db,
+        source_id=source_id,
+        status=status if status else None,
+        limit=max(1, min(limit, 200)),
+    )
+    items = []
+    for review in reviews:
+        left = await crud.get_record(db, review.left_record_id)
+        right = await crud.get_record(db, review.right_record_id)
+        items.append(
+            {
+                "id": review.id,
+                "source_id": source_id,
+                "status": review.status,
+                "kind": "duplicate_review",
+                "created_at": review.created_at,
+                "similarity_score": review.similarity_score,
+                "reason": review.reason,
+                "left_record": {"id": left.id, "title": left.title, "record_type": left.record_type} if left else None,
+                "right_record": {"id": right.id, "title": right.title, "record_type": right.record_type} if right else None,
+                "reviewed_at": review.reviewed_at,
+                "reviewed_by": review.reviewed_by,
+            }
+        )
+    return {"items": items, "total": len(items)}
+
+
+@router.post("/{source_id}/moderated-actions/{action_id}/approve", response_model=dict)
+async def approve_source_moderated_action(
+    source_id: str,
+    action_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("merge")),
+):
+    await _ensure_source(db, source_id)
+    review = await crud.get_duplicate_review(db, action_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail="Moderated action not found")
+    left = await crud.get_record(db, review.left_record_id)
+    right = await crud.get_record(db, review.right_record_id)
+    if not left or not right or (left.source_id != source_id and right.source_id != source_id):
+        raise HTTPException(status_code=404, detail="Moderated action not found for source")
+    updated = await crud.set_duplicate_review_status(db, review_id=action_id, status="approved", reviewed_by="operator")
+    return {"id": updated.id, "status": updated.status}
+
+
+@router.post("/{source_id}/moderated-actions/{action_id}/reject", response_model=dict)
+async def reject_source_moderated_action(
+    source_id: str,
+    action_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("merge")),
+):
+    await _ensure_source(db, source_id)
+    review = await crud.get_duplicate_review(db, action_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail="Moderated action not found")
+    left = await crud.get_record(db, review.left_record_id)
+    right = await crud.get_record(db, review.right_record_id)
+    if not left or not right or (left.source_id != source_id and right.source_id != source_id):
+        raise HTTPException(status_code=404, detail="Moderated action not found for source")
+    updated = await crud.set_duplicate_review_status(db, review_id=action_id, status="rejected", reviewed_by="operator")
+    return {"id": updated.id, "status": updated.status}
