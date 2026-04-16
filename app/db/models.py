@@ -91,6 +91,7 @@ class Source(Base):
         "SourceMappingPreset",
         back_populates="source",
         cascade="all, delete-orphan",
+        foreign_keys="SourceMappingPreset.source_id",
     )
     active_mapping_version: Mapped["SourceMappingVersion | None"] = relationship(
         "SourceMappingVersion",
@@ -539,7 +540,11 @@ class SourceMappingPreset(Base):
     created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
 
-    source: Mapped["Source"] = relationship("Source", back_populates="mapping_presets")
+    source: Mapped["Source"] = relationship(
+        "Source",
+        back_populates="mapping_presets",
+        foreign_keys=[source_id],
+    )
     rows: Mapped[list["SourceMappingPresetRow"]] = relationship(
         "SourceMappingPresetRow",
         back_populates="preset",
