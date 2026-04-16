@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import socket
 from datetime import UTC, datetime
 from typing import Any
 
@@ -20,6 +22,7 @@ from app.services.completeness import calculate_completeness, update_record_comp
 
 logger = structlog.get_logger()
 BACKFILL_JOB_TIMEOUT_SECONDS = 600
+WORKER_ID = os.environ.get("WORKER_ID", f"{socket.gethostname()}-{os.getpid()}")
 
 
 async def _emit_backfill_progress(
@@ -30,20 +33,35 @@ async def _emit_backfill_progress(
     message: str,
     item: str | None = None,
     level: str = "info",
+    event_type: str = "progress",
+    progress_current: int | None = None,
+    progress_total: int | None = None,
 ) -> None:
     await log_stream_manager.publish(
         {
             "stream_type": "job_progress",
             "job_id": backfill_job_id,
+            "worker_id": WORKER_ID,
             "source_id": source_id,
             "stage": stage,
             "message": message,
-            "event_type": "progress",
+            "event_type": event_type,
             "level": level,
             "item": item,
+            "progress_current": progress_current,
+            "progress_total": progress_total,
             "timestamp": datetime.now(UTC).isoformat(),
         }
     )
+
+
+async def _control_checkpoint(job: BackfillJob) -> None:
+    while True:
+        if job.status == "cancelled":
+            raise RuntimeError("Backfill job cancelled by operator")
+        if job.status != "paused":
+            return
+        await asyncio.sleep(1)
 
 
 async def enqueue_backfill_campaign(db: AsyncSession, campaign_id: str) -> int:
@@ -107,6 +125,8 @@ async def _process_backfill_job_async(job_id: str) -> None:
         await db.commit()
 
         try:
+            await db.refresh(job)
+            await _control_checkpoint(job)
             record = await db.get(Record, job.record_id)
             if record is None:
                 raise ValueError(f"Record {job.record_id} not found")
@@ -116,6 +136,7 @@ async def _process_backfill_job_async(job_id: str) -> None:
                 stage="backfill_fetch",
                 item=job.url_to_crawl,
                 message="Backfill record job started",
+                event_type="job_started",
             )
 
             before = job.before_completeness
@@ -129,6 +150,8 @@ async def _process_backfill_job_async(job_id: str) -> None:
                 stage="backfill_extract",
                 item=job.url_to_crawl,
                 message="Extracting missing fields",
+                progress_current=1,
+                progress_total=3,
             )
             extracted_data = _extract_record_data(html, record.record_type)
             await _emit_backfill_progress(
@@ -137,6 +160,8 @@ async def _process_backfill_job_async(job_id: str) -> None:
                 stage="backfill_merge",
                 item=record.id,
                 message="Merging extracted fields into record",
+                progress_current=2,
+                progress_total=3,
             )
             updated_fields = _merge_data_into_record(record, extracted_data)
 
@@ -168,6 +193,9 @@ async def _process_backfill_job_async(job_id: str) -> None:
                 stage="finalizing",
                 item=record.id,
                 message="Backfill record completed",
+                event_type="job_completed",
+                progress_current=3,
+                progress_total=3,
             )
         except Exception as exc:
             logger.exception("backfill_job_failed", backfill_job_id=job_id, error=str(exc))
@@ -184,6 +212,7 @@ async def _process_backfill_job_async(job_id: str) -> None:
                 item=job.record_id,
                 message=f"Backfill record failed: {exc}",
                 level="error",
+                event_type="job_failed",
             )
             raise
 

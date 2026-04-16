@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { getJobs, getQueues, pauseQueue, resumeQueue } from "@/lib/api";
+import { getJobs, getQueues, getWorkers, pauseQueue, resumeQueue } from "@/lib/api";
 
 export function Queues() {
   const queryClient = useQueryClient();
   const { data } = useQuery({ queryKey: ["queues"], queryFn: getQueues, refetchInterval: 5000 });
   const { data: jobs } = useQuery({ queryKey: ["jobs", "queue-view"], queryFn: () => getJobs({ limit: 300 }), refetchInterval: 5000 });
+  const { data: workers } = useQuery({ queryKey: ["workers", "queue-view"], queryFn: getWorkers, refetchInterval: 5000 });
   const queueMutation = useMutation({
     mutationFn: async ({ name, action }: { name: string; action: "pause" | "resume" }) =>
       action === "pause" ? pauseQueue(name) : resumeQueue(name),
@@ -31,7 +32,11 @@ export function Queues() {
               <div><div className="text-gray-500">Paused</div><div className="font-semibold">{queue.paused}</div></div>
               <div><div className="text-gray-500">Oldest item age</div><div className="font-semibold">{queue.oldest_item_age_seconds}s</div></div>
             </div>
-            <div className="grid grid-cols-3 gap-2 mt-3 text-sm border-t pt-3">
+            <div className="grid grid-cols-4 gap-2 mt-3 text-sm border-t pt-3">
+              <div>
+                <div className="text-gray-500">Active workers</div>
+                <div className="font-semibold">{workers?.items.filter((w) => w.status === "running").length ?? 0}</div>
+              </div>
               <div>
                 <div className="text-gray-500">Stale jobs</div>
                 <div className="font-semibold">{jobs?.items.filter((j) => j.is_stale).length ?? 0}</div>

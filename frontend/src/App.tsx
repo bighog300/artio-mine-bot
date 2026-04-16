@@ -20,6 +20,7 @@ import { Jobs } from "@/pages/Jobs";
 import { Queues } from "@/pages/Queues";
 import { Backfill } from "@/pages/Backfill";
 import { JobDetail } from "@/pages/JobDetail";
+import { Workers } from "@/pages/Workers";
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
           <Route path="/jobs" element={<Jobs />} />
           <Route path="/jobs/:id" element={<JobDetail />} />
           <Route path="/queues" element={<Queues />} />
+          <Route path="/workers" element={<Workers />} />
           <Route path="/images" element={<Images />} />
           <Route path="/export" element={<Export />} />
           <Route path="/logs" element={<Logs />} />

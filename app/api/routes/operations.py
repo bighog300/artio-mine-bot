@@ -55,6 +55,7 @@ def _serialize_job(job: Job, source_name: str | None) -> dict[str, Any]:
         "source": source_name,
         "job_type": job.job_type,
         "status": _job_status_external(job.status),
+        "worker_id": job.worker_id,
         "attempts": job.attempts,
         "max_attempts": job.max_attempts,
         "payload": _parse_json(job.payload, {}),
@@ -63,11 +64,15 @@ def _serialize_job(job: Job, source_name: str | None) -> dict[str, Any]:
         "failure_count": int(_parse_json(job.result, {}).get("failure_count", 0)) + (1 if job.error_message else 0),
         "duration_seconds": _duration_seconds(job),
         "current_stage": job.current_stage,
+        "stage": job.current_stage,
         "current_item": job.current_item,
+        "item": job.current_item,
         "progress_current": job.progress_current,
         "progress_total": job.progress_total,
+        "progress": {"current": job.progress_current, "total": job.progress_total},
         "progress_percent": _progress_percent(job),
         "last_heartbeat_at": job.last_heartbeat_at,
+        "heartbeat": job.last_heartbeat_at,
         "last_log_message": job.last_log_message,
         "metrics": _parse_json(job.metrics_json, {}),
         "is_stale": _is_job_stale(job),
@@ -130,6 +135,7 @@ async def get_job_events(
                 "timestamp": event.timestamp,
                 "level": event.level,
                 "event_type": event.event_type,
+                "worker_id": event.worker_id,
                 "stage": event.stage,
                 "message": event.message,
                 "context": _parse_json(event.context, {}),
@@ -137,6 +143,28 @@ async def get_job_events(
             for event in events
         ],
         "total": len(events),
+    }
+
+
+@router.get("/workers")
+async def list_workers(
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    workers = await crud.list_worker_states(db)
+    return {
+        "items": [
+            {
+                "worker_id": worker.worker_id,
+                "status": worker.status,
+                "current_job_id": worker.current_job_id,
+                "stage": worker.current_stage,
+                "heartbeat": worker.last_heartbeat_at,
+                "metrics": _parse_json(worker.metrics_json, {}),
+            }
+            for worker in workers
+        ],
+        "total": len(workers),
     }
 
 

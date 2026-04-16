@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Globe, Database, Image, Upload, FileText, Settings, TerminalSquare, GitMerge, SearchCheck, Compass, History, KeyRound, ListChecks, Layers3, RefreshCw } from "lucide-react";
+import { LayoutDashboard, Globe, Database, Image, Upload, FileText, Settings, TerminalSquare, GitMerge, SearchCheck, Compass, History, KeyRound, ListChecks, Layers3, RefreshCw, ActivitySquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -8,6 +8,7 @@ const navItems = [
   { to: "/pages", label: "Pages", icon: FileText },
   { to: "/jobs", label: "Jobs", icon: ListChecks },
   { to: "/queues", label: "Queues", icon: Layers3 },
+  { to: "/workers", label: "Workers", icon: ActivitySquare },
   { to: "/backfill", label: "Backfill", icon: RefreshCw },
   { to: "/records", label: "Records", icon: Database },
   { to: "/admin-review", label: "Admin Review", icon: SearchCheck },

@@ -1,6 +1,8 @@
 import json
 import os
 import re
+import socket
+from asyncio import sleep
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -40,6 +42,7 @@ from app.extraction.artist_related import extract_artist_related_items
 from app.metrics import metrics
 from app.pipeline.image_collector import collect_images
 from app.pipeline.job_progress import report_job_progress
+from app.queue import QueueUnavailableError, get_default_queue
 
 worker_log_processor = configure_structlog_for_service("worker")
 logger = structlog.get_logger()
@@ -57,6 +60,8 @@ DISCOVERY_PAGE_TYPES = {
     "artist_profile_hub",
 }
 TERMINAL_PAGE_STATUSES = {"extracted", "skipped", "expanded"}
+MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", str(settings.max_concurrent_jobs)))
+WORKER_ID = os.environ.get("WORKER_ID", f"{socket.gethostname()}-{os.getpid()}")
 
 
 @dataclass
@@ -89,6 +94,25 @@ class PipelineRunner:
         }
         self._crawl_hints_cache: dict[str, dict[str, Any]] = {}
 
+    async def _control_checkpoint(self) -> None:
+        if not self.job_id:
+            return
+        while True:
+            job = await crud.get_job(self.db, self.job_id)
+            if job is None:
+                raise RuntimeError(f"Job {self.job_id} not found")
+            if job.status == "cancelled":
+                raise RuntimeError("Job cancelled by operator")
+            if job.status != "paused":
+                return
+            await self._report(
+                stage=job.current_stage or "paused",
+                item=job.current_item,
+                message="Job paused by operator",
+                event_type="job_heartbeat",
+            )
+            await sleep(1)
+
     async def _report(
         self,
         *,
@@ -107,6 +131,7 @@ class PipelineRunner:
             self.db,
             self.job_id,
             source_id=self.source_id,
+            worker_id=WORKER_ID,
             stage=stage,
             item=item,
             message=message,
@@ -123,6 +148,7 @@ class PipelineRunner:
             raise RuntimeError("This task must run in a worker environment, not Vercel.")
         crawl_exception: Exception | None = None
         try:
+            await self._control_checkpoint()
             await self._report(
                 stage="mapping",
                 item=source_id,
@@ -132,6 +158,7 @@ class PipelineRunner:
             await crud.update_source(self.db, source_id, status="mapping")
             site_map = await self.run_map_site(source_id)
 
+            await self._control_checkpoint()
             await self._report(
                 stage="crawling",
                 item=source_id,
@@ -148,6 +175,7 @@ class PipelineRunner:
             # Ensure crawl writes are committed before extraction reads pages.
             await self.db.commit()
 
+            await self._control_checkpoint()
             await self._report(
                 stage="extracting",
                 item=source_id,
@@ -358,6 +386,7 @@ class PipelineRunner:
         )
 
         for idx, page in enumerate(pages, start=1):
+            await self._control_checkpoint()
             try:
                 record = await self.run_extraction_for_page(page, structure_map=structure_map)
                 if record:
@@ -1090,6 +1119,13 @@ async def _run_pipeline_job_async(
 
     try:
         async with AsyncSessionLocal() as db:
+            await crud.heartbeat_worker(
+                db,
+                worker_id=WORKER_ID,
+                status="idle",
+                current_job_id=None,
+                current_stage=None,
+            )
             source = await crud.wait_for_source(db, source_id, retries=3, delay_seconds=0.2)
             if source is None:
                 logger.error(
@@ -1112,16 +1148,45 @@ async def _run_pipeline_job_async(
             ai_client = OpenAIClient()
             runner = PipelineRunner(db=db, ai_client=ai_client, job_id=job_id, source_id=source_id)
             try:
-                await crud.update_job_status(
+                claimed = await crud.claim_job_for_worker(
                     db,
-                    job_id,
-                    "running",
-                    started_at=datetime.now(UTC),
+                    job_id=job_id,
+                    worker_id=WORKER_ID,
+                    max_concurrent_jobs=MAX_CONCURRENT_JOBS,
+                )
+                if claimed is None:
+                    logger.info(
+                        "pipeline_job_concurrency_gate_blocked",
+                        job_id=job_id,
+                        worker_id=WORKER_ID,
+                        max_concurrent_jobs=MAX_CONCURRENT_JOBS,
+                    )
+                    current = await crud.get_job(db, job_id)
+                    if current is not None and current.status in {"queued", "pending"}:
+                        try:
+                            queue = get_default_queue()
+                            queue.enqueue(
+                                "app.pipeline.runner.process_pipeline_job",
+                                job_id,
+                                source_id,
+                                job_type,
+                                {},
+                            )
+                        except QueueUnavailableError:
+                            logger.warning("pipeline_job_requeue_unavailable", job_id=job_id)
+                    return
+                await crud.heartbeat_worker(
+                    db,
+                    worker_id=WORKER_ID,
+                    status="running",
+                    current_job_id=job_id,
+                    current_stage="starting",
                 )
                 await report_job_progress(
                     db,
                     job_id,
                     source_id=source_id,
+                    worker_id=WORKER_ID,
                     stage="starting",
                     item=source_id,
                     message=f"Job started ({job_type})",
@@ -1158,11 +1223,13 @@ async def _run_pipeline_job_async(
                     "done",
                     result=result,
                     completed_at=datetime.now(UTC),
+                    worker_id=WORKER_ID,
                 )
                 await report_job_progress(
                     db,
                     job_id,
                     source_id=source_id,
+                    worker_id=WORKER_ID,
                     stage="finalizing",
                     item=source_id,
                     message="Job completed",
@@ -1180,11 +1247,13 @@ async def _run_pipeline_job_async(
                         "failed",
                         error_message=str(exc),
                         completed_at=datetime.now(UTC),
+                        worker_id=WORKER_ID,
                     )
                     await report_job_progress(
                         db,
                         job_id,
                         source_id=source_id,
+                        worker_id=WORKER_ID,
                         stage="finalizing",
                         item=source_id,
                         message=f"Job failed: {exc}",
@@ -1198,6 +1267,14 @@ async def _run_pipeline_job_async(
                         source_id=source_id,
                     )
                 raise
+            finally:
+                await crud.heartbeat_worker(
+                    db,
+                    worker_id=WORKER_ID,
+                    status="idle",
+                    current_job_id=None,
+                    current_stage=None,
+                )
     finally:
         await worker_log_processor.stop()
 
@@ -1216,7 +1293,7 @@ def process_pipeline_job(
 def main() -> None:
     redis_url = os.environ.get("REDIS_URL", settings.redis_url)
     redis_conn = from_url(redis_url)
-    worker = Worker(["default"], connection=redis_conn)
+    worker = Worker(["default"], connection=redis_conn, name=WORKER_ID)
     worker.work()
 
 
