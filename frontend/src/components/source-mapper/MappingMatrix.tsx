@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ConfidenceBadge } from "@/components/shared/ConfidenceBadge";
 import type { MappingRow } from "@/lib/api";
 import { MAPPING_ROW_STATUSES } from "@/components/source-mapper/constants";
@@ -21,6 +22,32 @@ const DESTINATION_FIELDS: Record<string, string[]> = {
   venue: ["title", "description", "address", "city", "country", "website_url", "url"],
   artwork: ["title", "description", "artist_name", "year", "medium", "dimensions", "price", "url"],
 };
+
+function CategoryInput({ 
+  rowId, 
+  initialValue, 
+  onUpdate 
+}: { 
+  rowId: string; 
+  initialValue: string | null; 
+  onUpdate: (rowId: string, updates: { category_target: string | null; status: string }) => void;
+}) {
+  const [value, setValue] = useState(initialValue ?? "");
+
+  const handleBlur = () => {
+    onUpdate(rowId, { category_target: value || null, status: "needs_review" });
+  };
+
+  return (
+    <input
+      className="w-full border rounded px-2 py-1"
+      value={value}
+      placeholder="taxonomy/category"
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={handleBlur}
+    />
+  );
+}
 
 export function MappingMatrix({ rows, statusFilter, onStatusFilterChange, selectedRowIds, setSelectedRowIds, onRowUpdate }: Props) {
   const filteredRows = rows.filter((row) => (statusFilter === "all" ? true : row.status === statusFilter));
@@ -80,11 +107,10 @@ export function MappingMatrix({ rows, statusFilter, onStatusFilterChange, select
                   </div>
                 </td>
                 <td className="p-2">
-                  <input
-                    className="w-full border rounded px-2 py-1"
-                    value={row.category_target ?? ""}
-                    placeholder="taxonomy/category"
-                    onBlur={(e) => onRowUpdate(row.id, { category_target: e.target.value || null, status: "needs_review" })}
+                  <CategoryInput 
+                    rowId={row.id}
+                    initialValue={row.category_target}
+                    onUpdate={onRowUpdate}
                   />
                 </td>
                 <td className="p-2"><ConfidenceBadge band={row.confidence_band} score={Math.round(row.confidence_score * 100)} /></td>
