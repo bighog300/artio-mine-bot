@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getRecords, approveRecord, rejectRecord, bulkApprove, getSources } from "@/lib/api";
 import { RecordTableRow } from "@/components/records/RecordTableRow";
+import { Button, Input, Select } from "@/components/ui";
 
 const PAGE_SIZE = 25;
 
@@ -108,14 +109,15 @@ export function Records() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Records</h1>
-        <button
+        <Button
           onClick={() => {
             if (confirm("Approve all HIGH confidence records?")) bulkApproveMutation.mutate();
           }}
-          className="px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+          variant="primary"
+          loading={bulkApproveMutation.isPending}
         >
           Approve all HIGH
-        </button>
+        </Button>
       </div>
 
       <div className="flex gap-2">
@@ -125,48 +127,35 @@ export function Records() {
       </div>
 
       <div className="flex gap-3 flex-wrap">
-        <select
+        <Select
           value={sourceId}
           onChange={(e) => { setSourceId(e.target.value); setSkip(0); }}
-          className="border border-gray-300 rounded px-2 py-1.5 text-sm"
-        >
-          <option value="">All sources</option>
-          {sources?.items.map((s) => (
-            <option key={s.id} value={s.id}>{s.name ?? s.url}</option>
-          ))}
-        </select>
-        <select
+          className="w-52"
+          options={[{ value: "", label: "All sources" }, ...(sources?.items.map((s) => ({ value: s.id, label: s.name ?? s.url })) ?? [])]}
+        />
+        <Select
           value={recordType}
           onChange={(e) => { setRecordType(e.target.value); setSkip(0); }}
-          className="border border-gray-300 rounded px-2 py-1.5 text-sm"
-        >
-          <option value="">All types</option>
-          {[
-            "artist",
-            "event",
-            "exhibition",
-            "venue",
-            "artwork",
-          ].map((t) => (
-            <option key={t} value={t}>{t}</option>
-          ))}
-        </select>
-        <select
+          className="w-44"
+          options={[
+            { value: "", label: "All types" },
+            ...["artist", "event", "exhibition", "venue", "artwork"].map((t) => ({ value: t, label: t })),
+          ]}
+        />
+        <Select
           value={confidenceBand}
           onChange={(e) => { setConfidenceBand(e.target.value); setSkip(0); }}
-          className="border border-gray-300 rounded px-2 py-1.5 text-sm"
-        >
-          <option value="">All confidence</option>
-          {["HIGH", "MEDIUM", "LOW"].map((b) => (
-            <option key={b} value={b}>{b}</option>
-          ))}
-        </select>
-        <input
-          type="text"
+          className="w-44"
+          options={[
+            { value: "", label: "All confidence" },
+            ...["HIGH", "MEDIUM", "LOW"].map((b) => ({ value: b, label: b })),
+          ]}
+        />
+        <Input
           value={search}
           onChange={(e) => { setSearch(e.target.value); setSkip(0); }}
           placeholder="Search title..."
-          className="border border-gray-300 rounded px-2 py-1.5 text-sm flex-1 min-w-[200px]"
+          className="flex-1 min-w-[200px]"
         />
       </div>
 
@@ -174,9 +163,9 @@ export function Records() {
         <div className="bg-blue-50 border border-blue-200 rounded p-3 flex items-center justify-between">
           <div className="text-sm text-blue-800">{selectedCount} selected</div>
           <div className="flex items-center gap-2">
-            <button onClick={() => runBulkStatusUpdate("approve")} className="px-2 py-1 text-xs bg-green-600 text-white rounded">Approve selected ({selectedCount})</button>
-            <button onClick={() => runBulkStatusUpdate("reject")} className="px-2 py-1 text-xs border border-red-300 text-red-600 rounded">Reject selected ({selectedCount})</button>
-            <button onClick={() => setSelectedIds(new Set())} className="px-2 py-1 text-xs text-gray-600 underline">Clear selection</button>
+            <Button size="sm" onClick={() => runBulkStatusUpdate("approve")}>Approve selected ({selectedCount})</Button>
+            <Button size="sm" variant="danger" onClick={() => runBulkStatusUpdate("reject")}>Reject selected ({selectedCount})</Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>Clear selection</Button>
           </div>
         </div>
       )}
@@ -221,20 +210,20 @@ export function Records() {
       </div>
 
       <div className="flex items-center justify-end gap-2">
-        <button
+        <Button
           onClick={() => setSkip((prev) => Math.max(0, prev - PAGE_SIZE))}
           disabled={skip === 0}
-          className="px-3 py-1.5 border border-gray-300 rounded text-sm disabled:opacity-50"
+          variant="secondary"
         >
           Prev
-        </button>
-        <button
+        </Button>
+        <Button
           onClick={() => setSkip((prev) => prev + PAGE_SIZE)}
           disabled={(data?.items.length ?? 0) < PAGE_SIZE}
-          className="px-3 py-1.5 border border-gray-300 rounded text-sm disabled:opacity-50"
+          variant="secondary"
         >
           Next
-        </button>
+        </Button>
       </div>
     </div>
   );

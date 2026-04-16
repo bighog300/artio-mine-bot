@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getImages, getSources } from "@/lib/api";
 import { ImageThumbnail } from "@/components/shared/ImageThumbnail";
+import { Checkbox, Input, Select, Spinner } from "@/components/ui";
 
 export function Images() {
   const [sourceId, setSourceId] = useState("");
@@ -56,7 +57,7 @@ export function Images() {
         </label>
       </div>
 
-      {isLoading && <div className="text-gray-400 text-center py-8">Loading...</div>}
+      {isLoading && <div className="py-8 flex justify-center"><Spinner label="Loading images" /></div>}
 
       <div className="columns-2 md:columns-3 lg:columns-4 gap-3 space-y-3">
         {data?.items.map((img) => (

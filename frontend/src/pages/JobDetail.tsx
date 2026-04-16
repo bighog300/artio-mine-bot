@@ -7,6 +7,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { JobProgressBar } from "@/components/jobs/JobProgressBar";
 import { HeartbeatBadge } from "@/components/jobs/HeartbeatBadge";
 import { JobEventTimeline } from "@/components/jobs/JobEventTimeline";
+import { Button, Spinner } from "@/components/ui";
 
 export function JobDetail() {
   const { id = "" } = useParams();
@@ -69,10 +70,10 @@ export function JobDetail() {
           <StatusBadge status={job.status} />
           <HeartbeatBadge job={job} />
           <span className="text-xs font-mono text-gray-500">{job.worker_id ?? "unassigned"}</span>
-          <button className="px-2 py-1 border rounded text-xs" onClick={() => actionMutation.mutate("retry")}>Retry</button>
-          <button className="px-2 py-1 border rounded text-xs" onClick={() => actionMutation.mutate("pause")}>Pause</button>
-          <button className="px-2 py-1 border rounded text-xs" onClick={() => actionMutation.mutate("resume")}>Resume</button>
-          <button className="px-2 py-1 border rounded text-xs" onClick={() => actionMutation.mutate("cancel")}>Cancel</button>
+          <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("retry")}>Retry</Button>
+          <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("pause")}>Pause</Button>
+          <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("resume")}>Resume</Button>
+          <Button size="sm" variant="danger" onClick={() => actionMutation.mutate("cancel")}>Cancel</Button>
         </div>
         {job.error_message && <div className="text-sm text-red-600">{job.error_message}</div>}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">

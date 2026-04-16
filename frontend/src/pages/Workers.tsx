@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
+import { Badge, Spinner } from "@/components/ui";
 import { getWorkers } from "@/lib/api";
 
 export function Workers() {
@@ -26,13 +27,19 @@ export function Workers() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={5} className="p-6 text-center text-gray-400">Loading...</td>
+                <td colSpan={5} className="p-6">
+                  <div className="flex justify-center">
+                    <Spinner label="Loading workers" />
+                  </div>
+                </td>
               </tr>
             )}
             {(data?.items ?? []).map((worker) => (
               <tr key={worker.worker_id} className="border-t">
                 <td className="p-3 font-mono text-xs">{worker.worker_id}</td>
-                <td className="p-3">{worker.status}</td>
+                <td className="p-3">
+                  <Badge variant={worker.status === "running" ? "success" : "default"}>{worker.status}</Badge>
+                </td>
                 <td className="p-3 text-xs">{worker.current_job_id ?? "—"}</td>
                 <td className="p-3 text-xs">{worker.stage ?? "—"}</td>
                 <td className="p-3 text-xs">{worker.heartbeat ? new Date(worker.heartbeat).toLocaleString() : "—"}</td>

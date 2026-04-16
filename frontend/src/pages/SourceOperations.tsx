@@ -17,6 +17,7 @@ import {
   type SourceEvent,
 } from "@/lib/api";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { Button, Select } from "@/components/ui";
 
 function formatConsoleLine(event: SourceEvent): string {
   const stage = event.stage ? `[${event.stage}]` : "";
@@ -105,7 +106,7 @@ export function SourceOperations() {
   return (
     <div className="space-y-4">
       <div>
-        <button onClick={() => navigate(`/sources/${id}`)} className="text-sm text-gray-500 hover:text-gray-700 mb-1">← Source Detail</button>
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/sources/${id}`)} className="mb-1">← Source Detail</Button>
         <h1 className="text-2xl font-bold">Source Operations Console</h1>
         <p className="text-sm text-gray-500">{ops?.source?.name ?? ops?.source?.url ?? id}</p>
       </div>
@@ -119,11 +120,11 @@ export function SourceOperations() {
             <span>Pending moderation: {ops?.pending_moderation_count ?? 0}</span>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button className="px-3 py-1 border rounded" onClick={() => actionMutation.mutate("run")}>Run</button>
-            <button className="px-3 py-1 border rounded" onClick={() => actionMutation.mutate("pause")}>Pause</button>
-            <button className="px-3 py-1 border rounded" onClick={() => actionMutation.mutate("resume")}>Resume</button>
-            <button className="px-3 py-1 border rounded" onClick={() => actionMutation.mutate("cancel")}>Cancel Active</button>
-            <button className="px-3 py-1 border rounded" onClick={() => actionMutation.mutate("backfill")}>Backfill</button>
+            <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("run")}>Run</Button>
+            <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("pause")}>Pause</Button>
+            <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("resume")}>Resume</Button>
+            <Button size="sm" variant="danger" onClick={() => actionMutation.mutate("cancel")}>Cancel Active</Button>
+            <Button size="sm" variant="primary" onClick={() => actionMutation.mutate("backfill")}>Backfill</Button>
           </div>
         </div>
 
@@ -135,8 +136,8 @@ export function SourceOperations() {
                 <div className="font-medium">Possible duplicate ({item.similarity_score ?? 0}%)</div>
                 <div className="text-gray-600">{item.left_record?.title ?? item.left_record?.id} ↔ {item.right_record?.title ?? item.right_record?.id}</div>
                 <div className="flex gap-2">
-                  <button className="px-2 py-1 border rounded" onClick={() => moderationMutation.mutate({ actionId: item.id, decision: "approve" })}>Approve</button>
-                  <button className="px-2 py-1 border rounded" onClick={() => moderationMutation.mutate({ actionId: item.id, decision: "reject" })}>Reject</button>
+                  <Button size="sm" variant="primary" onClick={() => moderationMutation.mutate({ actionId: item.id, decision: "approve" })}>Approve</Button>
+                  <Button size="sm" variant="danger" onClick={() => moderationMutation.mutate({ actionId: item.id, decision: "reject" })}>Reject</Button>
                 </div>
               </div>
             ))}
@@ -148,11 +149,16 @@ export function SourceOperations() {
       <div className="bg-slate-950 text-green-300 rounded p-3">
         <div className="flex items-center justify-between mb-2">
           <h2 className="font-semibold text-white">Live Console</h2>
-          <select className="text-xs text-black rounded px-2 py-1" value={consoleMode} onChange={(e) => setConsoleMode(e.target.value as "all" | "active" | "moderation")}>
-            <option value="all">Full source stream</option>
-            <option value="active">Active job only</option>
-            <option value="moderation">Moderation events</option>
-          </select>
+          <Select
+            className="w-44 text-xs text-black"
+            value={consoleMode}
+            onChange={(e) => setConsoleMode(e.target.value as "all" | "active" | "moderation")}
+            options={[
+              { value: "all", label: "Full source stream" },
+              { value: "active", label: "Active job only" },
+              { value: "moderation", label: "Moderation events" },
+            ]}
+          />
         </div>
         <div className="font-mono text-xs space-y-1 max-h-80 overflow-auto">
           {consoleLines.map((event) => (
