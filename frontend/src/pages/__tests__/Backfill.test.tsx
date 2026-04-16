@@ -47,7 +47,6 @@ describe("Backfill page", () => {
       items: [
         {
           id: "c1",
-          source_id: "s1",
           name: "Artist Backfill",
           status: "running",
           total_records: 120,
@@ -57,11 +56,10 @@ describe("Backfill page", () => {
           started_at: "2026-04-15T00:00:00Z",
           completed_at: null,
           created_at: "2026-04-15T00:00:00Z",
-          updated_at: "2026-04-15T01:00:00Z",
+          strategy: "full_refresh",
         },
         {
           id: "c2",
-          source_id: "s1",
           name: "Venue Backfill",
           status: "completed",
           total_records: 50,
@@ -71,7 +69,7 @@ describe("Backfill page", () => {
           started_at: "2026-04-14T00:00:00Z",
           completed_at: "2026-04-14T02:00:00Z",
           created_at: "2026-04-14T00:00:00Z",
-          updated_at: "2026-04-14T02:00:00Z",
+          strategy: "delta_update",
         },
       ],
       total: 2,
@@ -95,7 +93,6 @@ describe("Backfill page", () => {
       items: [
         {
           id: "c1",
-          source_id: "s1",
           name: "Artist Bio Enrichment",
           status: "completed",
           total_records: 100,
@@ -105,7 +102,7 @@ describe("Backfill page", () => {
           started_at: "2026-04-01T00:00:00Z",
           completed_at: "2026-04-01T01:00:00Z",
           created_at: "2026-04-01T00:00:00Z",
-          updated_at: "2026-04-01T01:00:00Z",
+          strategy: "entity_backfill",
         },
       ],
       total: 1,
@@ -121,6 +118,7 @@ describe("Backfill page", () => {
           options: {},
           auto_start: false,
           enabled: true,
+          last_run_at: null,
           next_run_at: "2026-04-20T02:00:00Z",
           created_at: "2026-04-16T00:00:00Z",
           updated_at: "2026-04-16T00:00:00Z",
@@ -165,6 +163,7 @@ describe("Backfill page", () => {
       options: {},
       auto_start: false,
       enabled: true,
+      last_run_at: null,
       next_run_at: null,
       created_at: "2026-04-16T00:00:00Z",
       updated_at: "2026-04-16T00:00:00Z",
