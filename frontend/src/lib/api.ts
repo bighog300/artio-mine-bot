@@ -234,6 +234,45 @@ export interface QueueState {
   oldest_item_age_seconds: number;
 }
 
+export interface BackfillCampaign {
+  id: string;
+  name: string;
+  strategy: string;
+  status: string;
+  total_records: number;
+  processed_records: number;
+  successful_updates: number;
+  failed_updates: number;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface BackfillSchedule {
+  id: string;
+  name: string;
+  schedule_type: string;
+  cron_expression: string | null;
+  filters: Record<string, unknown>;
+  options: Record<string, unknown>;
+  enabled: boolean;
+  auto_start: boolean;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateBackfillScheduleInput {
+  name: string;
+  schedule_type?: string;
+  cron_expression?: string;
+  filters?: Record<string, unknown>;
+  options?: Record<string, unknown>;
+  enabled?: boolean;
+  auto_start?: boolean;
+}
+
 export interface MiningStatus {
   source_id: string;
   status: string;
@@ -688,6 +727,16 @@ export const rollbackSourceMappingVersion = (
 // Mining
 export const startMining = (sourceId: string, opts?: MineOptions): Promise<MineStartResponse> =>
   api.post(`/mine/${sourceId}/start`, opts ?? {}).then((r) => r.data);
+
+// Backfill
+export const getBackfillCampaigns = (): Promise<{ items: BackfillCampaign[]; total: number }> =>
+  api.get("/backfill/campaigns").then((r) => r.data);
+
+export const getBackfillSchedules = (): Promise<{ items: BackfillSchedule[]; total: number }> =>
+  api.get("/backfill/schedules").then((r) => r.data);
+
+export const createBackfillSchedule = (input: CreateBackfillScheduleInput): Promise<BackfillSchedule> =>
+  api.post("/backfill/schedules", input).then((r) => r.data);
 
 export const getMiningStatus = (sourceId: string): Promise<MiningStatus> =>
   api.get(`/mine/${sourceId}/status`).then((r) => r.data);

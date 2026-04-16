@@ -28,6 +28,7 @@ dependencies = [
   "aiosqlite>=0.20.0",
   "redis>=5.0.0",
   "rq>=1.16.0",
+  "croniter>=2.0.0",
 ]
 
 [project.optional-dependencies]

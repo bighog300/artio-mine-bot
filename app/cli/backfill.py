@@ -5,10 +5,11 @@ import asyncio
 import json
 from datetime import UTC, datetime
 
+from croniter import croniter
 from sqlalchemy import select
 
 from app.db.database import AsyncSessionLocal
-from app.db.models import BackfillCampaign, BackfillJob
+from app.db.models import BackfillCampaign, BackfillJob, BackfillSchedule
 from app.services.backfill_query import BackfillQuery
 from app.services.completeness import calculate_completeness
 
@@ -140,6 +141,53 @@ async def cmd_monitor(args: argparse.Namespace) -> None:
         print("\nMonitoring stopped.")
 
 
+async def cmd_schedule_create(args: argparse.Namespace) -> None:
+    if not croniter.is_valid(args.cron):
+        raise SystemExit("Invalid cron expression")
+
+    filters = {
+        "record_type": args.record_type,
+        "min_completeness": args.min_completeness,
+        "max_completeness": args.max_completeness,
+    }
+    options = {"limit": args.limit}
+    next_run = croniter(args.cron, datetime.now(UTC)).get_next(datetime)
+
+    async with AsyncSessionLocal() as db:
+        schedule = BackfillSchedule(
+            name=args.name,
+            schedule_type="recurring",
+            cron_expression=args.cron,
+            filters_json=json.dumps(filters),
+            options_json=json.dumps(options),
+            auto_start=args.auto_start,
+            enabled=not args.disabled,
+            next_run_at=next_run,
+        )
+        db.add(schedule)
+        await db.commit()
+
+        print(f"Created schedule {schedule.id}")
+        print(f"Next run: {next_run}")
+
+
+async def cmd_schedule_list(_args: argparse.Namespace) -> None:
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.execute(select(BackfillSchedule).order_by(BackfillSchedule.next_run_at.asc().nullslast()))
+        ).scalars().all()
+        if not rows:
+            print("No schedules found")
+            return
+
+        for row in rows:
+            status = "enabled" if row.enabled else "disabled"
+            print(
+                f"{row.id} {status} auto_start={row.auto_start} "
+                f"cron={row.cron_expression} next_run={row.next_run_at} name={row.name}"
+            )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Backfill campaign commands")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -160,6 +208,18 @@ def build_parser() -> argparse.ArgumentParser:
     monitor = sub.add_parser("monitor", help="Monitor running campaigns")
     monitor.add_argument("--interval", type=int, default=5)
 
+    schedule_create = sub.add_parser("schedule-create", help="Create recurring schedule")
+    schedule_create.add_argument("--name", required=True)
+    schedule_create.add_argument("--cron", required=True, help="Cron expression")
+    schedule_create.add_argument("--record-type", default="artist")
+    schedule_create.add_argument("--min-completeness", type=int, default=0)
+    schedule_create.add_argument("--max-completeness", type=int, default=70)
+    schedule_create.add_argument("--limit", type=int, default=100)
+    schedule_create.add_argument("--auto-start", action="store_true")
+    schedule_create.add_argument("--disabled", action="store_true")
+
+    sub.add_parser("schedule-list", help="List schedules")
+
     return parser
 
 
@@ -173,6 +233,10 @@ def main() -> None:
         asyncio.run(cmd_status(args))
     elif args.command == "monitor":
         asyncio.run(cmd_monitor(args))
+    elif args.command == "schedule-create":
+        asyncio.run(cmd_schedule_create(args))
+    elif args.command == "schedule-list":
+        asyncio.run(cmd_schedule_list(args))
 
 
 if __name__ == "__main__":

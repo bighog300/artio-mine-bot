@@ -18,6 +18,7 @@ import { AuditTrail } from "@/pages/AuditTrail";
 import { ApiAccess } from "@/pages/ApiAccess";
 import { Jobs } from "@/pages/Jobs";
 import { Queues } from "@/pages/Queues";
+import { Backfill } from "@/pages/Backfill";
 
 export default function App() {
   return (
@@ -42,6 +43,7 @@ export default function App() {
           <Route path="/logs" element={<Logs />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/api-access" element={<ApiAccess />} />
+          <Route path="/backfill" element={<Backfill />} />
         </Routes>
       </Layout>
     </BrowserRouter>
