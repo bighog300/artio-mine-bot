@@ -25,6 +25,8 @@ from app.db.models import (
     ScheduledJob,
     Source,
     SourceMappingPageType,
+    SourceMappingPreset,
+    SourceMappingPresetRow,
     SourceMappingRow,
     SourceMappingSample,
     SourceMappingSampleResult,
@@ -783,6 +785,163 @@ async def rollback_source_mapping_version(
     await db.commit()
     await db.refresh(version)
     return version
+
+
+async def list_source_mapping_presets(
+    db: AsyncSession,
+    source_id: str,
+    tenant_id: str = "public",
+) -> list[SourceMappingPreset]:
+    result = await db.execute(
+        select(SourceMappingPreset)
+        .where(SourceMappingPreset.source_id == source_id, SourceMappingPreset.tenant_id == tenant_id)
+        .order_by(SourceMappingPreset.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+async def get_source_mapping_preset(
+    db: AsyncSession,
+    preset_id: str,
+    source_id: str,
+    tenant_id: str = "public",
+) -> SourceMappingPreset | None:
+    result = await db.execute(
+        select(SourceMappingPreset).where(
+            SourceMappingPreset.id == preset_id,
+            SourceMappingPreset.source_id == source_id,
+            SourceMappingPreset.tenant_id == tenant_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def create_source_mapping_preset(
+    db: AsyncSession,
+    source_id: str,
+    tenant_id: str,
+    name: str,
+    description: str | None,
+    created_from_mapping_version_id: str | None,
+    created_by: str | None,
+    row_count: int,
+    page_type_count: int,
+    summary_json: str | None = None,
+) -> SourceMappingPreset:
+    preset = SourceMappingPreset(
+        tenant_id=tenant_id,
+        source_id=source_id,
+        name=name,
+        description=description,
+        created_from_mapping_version_id=created_from_mapping_version_id,
+        created_by=created_by,
+        row_count=row_count,
+        page_type_count=page_type_count,
+        summary_json=summary_json,
+    )
+    db.add(preset)
+    await db.flush()
+    await db.refresh(preset)
+    return preset
+
+
+async def delete_source_mapping_preset(
+    db: AsyncSession,
+    preset_id: str,
+    source_id: str,
+    tenant_id: str = "public",
+) -> bool:
+    preset = await get_source_mapping_preset(db, preset_id, source_id, tenant_id)
+    if preset is None:
+        return False
+    await db.delete(preset)
+    await db.commit()
+    return True
+
+
+async def create_source_mapping_preset_from_version(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    tenant_id: str = "public",
+    name: str,
+    description: str | None = None,
+    draft_id: str | None = None,
+    mapping_version_id: str | None = None,
+    include_statuses: list[str] | None = None,
+    created_by: str | None = None,
+) -> SourceMappingPreset:
+    source = await get_source(db, source_id)
+    if source is None or source.tenant_id != tenant_id:
+        raise ValueError("Source not found")
+
+    target_version_id = mapping_version_id or draft_id
+    if target_version_id is None:
+        raise ValueError("draft_id or mapping_version_id is required")
+
+    version = await get_source_mapping_version(db, source_id, target_version_id)
+    if version is None:
+        raise ValueError("Mapping draft/version not found for source")
+
+    existing_named = await db.execute(
+        select(SourceMappingPreset.id).where(
+            SourceMappingPreset.source_id == source_id,
+            SourceMappingPreset.tenant_id == tenant_id,
+            SourceMappingPreset.name == name,
+        )
+    )
+    if existing_named.scalar_one_or_none():
+        raise ValueError("Preset name already exists for this source")
+
+    effective_statuses = include_statuses or ["approved"]
+    page_types = await list_source_mapping_page_types(db, version.id)
+    page_type_lookup = {page_type.id: page_type for page_type in page_types}
+    rows = await list_source_mapping_rows(db, source_id, version.id, skip=0, limit=10_000)
+    filtered_rows = [row for row in rows if row.status in effective_statuses]
+    if not filtered_rows:
+        raise ValueError("No mapping rows matched include_statuses for preset creation")
+
+    page_type_keys = {page_type_lookup[row.page_type_id].key for row in filtered_rows if row.page_type_id in page_type_lookup}
+    summary = json.dumps({"included_statuses": effective_statuses, "source_mapping_version_id": version.id})
+    preset = await create_source_mapping_preset(
+        db,
+        source_id=source_id,
+        tenant_id=tenant_id,
+        name=name,
+        description=description,
+        created_from_mapping_version_id=version.id,
+        created_by=created_by,
+        row_count=len(filtered_rows),
+        page_type_count=len(page_type_keys),
+        summary_json=summary,
+    )
+
+    for row in filtered_rows:
+        page_type = page_type_lookup.get(row.page_type_id)
+        db.add(
+            SourceMappingPresetRow(
+                preset_id=preset.id,
+                page_type_key=page_type.key if page_type else None,
+                page_type_label=page_type.label if page_type else None,
+                selector=row.selector,
+                pattern_type=row.pattern_type,
+                extraction_mode=row.extraction_mode,
+                attribute_name=row.attribute_name,
+                destination_entity=row.destination_entity,
+                destination_field=row.destination_field,
+                category_target=row.category_target,
+                transforms_json=row.transforms_json,
+                confidence_score=row.confidence_score,
+                is_required=row.is_required,
+                is_enabled=row.is_enabled,
+                sort_order=row.sort_order,
+                rationale_json=row.confidence_reasons_json,
+            )
+        )
+
+    await db.commit()
+    await db.refresh(preset)
+    return preset
 
 
 # ---------------------------------------------------------------------------

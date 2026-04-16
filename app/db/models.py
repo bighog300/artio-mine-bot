@@ -81,6 +81,11 @@ class Source(Base):
         cascade="all, delete-orphan",
         foreign_keys="SourceMappingVersion.source_id",
     )
+    mapping_presets: Mapped[list["SourceMappingPreset"]] = relationship(
+        "SourceMappingPreset",
+        back_populates="source",
+        cascade="all, delete-orphan",
+    )
     active_mapping_version: Mapped["SourceMappingVersion | None"] = relationship(
         "SourceMappingVersion",
         foreign_keys=[active_mapping_version_id],
@@ -500,6 +505,69 @@ class SourceMappingSampleResult(Base):
     updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
 
     sample_run: Mapped["SourceMappingSampleRun"] = relationship("SourceMappingSampleRun", back_populates="results")
+
+
+class SourceMappingPreset(Base):
+    __tablename__ = "source_mapping_presets"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
+    source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_from_mapping_version_id: Mapped[str | None] = mapped_column(
+        String,
+        ForeignKey("source_mapping_versions.id"),
+        nullable=True,
+    )
+    created_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    page_type_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    summary_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tags_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
+
+    source: Mapped["Source"] = relationship("Source", back_populates="mapping_presets")
+    rows: Mapped[list["SourceMappingPresetRow"]] = relationship(
+        "SourceMappingPresetRow",
+        back_populates="preset",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("source_id", "name", name="uq_source_mapping_presets_source_name"),
+        Index("ix_source_mapping_presets_source_id_created_at", "source_id", "created_at"),
+    )
+
+
+class SourceMappingPresetRow(Base):
+    __tablename__ = "source_mapping_preset_rows"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    preset_id: Mapped[str] = mapped_column(String, ForeignKey("source_mapping_presets.id", ondelete="CASCADE"), nullable=False)
+    page_type_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    page_type_label: Mapped[str | None] = mapped_column(String, nullable=True)
+    selector: Mapped[str] = mapped_column(String, nullable=False)
+    pattern_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    extraction_mode: Mapped[str | None] = mapped_column(String, nullable=True)
+    attribute_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    destination_entity: Mapped[str | None] = mapped_column(String, nullable=True)
+    destination_field: Mapped[str | None] = mapped_column(String, nullable=True)
+    category_target: Mapped[str | None] = mapped_column(String, nullable=True)
+    transforms_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    rationale_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+
+    preset: Mapped["SourceMappingPreset"] = relationship("SourceMappingPreset", back_populates="rows")
+
+    __table_args__ = (
+        Index("ix_source_mapping_preset_rows_preset_id_sort_order", "preset_id", "sort_order"),
+    )
 
 
 class Tenant(Base):
