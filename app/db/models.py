@@ -183,6 +183,7 @@ class Record(Base):
     confidence_band: Mapped[str] = mapped_column(String, default="LOW", nullable=False)
     confidence_reasons: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     completeness_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    completeness_details: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     has_conflicts: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Admin fields
@@ -616,6 +617,70 @@ class ScheduledJob(Base):
         Index("ix_scheduled_jobs_source_id", "source_id"),
         Index("ix_scheduled_jobs_job_type", "job_type"),
         Index("ix_scheduled_jobs_enabled", "enabled"),
+    )
+
+
+class BackfillCampaign(Base):
+    """Tracks backfill campaigns for auditing and monitoring."""
+
+    __tablename__ = "backfill_campaigns"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    strategy: Mapped[str] = mapped_column(String, nullable=False)
+    filters_json: Mapped[str] = mapped_column(Text, nullable=False)
+    options_json: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="pending", nullable=False)
+    total_records: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    processed_records: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    successful_updates: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_updates: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+
+    jobs: Mapped[list["BackfillJob"]] = relationship(
+        "BackfillJob",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        Index("ix_backfill_campaigns_tenant_id", "tenant_id"),
+        Index("ix_backfill_campaigns_status", "status"),
+        Index("ix_backfill_campaigns_created_at", "created_at"),
+    )
+
+
+class BackfillJob(Base):
+    """Individual backfill job for a record."""
+
+    __tablename__ = "backfill_jobs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
+    campaign_id: Mapped[str] = mapped_column(String, ForeignKey("backfill_campaigns.id"), nullable=False)
+    record_id: Mapped[str] = mapped_column(String, ForeignKey("records.id"), nullable=False)
+    url_to_crawl: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="pending", nullable=False)
+    before_completeness: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    after_completeness: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    fields_updated: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+
+    campaign: Mapped["BackfillCampaign"] = relationship("BackfillCampaign", back_populates="jobs")
+    record: Mapped["Record"] = relationship("Record")
+
+    __table_args__ = (
+        Index("ix_backfill_jobs_tenant_id", "tenant_id"),
+        Index("ix_backfill_jobs_campaign_id", "campaign_id"),
+        Index("ix_backfill_jobs_record_id", "record_id"),
+        Index("ix_backfill_jobs_status", "status"),
     )
 
 
