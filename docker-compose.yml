@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   db:
     image: postgres:16
@@ -38,6 +40,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/artio
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: docker
+      PYTHONUNBUFFERED: "1"
     depends_on:
       db:
         condition: service_healthy
@@ -45,6 +48,12 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 5
 
   worker:
     build: .
@@ -55,6 +64,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/artio
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: docker
+      PYTHONUNBUFFERED: "1"
     depends_on:
       db:
         condition: service_healthy
@@ -71,6 +81,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/artio
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: docker
+      PYTHONUNBUFFERED: "1"
     depends_on:
       db:
         condition: service_healthy
