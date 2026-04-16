@@ -5,7 +5,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import SourceMappingSampleResult, SourceMappingVersion
+from app.db.models import SourceMappingPreset, SourceMappingPresetRow, SourceMappingSampleResult, SourceMappingVersion
 
 
 @pytest.mark.asyncio
@@ -250,3 +250,64 @@ async def test_rollback_published_mapping_version(test_client: AsyncClient):
     rollback = await test_client.post(f"/api/sources/{source_id}/mapping-drafts/versions/{version_id}/rollback")
     assert rollback.status_code == 200
     assert rollback.json()["id"] == version_id
+
+
+@pytest.mark.asyncio
+async def test_mapping_presets_create_list_delete_and_row_snapshot(test_client: AsyncClient, db_session: AsyncSession):
+    source_id = (await test_client.post("/api/sources", json={"url": "https://mapper-presets.test"})).json()["id"]
+    draft_id = (await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})).json()["id"]
+    row_id = (await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows")).json()["items"][0]["id"]
+    await test_client.post(
+        f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows/actions",
+        json={"row_ids": [row_id], "action": "approve", "force_low_confidence": True},
+    )
+
+    create = await test_client.post(
+        f"/api/sources/{source_id}/mapping-presets",
+        json={"name": "approved preset", "draft_id": draft_id},
+    )
+    assert create.status_code == 201
+    preset_id = create.json()["id"]
+    assert create.json()["row_count"] >= 1
+
+    rows_before = (
+        await db_session.execute(select(SourceMappingPresetRow).where(SourceMappingPresetRow.preset_id == preset_id))
+    ).scalars().all()
+    assert len(rows_before) >= 1
+
+    # Update draft row after preset creation to verify row snapshots are copied.
+    await test_client.patch(
+        f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows/{row_id}",
+        json={"destination_entity": "event", "destination_field": "description"},
+    )
+    rows_after = (
+        await db_session.execute(select(SourceMappingPresetRow).where(SourceMappingPresetRow.preset_id == preset_id))
+    ).scalars().all()
+    assert rows_after[0].destination_field == rows_before[0].destination_field
+
+    listing = await test_client.get(f"/api/sources/{source_id}/mapping-presets")
+    assert listing.status_code == 200
+    assert listing.json()["total"] == 1
+
+    deleted = await test_client.delete(f"/api/sources/{source_id}/mapping-presets/{preset_id}")
+    assert deleted.status_code == 200
+    assert deleted.json()["ok"] is True
+    saved_preset = (await db_session.execute(select(SourceMappingPreset).where(SourceMappingPreset.id == preset_id))).scalar_one_or_none()
+    assert saved_preset is None
+    orphan_rows = (
+        await db_session.execute(select(SourceMappingPresetRow).where(SourceMappingPresetRow.preset_id == preset_id))
+    ).scalars().all()
+    assert orphan_rows == []
+
+
+@pytest.mark.asyncio
+async def test_mapping_presets_zero_matching_rows_fails_with_clear_error(test_client: AsyncClient):
+    source_id = (await test_client.post("/api/sources", json={"url": "https://mapper-presets-empty.test"})).json()["id"]
+    draft_id = (await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})).json()["id"]
+
+    create = await test_client.post(
+        f"/api/sources/{source_id}/mapping-presets",
+        json={"name": "approved only", "draft_id": draft_id, "include_statuses": ["approved"]},
+    )
+    assert create.status_code == 400
+    assert "No mapping rows matched include_statuses" in create.json()["detail"]

@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +282,26 @@ class MappingVersionPublishResponse(BaseModel):
     status: str
     published_at: datetime
     published_by: str | None = None
+
+
+class SourceMappingPresetSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    name: str
+    description: str | None = None
+    created_from_mapping_version_id: str | None = None
+    row_count: int
+    page_type_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class SourceMappingPresetCreateRequest(BaseModel):
+    name: str
+    description: str | None = None
+    draft_id: str | None = None
+    mapping_version_id: str | None = None
+    include_statuses: list[str] = Field(default_factory=lambda: ["approved"])
 
 
 # ---------------------------------------------------------------------------

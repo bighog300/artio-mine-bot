@@ -3,11 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   applySourceMappingAction,
+  createSourceMappingPreset,
   createSourceMappingDraft,
+  deleteSourceMappingPreset,
   getSource,
   getSourceMappingDiff,
   getSourceMappingDraft,
   getSourceMappingPageTypes,
+  getSourceMappingPresets,
   getSourceMappingPreview,
   getSourceMappingRows,
   getSourceMappingSampleRun,
@@ -20,11 +23,13 @@ import {
   updateSourceMappingRow,
 } from "@/lib/api";
 import { MappingMatrix } from "@/components/source-mapper/MappingMatrix";
+import { MappingPresetPanel } from "@/components/source-mapper/MappingPresetPanel";
 import { MappingPreviewPanel } from "@/components/source-mapper/MappingPreviewPanel";
 import { PageTypeSidebar } from "@/components/source-mapper/PageTypeSidebar";
 import { SampleRunReview } from "@/components/source-mapper/SampleRunReview";
 import { ScanSetupForm } from "@/components/source-mapper/ScanSetupForm";
 import { VersionHistoryPanel } from "@/components/source-mapper/VersionHistoryPanel";
+import { CreatePresetDialog } from "@/components/source-mapper/CreatePresetDialog";
 
 export function SourceMapping() {
   const { id } = useParams<{ id: string }>();
@@ -37,6 +42,8 @@ export function SourceMapping() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
   const [settings, setSettings] = useState({ max_pages: 50, max_depth: 3, sample_pages_per_type: 5 });
+  const [createPresetOpen, setCreatePresetOpen] = useState(false);
+  const [deletingPresetId, setDeletingPresetId] = useState<string | null>(null);
 
   useEffect(() => {
     const draftFromUrl = searchParams.get("draft");
@@ -76,6 +83,11 @@ export function SourceMapping() {
     queryKey: ["source-mapping-diff", id, draftId],
     queryFn: () => getSourceMappingDiff(id!, draftId!),
     enabled: !!id && !!draftId,
+  });
+  const { data: presets, isLoading: presetsLoading } = useQuery({
+    queryKey: ["source-mapping-presets", id],
+    queryFn: () => getSourceMappingPresets(id!),
+    enabled: !!id,
   });
   const { data: sampleRun } = useQuery({
     queryKey: ["source-mapping-sample-run", id, draftId, sampleRunId],
@@ -179,6 +191,27 @@ export function SourceMapping() {
     onError: (e: Error) => setMessage(e.message),
   });
 
+  const createPresetMutation = useMutation({
+    mutationFn: (payload: { name: string; description?: string; include_statuses: string[] }) =>
+      createSourceMappingPreset(id!, { ...payload, draft_id: draftId! }),
+    onSuccess: (payload) => {
+      setMessage(`Preset '${payload.name}' created.`);
+      setCreatePresetOpen(false);
+      qc.invalidateQueries({ queryKey: ["source-mapping-presets", id] });
+    },
+    onError: (e: Error) => setMessage(e.message),
+  });
+
+  const deletePresetMutation = useMutation({
+    mutationFn: (presetId: string) => deleteSourceMappingPreset(id!, presetId),
+    onSuccess: () => {
+      setMessage("Preset deleted.");
+      qc.invalidateQueries({ queryKey: ["source-mapping-presets", id] });
+    },
+    onError: (e: Error) => setMessage(e.message),
+    onSettled: () => setDeletingPresetId(null),
+  });
+
   const rowItems = rows?.items ?? [];
   const selectedCount = selectedRowIds.length;
   const filteredRows = useMemo(
@@ -234,6 +267,19 @@ export function SourceMapping() {
         />
       </div>
 
+      <MappingPresetPanel
+        presets={presets?.items ?? []}
+        loading={presetsLoading}
+        deletingPresetId={deletingPresetId}
+        canCreate={!!draftId}
+        onOpenCreate={() => setCreatePresetOpen(true)}
+        onDelete={(presetId) => {
+          if (!window.confirm("Delete this preset? This cannot be undone.")) return;
+          setDeletingPresetId(presetId);
+          deletePresetMutation.mutate(presetId);
+        }}
+      />
+
       {selectedCount > 0 && (
         <div className="flex gap-2 text-xs">
           <button className="px-2 py-1 border rounded" onClick={() => actionMutation.mutate({ rowIds: selectedRowIds, action: "approve" })}>Bulk approve ({selectedCount})</button>
@@ -258,6 +304,16 @@ export function SourceMapping() {
         publishing={publishMutation.isPending}
         onRollback={(versionId) => rollbackMutation.mutate(versionId)}
       />
+
+      {draftId ? (
+        <CreatePresetDialog
+          open={createPresetOpen}
+          draftId={draftId}
+          creating={createPresetMutation.isPending}
+          onClose={() => setCreatePresetOpen(false)}
+          onCreate={(payload) => createPresetMutation.mutate(payload)}
+        />
+      ) : null}
     </div>
   );
 }

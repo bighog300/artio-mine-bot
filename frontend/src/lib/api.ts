@@ -167,6 +167,25 @@ export interface MappingDiffSummary {
   unchanged: number;
 }
 
+export interface SourceMappingPreset {
+  id: string;
+  name: string;
+  description: string | null;
+  created_from_mapping_version_id: string | null;
+  row_count: number;
+  page_type_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateSourceMappingPresetInput {
+  name: string;
+  description?: string;
+  draft_id?: string;
+  mapping_version_id?: string;
+  include_statuses?: string[];
+}
+
 export interface MappingScanResponse {
   draft_id: string;
   scan_status: string;
@@ -842,6 +861,23 @@ export const rollbackSourceMappingVersion = (
   versionId: string
 ): Promise<{ id: string; source_id: string; status: string; published_at: string; published_by: string | null }> =>
   api.post(`/sources/${sourceId}/mapping-drafts/versions/${versionId}/rollback`).then((r) => r.data);
+
+export const getSourceMappingPresets = (
+  sourceId: string
+): Promise<{ items: SourceMappingPreset[]; total: number }> =>
+  api.get(`/sources/${sourceId}/mapping-presets`).then((r) => r.data);
+
+export const createSourceMappingPreset = (
+  sourceId: string,
+  payload: CreateSourceMappingPresetInput
+): Promise<SourceMappingPreset> =>
+  api.post(`/sources/${sourceId}/mapping-presets`, payload).then((r) => r.data);
+
+export const deleteSourceMappingPreset = (
+  sourceId: string,
+  presetId: string
+): Promise<{ ok: boolean }> =>
+  api.delete(`/sources/${sourceId}/mapping-presets/${presetId}`).then((r) => r.data);
 
 // Mining
 export const startMining = (sourceId: string, opts?: MineOptions): Promise<MineStartResponse> =>
