@@ -30,9 +30,9 @@ export function ApiAccess() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">API Access</h1>
+      <h1 className="text-2xl font-bold text-foreground">API Access</h1>
 
-      <div className="bg-white border rounded-lg p-4 space-y-3">
+      <div className="bg-card border rounded-lg p-4 space-y-3">
         <h2 className="font-semibold">Create API key</h2>
         <div className="grid grid-cols-3 gap-3">
           <Input placeholder="Key name" value={name} onChange={(e) => setName(e.target.value)} />
@@ -57,11 +57,11 @@ export function ApiAccess() {
         )}
       </div>
 
-      <div className="bg-white border rounded-lg p-4">
+      <div className="bg-card border rounded-lg p-4">
         <h2 className="font-semibold mb-3">API Keys</h2>
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-gray-600 border-b">
+            <tr className="text-left text-muted-foreground border-b">
               <th className="py-2">Name</th>
               <th>Tenant</th>
               <th>Prefix</th>
@@ -92,15 +92,15 @@ export function ApiAccess() {
         </table>
       </div>
 
-      <div className="bg-white border rounded-lg p-4">
+      <div className="bg-card border rounded-lg p-4">
         <h2 className="font-semibold mb-3">Usage Dashboard</h2>
         <div className="grid grid-cols-2 gap-3 mb-4">
           <div className="border rounded p-3">
-            <div className="text-xs text-gray-500">Total requests</div>
+            <div className="text-xs text-muted-foreground">Total requests</div>
             <div className="text-xl font-semibold">{usageQuery.data?.total_requests ?? 0}</div>
           </div>
           <div className="border rounded p-3">
-            <div className="text-xs text-gray-500">Avg response ms</div>
+            <div className="text-xs text-muted-foreground">Avg response ms</div>
             <div className="text-xl font-semibold">{Math.round(usageQuery.data?.avg_response_time_ms ?? 0)}</div>
           </div>
         </div>

@@ -227,10 +227,10 @@ export function SourceMapping() {
       <div>
         <Button variant="ghost" size="sm" onClick={() => navigate(`/sources/${id}`)}>← Back to source</Button>
         <h1 className="text-2xl font-bold">AI Source Mapper</h1>
-        <p className="text-sm text-gray-500">{source?.url ?? "Loading source..."}</p>
+        <p className="text-sm text-muted-foreground">{source?.url ?? "Loading source..."}</p>
       </div>
 
-      {message && <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm">{message}</div>}
+      {message && <div className="rounded border border-border bg-muted/40 px-3 py-2 text-sm">{message}</div>}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <ScanSetupForm
@@ -242,9 +242,9 @@ export function SourceMapping() {
           loading={createDraftMutation.isPending}
           scanLoading={scanMutation.isPending}
         />
-        <section className="rounded border bg-white p-4 space-y-2 text-sm">
+        <section className="rounded border bg-card p-4 space-y-2 text-sm">
           <h2 className="font-semibold">Scan Status</h2>
-          {!draft ? <p className="text-gray-500">No scan draft yet.</p> : (
+          {!draft ? <p className="text-muted-foreground">No scan draft yet.</p> : (
             <ul className="space-y-1">
               <li>Status: <strong>{draft.scan_status}</strong></li>
               <li>Progress: <strong>{draft.scan_progress_percent}%</strong>{draft.scan_stage ? ` (${draft.scan_stage})` : ""}</li>

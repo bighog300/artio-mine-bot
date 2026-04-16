@@ -8,7 +8,7 @@ const LEVEL_COLORS: Record<string, string> = {
   error: "bg-red-100 text-red-700",
   warning: "bg-yellow-100 text-yellow-700",
   info: "bg-blue-100 text-blue-700",
-  debug: "bg-gray-100 text-gray-700",
+  debug: "bg-muted text-muted-foreground",
 };
 
 const ROW_HEIGHT = 44;
@@ -137,7 +137,7 @@ export function Logs() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Logs</h1>
+        <h1 className="text-2xl font-bold text-foreground">Logs</h1>
         <div className="flex items-center gap-2">
           <Button
             onClick={() => exportLogs("json")}
@@ -156,7 +156,7 @@ export function Logs() {
         </div>
       </div>
 
-      <div className="bg-white border rounded-lg p-3 space-y-3">
+      <div className="bg-card border rounded-lg p-3 space-y-3">
         <div className="flex flex-wrap gap-2">
           <Select
             value={level}
@@ -218,8 +218,8 @@ export function Logs() {
         </div>
       </div>
 
-      <div className="bg-white border rounded-lg overflow-hidden">
-        <div className="grid grid-cols-6 bg-gray-50 text-xs font-semibold uppercase text-gray-600 sticky top-0 z-10">
+      <div className="bg-card border rounded-lg overflow-hidden">
+        <div className="grid grid-cols-6 bg-muted/40 text-xs font-semibold uppercase text-muted-foreground sticky top-0 z-10">
           {['Timestamp', 'Level', 'Service', 'Source', 'Message', 'Context'].map((c) => (
             <div key={c} className="p-3 border-b">{c}</div>
           ))}
@@ -237,7 +237,7 @@ export function Logs() {
                 <div key={log.id} style={{ position: "absolute", top, left: 0, right: 0 }}>
                   <button
                     onClick={() => setExpandedRows((p) => ({ ...p, [log.id]: !p[log.id] }))}
-                    className="grid grid-cols-6 w-full text-left text-sm hover:bg-gray-50 border-b"
+                    className="grid grid-cols-6 w-full text-left text-sm hover:bg-muted/40 border-b"
                   >
                     <div className="p-3 truncate">{new Date(log.timestamp).toLocaleString()}</div>
                     <div className="p-3">
@@ -246,9 +246,9 @@ export function Logs() {
                       </Badge>
                     </div>
                     <div className="p-3 uppercase text-xs">{log.service}</div>
-                    <div className="p-3 truncate text-xs text-gray-500">{log.source_id ?? "—"}</div>
+                    <div className="p-3 truncate text-xs text-muted-foreground">{log.source_id ?? "—"}</div>
                     <div className="p-3 truncate">{log.message}</div>
-                    <div className="p-3 truncate text-xs text-gray-500">{log.context ?? "—"}</div>
+                    <div className="p-3 truncate text-xs text-muted-foreground">{log.context ?? "—"}</div>
                   </button>
                   {expandedRows[log.id] && (
                     <pre className="bg-gray-900 text-green-400 font-mono text-sm p-3 overflow-auto border-b">
@@ -260,7 +260,7 @@ export function Logs() {
             })}
           </div>
           {!isLoading && logs.length === 0 && (
-            <div className="p-8 text-center text-gray-500">
+            <div className="p-8 text-center text-muted-foreground">
               <p className="font-medium">No logs found</p>
               <p className="text-sm">Try adjusting filters or date range.</p>
             </div>
@@ -269,7 +269,7 @@ export function Logs() {
       </div>
 
       <div className="flex items-center justify-between">
-        <div className="text-sm text-gray-600">Showing {Math.min(skip + 1, total)}–{Math.min(skip + limit, total)} of {total}</div>
+        <div className="text-sm text-muted-foreground">Showing {Math.min(skip + 1, total)}–{Math.min(skip + limit, total)} of {total}</div>
         <div className="flex items-center gap-2">
           <Select
             value={String(limit)}
@@ -282,11 +282,11 @@ export function Logs() {
         </div>
       </div>
 
-      <div className="bg-white border rounded-lg overflow-hidden">
+      <div className="bg-card border rounded-lg overflow-hidden">
         <Button
           onClick={() => setStreamOn((v) => !v)}
           variant="secondary"
-          className="h-auto w-full justify-start rounded-none border-b bg-gray-50 px-3 py-2"
+          className="h-auto w-full justify-start rounded-none border-b bg-muted/40 px-3 py-2"
           icon={<Terminal size={16} />}
         >
           Live Stream {streamOn ? "ON" : "OFF"}

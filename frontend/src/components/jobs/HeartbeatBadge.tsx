@@ -10,7 +10,7 @@ function minutesSince(iso?: string | null): number | null {
 export function HeartbeatBadge({ job }: { job: Job }) {
   if (job.status === "paused") return <span className="px-2 py-0.5 rounded bg-yellow-100 text-yellow-700 text-xs">paused</span>;
   if (!["running", "queued", "pending"].includes(job.status)) {
-    return <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600 text-xs">terminal</span>;
+    return <span className="px-2 py-0.5 rounded bg-muted text-muted-foreground text-xs">terminal</span>;
   }
   if (job.is_stale) {
     const mins = minutesSince(job.last_heartbeat_at);

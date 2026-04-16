@@ -108,7 +108,7 @@ export function Records() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Records</h1>
+        <h1 className="text-2xl font-bold text-foreground">Records</h1>
         <Button
           onClick={() => {
             if (confirm("Approve all HIGH confidence records?")) bulkApproveMutation.mutate();
@@ -170,9 +170,9 @@ export function Records() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg border overflow-hidden">
+      <div className="bg-card rounded-lg border overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-muted/40">
             <tr>
               <th className="text-left p-3">
                 <input
@@ -181,16 +181,16 @@ export function Records() {
                   checked={visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id))}
                 />
               </th>
-              <th className="text-left p-3 font-medium text-gray-600">Record</th>
-              <th className="text-left p-3 font-medium text-gray-600">Type</th>
-              <th className="text-left p-3 font-medium text-gray-600">Confidence</th>
-              <th className="text-left p-3 font-medium text-gray-600">Source</th>
-              <th className="text-left p-3 font-medium text-gray-600">Actions</th>
+              <th className="text-left p-3 font-medium text-muted-foreground">Record</th>
+              <th className="text-left p-3 font-medium text-muted-foreground">Type</th>
+              <th className="text-left p-3 font-medium text-muted-foreground">Confidence</th>
+              <th className="text-left p-3 font-medium text-muted-foreground">Source</th>
+              <th className="text-left p-3 font-medium text-muted-foreground">Actions</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={6} className="text-center p-8 text-gray-400">Loading...</td></tr>
+              <tr><td colSpan={6} className="text-center p-8 text-muted-foreground/80">Loading...</td></tr>
             )}
             {data?.items.map((record) => (
               <RecordTableRow
@@ -203,7 +203,7 @@ export function Records() {
               />
             ))}
             {!isLoading && data?.items.length === 0 && (
-              <tr><td colSpan={6} className="text-center p-8 text-gray-400">No records found.</td></tr>
+              <tr><td colSpan={6} className="text-center p-8 text-muted-foreground/80">No records found.</td></tr>
             )}
           </tbody>
         </table>
@@ -246,7 +246,7 @@ function StatusTab({
       className={`px-3 py-1.5 rounded text-sm border ${
         active
           ? "bg-blue-600 text-white border-blue-600"
-          : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+          : "bg-card text-muted-foreground border-border hover:bg-muted/40"
       }`}
     >
       {label} ({count})

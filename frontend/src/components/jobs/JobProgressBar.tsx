@@ -6,7 +6,7 @@ interface JobProgressBarProps {
 
 export function JobProgressBar({ current = 0, total = 0, percent }: JobProgressBarProps) {
   if (!total || total <= 0) {
-    return <span className="text-gray-400">—</span>;
+    return <span className="text-muted-foreground/80">—</span>;
   }
   const safePercent = Math.max(0, Math.min(100, percent ?? Math.round((current / total) * 100)));
   return (
@@ -14,7 +14,7 @@ export function JobProgressBar({ current = 0, total = 0, percent }: JobProgressB
       <div className="h-2 bg-gray-200 rounded overflow-hidden">
         <div className="h-full bg-blue-600" style={{ width: `${safePercent}%` }} />
       </div>
-      <div className="text-xs text-gray-600">{current}/{total} ({safePercent}%)</div>
+      <div className="text-xs text-muted-foreground">{current}/{total} ({safePercent}%)</div>
     </div>
   );
 }

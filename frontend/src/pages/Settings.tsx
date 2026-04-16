@@ -78,12 +78,12 @@ export function Settings() {
   });
 
   if (isLoading) {
-    return <div className="p-4 text-gray-400 text-sm">Loading settings…</div>;
+    return <div className="p-4 text-muted-foreground/80 text-sm">Loading settings…</div>;
   }
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+      <h1 className="text-2xl font-bold text-foreground">Settings</h1>
 
       {/* ── Warning banner ─────────────────────────────────────────────────── */}
       {!data?.artio_configured && (
@@ -102,11 +102,11 @@ export function Settings() {
       )}
 
       {/* ── Artio API card ──────────────────────────────────────────────────── */}
-      <div className="rounded-lg border bg-white">
+      <div className="rounded-lg border bg-card">
         <div className="flex items-center justify-between border-b p-4">
           <div>
-            <h2 className="font-semibold text-gray-900">Artio API</h2>
-            <p className="mt-0.5 text-xs text-gray-500">
+            <h2 className="font-semibold text-foreground">Artio API</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
               Connection settings for Artio export
             </p>
           </div>
@@ -169,10 +169,10 @@ export function Settings() {
       </div>
 
       {/* ── Crawl settings card ─────────────────────────────────────────────── */}
-      <div className="rounded-lg border bg-white">
+      <div className="rounded-lg border bg-card">
         <div className="border-b p-4">
-          <h2 className="font-semibold text-gray-900">Crawl Settings</h2>
-          <p className="mt-0.5 text-xs text-gray-500">
+          <h2 className="font-semibold text-foreground">Crawl Settings</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
             Controls how deeply and quickly the crawler operates
           </p>
         </div>
@@ -242,7 +242,7 @@ export function Settings() {
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 const inputCls =
-  "w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:ring-2 focus:ring-blue-500";
+  "w-full rounded-md border border-border px-3 py-2 text-sm focus:border-transparent focus:ring-2 focus:ring-blue-500";
 
 function Field({
   label,
@@ -255,9 +255,9 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-sm font-medium text-gray-700">{label}</label>
+      <label className="mb-1 block text-sm font-medium text-muted-foreground">{label}</label>
       {children}
-      {hint && <p className="mt-1 text-xs text-gray-400">{hint}</p>}
+      {hint && <p className="mt-1 text-xs text-muted-foreground/80">{hint}</p>}
     </div>
   );
 }
@@ -266,7 +266,7 @@ function ConnectionBadge({ status }: { status: ConnectionStatus }) {
   if (status.state === "idle") return null;
 
   const cfg: Record<Exclude<ConnectionStatus["state"], "idle">, { cls: string; label: string }> = {
-    testing: { cls: "bg-gray-100 text-gray-700 animate-pulse", label: "Testing…" },
+    testing: { cls: "bg-muted text-muted-foreground animate-pulse", label: "Testing…" },
     success: { cls: "bg-green-100 text-green-800", label: "Connected" },
     error: { cls: "bg-red-100 text-red-800", label: "Error" },
   };

@@ -95,7 +95,7 @@ export function SourceDetail() {
     onSuccess: () => navigate("/sources"),
   });
 
-  if (isLoading) return <div className="p-6 text-gray-400">Loading...</div>;
+  if (isLoading) return <div className="p-6 text-muted-foreground/80">Loading...</div>;
   if (!source) return <div className="p-6 text-red-500">Source not found</div>;
 
   const tabs = ["overview", "pages", "records", "jobs", "mapping", "settings"] as const;
@@ -105,12 +105,12 @@ export function SourceDetail() {
       <div>
         <Button variant="ghost" size="sm" onClick={() => navigate("/sources")} className="mb-1">← Sources</Button>
         <h1 className="text-2xl font-bold">{source.name ?? source.url}</h1>
-        <p className="text-sm text-gray-500">{source.url}</p>
+        <p className="text-sm text-muted-foreground">{source.url}</p>
       </div>
 
       {message && <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm">{message}</div>}
 
-      <div className="bg-white border rounded p-4">
+      <div className="bg-card border rounded p-4">
         <h2 className="font-semibold mb-3">Operational Controls</h2>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <StatusBadge status={source.operational_status ?? source.status} />
@@ -137,29 +137,29 @@ export function SourceDetail() {
       <div className="border-b">
         <div className="flex gap-4">
           {tabs.map((tab) => (
-            <button key={tab} onClick={() => setActiveTab(tab)} className={`py-2 px-1 text-sm font-medium border-b-2 capitalize ${activeTab === tab ? "border-blue-500 text-blue-600" : "border-transparent text-gray-500"}`}>
+            <button key={tab} onClick={() => setActiveTab(tab)} className={`py-2 px-1 text-sm font-medium border-b-2 capitalize ${activeTab === tab ? "border-blue-500 text-blue-600" : "border-transparent text-muted-foreground"}`}>
               {tab}
             </button>
           ))}
         </div>
       </div>
 
-      {activeTab === "overview" && <div className="bg-white border rounded p-4 text-sm text-gray-700">Source created at {new Date(source.created_at).toLocaleString()} with current status <strong>{source.operational_status ?? source.status}</strong>.</div>}
+      {activeTab === "overview" && <div className="bg-card border rounded p-4 text-sm text-muted-foreground">Source created at {new Date(source.created_at).toLocaleString()} with current status <strong>{source.operational_status ?? source.status}</strong>.</div>}
 
       {activeTab === "pages" && (
-        <div className="bg-white border rounded overflow-hidden">
-          <table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="text-left p-3">URL</th><th className="text-left p-3">Type</th><th className="text-left p-3">Status</th></tr></thead>
+        <div className="bg-card border rounded overflow-hidden">
+          <table className="w-full text-sm"><thead className="bg-muted/40"><tr><th className="text-left p-3">URL</th><th className="text-left p-3">Type</th><th className="text-left p-3">Status</th></tr></thead>
             <tbody>{pages?.items.map((p) => <tr key={p.id} className="border-t"><td className="p-3 truncate max-w-[440px]">{p.url}</td><td className="p-3">{p.page_type}</td><td className="p-3"><StatusBadge status={p.status} /></td></tr>)}</tbody>
           </table>
         </div>
       )}
 
       {activeTab === "records" && (
-        <div className="bg-white border rounded p-4 text-sm">{records?.items.length ?? 0} records found.</div>
+        <div className="bg-card border rounded p-4 text-sm">{records?.items.length ?? 0} records found.</div>
       )}
 
       {activeTab === "mapping" && (
-        <div className="bg-white border rounded p-4 text-sm space-y-3">
+        <div className="bg-card border rounded p-4 text-sm space-y-3">
           <p>Configure AI Source Mapper scans, mappings, and preview output for this source.</p>
           <Button className="w-fit" onClick={() => navigate(`/sources/${id}/mapping`)}>
             Open Mapping Workspace
@@ -168,19 +168,19 @@ export function SourceDetail() {
       )}
 
       {activeTab === "jobs" && (
-        <div className="bg-white border rounded overflow-hidden">
-          <table className="w-full text-sm"><thead className="bg-gray-50"><tr><th className="text-left p-3">Type</th><th className="text-left p-3">Status</th><th className="text-left p-3">Started</th><th className="text-left p-3">Completed</th></tr></thead>
+        <div className="bg-card border rounded overflow-hidden">
+          <table className="w-full text-sm"><thead className="bg-muted/40"><tr><th className="text-left p-3">Type</th><th className="text-left p-3">Status</th><th className="text-left p-3">Started</th><th className="text-left p-3">Completed</th></tr></thead>
             <tbody>{(jobs?.items ?? []).map((job) => <tr key={job.id} className="border-t"><td className="p-3">{job.job_type}</td><td className="p-3"><StatusBadge status={job.status} /></td><td className="p-3">{job.started_at ? new Date(job.started_at).toLocaleString() : "—"}</td><td className="p-3">{job.completed_at ? new Date(job.completed_at).toLocaleString() : "—"}</td></tr>)}</tbody>
           </table>
         </div>
       )}
 
       {activeTab === "settings" && (
-        <div className="bg-white border rounded p-4 space-y-3 text-sm">
+        <div className="bg-card border rounded p-4 space-y-3 text-sm">
           <h3 className="font-semibold">Source behavior settings</h3>
           <div className="grid grid-cols-2 gap-3">
             <label className="space-y-1">
-              <span className="text-gray-600">Crawl intent</span>
+              <span className="text-muted-foreground">Crawl intent</span>
               <Select
                 className="w-full"
                 value={source.crawl_intent ?? "site_root"}
@@ -194,11 +194,11 @@ export function SourceDetail() {
               />
             </label>
             <label className="space-y-1">
-              <span className="text-gray-600">Max pages</span>
+              <span className="text-muted-foreground">Max pages</span>
               <Input type="number" className="w-full" value={source.max_pages ?? ""} onChange={(e) => queryClient.setQueryData(["source", id], { ...source, max_pages: e.target.value ? Number(e.target.value) : undefined })} />
             </label>
             <label className="space-y-1">
-              <span className="text-gray-600">Max depth</span>
+              <span className="text-muted-foreground">Max depth</span>
               <Input type="number" className="w-full" value={source.max_depth ?? ""} onChange={(e) => queryClient.setQueryData(["source", id], { ...source, max_depth: e.target.value ? Number(e.target.value) : undefined })} />
             </label>
             <label className="flex items-center gap-2 mt-6">

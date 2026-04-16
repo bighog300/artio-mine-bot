@@ -22,9 +22,9 @@ export function Jobs() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold">Jobs</h1>
-      <div className="bg-white border rounded overflow-hidden">
+      <div className="bg-card border rounded overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-muted/40">
             <tr>
               <th className="text-left p-3">Source</th>
               <th className="text-left p-3">Type</th>
@@ -41,7 +41,7 @@ export function Jobs() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={12} className="p-6 text-center text-gray-400">Loading...</td></tr>}
+            {isLoading && <tr><td colSpan={12} className="p-6 text-center text-muted-foreground/80">Loading...</td></tr>}
             {data?.items.map((job) => (
               <tr key={job.id} className="border-t">
                 <td className="p-3">{job.source ?? job.source_id}</td>
@@ -57,13 +57,13 @@ export function Jobs() {
                     percent={job.progress_percent}
                   />
                 </td>
-                <td className="p-3 text-xs text-gray-600">{job.duration_seconds ? `${job.duration_seconds}s` : "—"}</td>
+                <td className="p-3 text-xs text-muted-foreground">{job.duration_seconds ? `${job.duration_seconds}s` : "—"}</td>
                 <td className="p-3">{job.processed_count ?? 0}</td>
                 <td className="p-3">{job.failure_count ?? 0}</td>
                 <td className="p-3"><HeartbeatBadge job={job} /></td>
                 <td className="p-3">
                   <div className="flex gap-2 text-xs">
-                    <Link className="inline-flex h-8 items-center justify-center rounded-md bg-gray-100 px-3 text-sm font-medium hover:bg-gray-200" to={`/jobs/${job.id}`}>Details</Link>
+                    <Link className="inline-flex h-8 items-center justify-center rounded-md bg-muted px-3 text-sm font-medium hover:bg-gray-200" to={`/jobs/${job.id}`}>Details</Link>
                     <Button size="sm" variant="secondary" onClick={() => mutate.mutate({ id: job.id, action: "retry" })}>Retry</Button>
                     <Button size="sm" variant="secondary" onClick={() => mutate.mutate({ id: job.id, action: "pause" })}>Pause</Button>
                     <Button size="sm" variant="secondary" onClick={() => mutate.mutate({ id: job.id, action: "resume" })}>Resume</Button>

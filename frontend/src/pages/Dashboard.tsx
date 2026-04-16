@@ -24,7 +24,7 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+      <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
 
       <div className="grid grid-cols-4 gap-4">
         <StatCard label="Total Sources" value={stats?.sources.total ?? 0} />
@@ -55,20 +55,20 @@ export function Dashboard() {
 
       <div className="grid grid-cols-2 gap-6">
         <div className="space-y-6">
-          <div className="bg-white rounded-lg border p-4">
-            <h2 className="font-semibold text-gray-900 mb-3">Records by Type</h2>
+          <div className="bg-card rounded-lg border p-4">
+            <h2 className="font-semibold text-foreground mb-3">Records by Type</h2>
             <div className="space-y-2">
               {Object.entries(stats?.records.by_type ?? {}).map(([type, count]) => (
                 <div key={type} className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600 capitalize">{type}</span>
+                  <span className="text-sm text-muted-foreground capitalize">{type}</span>
                   <span className="text-sm font-medium">{count as number}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="bg-white rounded-lg border p-4">
-            <h2 className="font-semibold text-gray-900 mb-3">Confidence Distribution</h2>
+          <div className="bg-card rounded-lg border p-4">
+            <h2 className="font-semibold text-foreground mb-3">Confidence Distribution</h2>
             <div className="space-y-2">
               {Object.entries(stats?.records.by_confidence ?? {}).map(([band, count]) => (
                 <div key={band} className="flex items-center justify-between">
@@ -81,36 +81,36 @@ export function Dashboard() {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg border">
+          <div className="bg-card rounded-lg border">
             <div className="p-4 border-b">
-              <h2 className="font-semibold text-gray-900">Recent Sources</h2>
+              <h2 className="font-semibold text-foreground">Recent Sources</h2>
             </div>
             <table className="w-full text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-muted/40">
                 <tr>
-                  <th className="text-left p-3 text-gray-600 font-medium">Source</th>
-                  <th className="text-left p-3 text-gray-600 font-medium">Status</th>
-                  <th className="text-left p-3 text-gray-600 font-medium">Records</th>
-                  <th className="text-left p-3 text-gray-600 font-medium">Last Run</th>
+                  <th className="text-left p-3 text-muted-foreground font-medium">Source</th>
+                  <th className="text-left p-3 text-muted-foreground font-medium">Status</th>
+                  <th className="text-left p-3 text-muted-foreground font-medium">Records</th>
+                  <th className="text-left p-3 text-muted-foreground font-medium">Last Run</th>
                 </tr>
               </thead>
               <tbody>
                 {recentSources.map((source) => (
-                  <tr key={source.id} className="border-t hover:bg-gray-50">
+                  <tr key={source.id} className="border-t hover:bg-muted/40">
                     <td className="p-3">
                       <div className="font-medium">{source.name ?? source.url}</div>
-                      <div className="text-xs text-gray-500 truncate max-w-[240px]">{source.url}</div>
+                      <div className="text-xs text-muted-foreground truncate max-w-[240px]">{source.url}</div>
                     </td>
                     <td className="p-3"><StatusBadge status={source.status} /></td>
                     <td className="p-3">{source.total_records}</td>
-                    <td className="p-3 text-gray-500">
+                    <td className="p-3 text-muted-foreground">
                       {source.last_crawled_at ? formatRelative(source.last_crawled_at) : "Never"}
                     </td>
                   </tr>
                 ))}
                 {recentSources.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="p-6 text-center text-gray-400">
+                    <td colSpan={4} className="p-6 text-center text-muted-foreground/80">
                       No sources yet. Add a source to get started.
                     </td>
                   </tr>
@@ -120,8 +120,8 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white rounded-lg border p-4">
-          <h2 className="font-semibold text-gray-900 mb-3">Recent activity</h2>
+        <div className="bg-card rounded-lg border p-4">
+          <h2 className="font-semibold text-foreground mb-3">Recent activity</h2>
           <div className="space-y-3">
             {activity?.items.map((item) => (
               <div key={item.id} className="flex items-start gap-2 text-sm">
@@ -135,8 +135,8 @@ export function Dashboard() {
                   }`}
                 />
                 <div className="min-w-0">
-                  <div className="text-gray-800 break-words">{formatLogMessage(item.message)}</div>
-                  <div className="text-xs text-gray-500 flex items-center gap-2">
+                  <div className="text-foreground break-words">{formatLogMessage(item.message)}</div>
+                  <div className="text-xs text-muted-foreground flex items-center gap-2">
                     <span>{formatRelative(item.timestamp)}</span>
                     {item.source_id && (
                       <Link to={`/sources/${item.source_id}`} className="text-blue-600 hover:underline">
@@ -151,7 +151,7 @@ export function Dashboard() {
               <div className="text-sm text-amber-700" role="status">Activity feed is temporarily unavailable.</div>
             )}
             {!isActivityError && (!activity || activity.items.length === 0) && (
-              <div className="text-sm text-gray-500">No activity yet.</div>
+              <div className="text-sm text-muted-foreground">No activity yet.</div>
             )}
           </div>
         </div>
@@ -162,8 +162,8 @@ export function Dashboard() {
 
 function MiniMetric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="bg-white border rounded p-3">
-      <div className="text-xs text-gray-500">{label}</div>
+    <div className="bg-card border rounded p-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
       <div className="text-lg font-semibold">{value}</div>
     </div>
   );
@@ -176,12 +176,12 @@ function StatCard({ label, value, sub, highlight }: {
   highlight?: boolean;
 }) {
   return (
-    <div className={`bg-white rounded-lg border p-4 ${highlight ? "border-green-200" : ""}`}>
-      <div className="text-sm text-gray-500 font-medium">{label}</div>
-      <div className={`text-3xl font-bold mt-1 ${highlight ? "text-green-600" : "text-gray-900"}`}>
+    <div className={`bg-card rounded-lg border p-4 ${highlight ? "border-green-200" : ""}`}>
+      <div className="text-sm text-muted-foreground font-medium">{label}</div>
+      <div className={`text-3xl font-bold mt-1 ${highlight ? "text-green-600" : "text-foreground"}`}>
         {value}
       </div>
-      {sub && <div className="text-xs text-gray-400 mt-1">{sub}</div>}
+      {sub && <div className="text-xs text-muted-foreground/80 mt-1">{sub}</div>}
     </div>
   );
 }

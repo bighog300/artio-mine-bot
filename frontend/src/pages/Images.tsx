@@ -23,13 +23,13 @@ export function Images() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold text-gray-900">Images</h1>
+      <h1 className="text-2xl font-bold text-foreground">Images</h1>
 
       <div className="flex gap-3 flex-wrap">
         <select
           value={sourceId}
           onChange={(e) => setSourceId(e.target.value)}
-          className="border border-gray-300 rounded px-2 py-1.5 text-sm"
+          className="border border-border rounded px-2 py-1.5 text-sm"
         >
           <option value="">All sources</option>
           {sources?.items.map((s) => (
@@ -39,7 +39,7 @@ export function Images() {
         <select
           value={imageType}
           onChange={(e) => setImageType(e.target.value)}
-          className="border border-gray-300 rounded px-2 py-1.5 text-sm"
+          className="border border-border rounded px-2 py-1.5 text-sm"
         >
           <option value="">All types</option>
           {["profile", "artwork", "poster", "venue", "unknown"].map((t) => (
@@ -61,7 +61,7 @@ export function Images() {
 
       <div className="columns-2 md:columns-3 lg:columns-4 gap-3 space-y-3">
         {data?.items.map((img) => (
-          <div key={img.id} className="break-inside-avoid rounded overflow-hidden border bg-white group relative">
+          <div key={img.id} className="break-inside-avoid rounded overflow-hidden border bg-card group relative">
             <ImageThumbnail
               url={img.url}
               alt={img.alt_text ?? ""}
@@ -78,7 +78,7 @@ export function Images() {
       </div>
 
       {!isLoading && data?.items.length === 0 && (
-        <div className="text-center text-gray-400 py-12">No images found.</div>
+        <div className="text-center text-muted-foreground/80 py-12">No images found.</div>
       )}
     </div>
   );

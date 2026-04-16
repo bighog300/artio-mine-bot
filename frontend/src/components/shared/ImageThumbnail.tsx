@@ -13,8 +13,8 @@ export function ImageThumbnail({ url, alt, imageType, className }: ImageThumbnai
 
   if (error) {
     return (
-      <div className={`flex items-center justify-center bg-gray-100 rounded ${className ?? "w-full h-full"}`}>
-        <Image className="text-gray-400" size={24} />
+      <div className={`flex items-center justify-center bg-muted rounded ${className ?? "w-full h-full"}`}>
+        <Image className="text-muted-foreground/80" size={24} />
       </div>
     );
   }

@@ -16,7 +16,7 @@ interface Props {
 
 export function ScanSetupForm({ sourceUrl, settings, onSettingsChange, onCreateDraft, onRunScan, loading, scanLoading }: Props) {
   return (
-    <section className="rounded border bg-white p-4 space-y-3">
+    <section className="rounded border bg-card p-4 space-y-3">
       <h2 className="font-semibold">URL Input & Scan Settings</h2>
       <input className="w-full border rounded px-3 py-2 text-sm" value={sourceUrl} disabled />
       <div className="grid grid-cols-3 gap-2 text-sm">
@@ -35,7 +35,7 @@ export function ScanSetupForm({ sourceUrl, settings, onSettingsChange, onCreateD
           {loading ? "Creating..." : "Create Source Scan"}
         </button>
         {onRunScan && (
-          <button className="px-3 py-2 bg-slate-700 text-white rounded disabled:opacity-60" onClick={onRunScan} disabled={scanLoading}>
+          <button className="px-3 py-2 bg-primary text-white rounded disabled:opacity-60" onClick={onRunScan} disabled={scanLoading}>
             {scanLoading ? "Running scan..." : "Re-scan"}
           </button>
         )}

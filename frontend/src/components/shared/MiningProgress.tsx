@@ -29,27 +29,27 @@ export function MiningProgress({
     !TERMINAL_STATUSES.has(status);
 
   return (
-    <div className="bg-white border rounded p-4 space-y-3">
+    <div className="bg-card border rounded p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-800">Mining progress</h3>
-        <span className="text-xs uppercase tracking-wide text-gray-500">{status}</span>
+        <h3 className="text-sm font-semibold text-foreground">Mining progress</h3>
+        <span className="text-xs uppercase tracking-wide text-muted-foreground">{status}</span>
       </div>
 
-      <div className="h-2 w-full bg-gray-100 rounded overflow-hidden">
+      <div className="h-2 w-full bg-muted rounded overflow-hidden">
         <div className="h-full bg-blue-600 transition-all duration-300" style={{ width: `${percent}%` }} />
       </div>
 
-      <div className="grid grid-cols-3 gap-3 text-xs text-gray-600">
+      <div className="grid grid-cols-3 gap-3 text-xs text-muted-foreground">
         <div>
-          <div className="font-medium text-gray-800">{percent}%</div>
+          <div className="font-medium text-foreground">{percent}%</div>
           <div>Complete</div>
         </div>
         <div>
-          <div className="font-medium text-gray-800">{pagesCrawled}/{totalPages}</div>
+          <div className="font-medium text-foreground">{pagesCrawled}/{totalPages}</div>
           <div>Pages crawled</div>
         </div>
         <div>
-          <div className="font-medium text-gray-800">{recordsExtracted}</div>
+          <div className="font-medium text-foreground">{recordsExtracted}</div>
           <div>Records extracted</div>
         </div>
       </div>

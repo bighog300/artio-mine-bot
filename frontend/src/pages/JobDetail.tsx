@@ -54,7 +54,7 @@ export function JobDetail() {
   }, [id]);
 
   if (isLoading || !job) {
-    return <div className="text-sm text-gray-500">Loading job...</div>;
+    return <div className="text-sm text-muted-foreground">Loading job...</div>;
   }
 
   return (
@@ -64,12 +64,12 @@ export function JobDetail() {
         <Link to="/jobs" className="text-sm text-blue-600">← Back to Jobs</Link>
       </div>
 
-      <div className="bg-white border rounded p-4 space-y-3">
+      <div className="bg-card border rounded p-4 space-y-3">
         <div className="flex gap-3 items-center">
           <div className="font-semibold">{job.source ?? job.source_id}</div>
           <StatusBadge status={job.status} />
           <HeartbeatBadge job={job} />
-          <span className="text-xs font-mono text-gray-500">{job.worker_id ?? "unassigned"}</span>
+          <span className="text-xs font-mono text-muted-foreground">{job.worker_id ?? "unassigned"}</span>
           <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("retry")}>Retry</Button>
           <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("pause")}>Pause</Button>
           <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("resume")}>Resume</Button>
@@ -77,17 +77,17 @@ export function JobDetail() {
         </div>
         {job.error_message && <div className="text-sm text-red-600">{job.error_message}</div>}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-          <div><div className="text-gray-500">Type</div><div>{job.job_type}</div></div>
-          <div><div className="text-gray-500">Stage</div><div>{job.current_stage ?? "—"}</div></div>
-          <div><div className="text-gray-500">Processed</div><div>{job.processed_count ?? 0}</div></div>
-          <div><div className="text-gray-500">Failures</div><div>{job.failure_count ?? 0}</div></div>
+          <div><div className="text-muted-foreground">Type</div><div>{job.job_type}</div></div>
+          <div><div className="text-muted-foreground">Stage</div><div>{job.current_stage ?? "—"}</div></div>
+          <div><div className="text-muted-foreground">Processed</div><div>{job.processed_count ?? 0}</div></div>
+          <div><div className="text-muted-foreground">Failures</div><div>{job.failure_count ?? 0}</div></div>
         </div>
         <div>
-          <div className="text-gray-500 text-sm mb-1">Current item</div>
+          <div className="text-muted-foreground text-sm mb-1">Current item</div>
           <div className="text-sm break-all">{job.current_item ?? "—"}</div>
         </div>
         <JobProgressBar current={job.progress_current} total={job.progress_total} percent={job.progress_percent} />
-        {job.last_log_message && <div className="text-xs text-gray-600">Latest: {job.last_log_message}</div>}
+        {job.last_log_message && <div className="text-xs text-muted-foreground">Latest: {job.last_log_message}</div>}
       </div>
 
       <div>
