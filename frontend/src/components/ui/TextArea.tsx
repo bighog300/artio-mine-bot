@@ -10,7 +10,7 @@ export function TextArea({ label, error, hint, id, className, ...props }: TextAr
   return (
     <div className="space-y-1.5">
       {label ? (
-        <label htmlFor={textareaId} className="block text-sm font-medium text-gray-700">
+        <label htmlFor={textareaId} className="block text-sm font-medium text-foreground">
           {label}
         </label>
       ) : null}
@@ -19,16 +19,16 @@ export function TextArea({ label, error, hint, id, className, ...props }: TextAr
         aria-invalid={Boolean(error)}
         aria-describedby={describedBy}
         className={cn(
-          "w-full rounded-md border px-3 py-2 text-sm shadow-sm outline-none transition-colors placeholder:text-gray-400 focus-visible:ring-2 focus-visible:ring-offset-1",
+          "w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-background",
           error
-            ? "border-red-500 focus-visible:ring-red-500"
-            : "border-gray-300 focus-visible:border-blue-500 focus-visible:ring-blue-500",
+            ? "border-destructive focus-visible:ring-destructive"
+            : "focus-visible:border-primary focus-visible:ring-ring",
           className,
         )}
         {...props}
       />
-      {error ? <p id={`${textareaId}-error`} className="text-xs text-red-600">{error}</p> : null}
-      {!error && hint ? <p id={`${textareaId}-hint`} className="text-xs text-gray-500">{hint}</p> : null}
+      {error ? <p id={`${textareaId}-error`} className="text-xs text-destructive">{error}</p> : null}
+      {!error && hint ? <p id={`${textareaId}-hint`} className="text-xs text-muted-foreground">{hint}</p> : null}
     </div>
   );
 }

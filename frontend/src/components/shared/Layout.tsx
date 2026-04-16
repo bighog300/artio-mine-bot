@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { LayoutDashboard, Globe, Database, Image, Upload, FileText, Settings, TerminalSquare, GitMerge, SearchCheck, Compass, History, KeyRound, ListChecks, Layers3, RefreshCw, ActivitySquare } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/shared/ThemeToggle";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -28,12 +29,17 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-background text-foreground transition-colors">
       {/* Sidebar */}
-      <aside className="w-56 bg-white border-r border-gray-200 flex flex-col">
-        <div className="p-4 border-b border-gray-200">
-          <h1 className="text-lg font-bold text-gray-900">Artio Miner</h1>
-          <p className="text-xs text-gray-500">v1.0.0</p>
+      <aside className="flex w-56 flex-col border-r border-border bg-card transition-colors">
+        <div className="border-b border-border p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h1 className="text-lg font-bold text-foreground">Artio Miner</h1>
+              <p className="text-xs text-muted-foreground">v1.0.0</p>
+            </div>
+            <ThemeToggle />
+          </div>
         </div>
         <nav className="flex-1 p-3 space-y-1">
           {navItems.map(({ to, label, icon: Icon }) => (
@@ -45,8 +51,8 @@ export function Layout({ children }: LayoutProps) {
                 cn(
                   "flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors",
                   isActive
-                    ? "bg-blue-50 text-blue-700"
-                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                    ? "bg-primary/15 text-primary"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                 )
               }
             >

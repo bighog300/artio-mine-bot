@@ -1,4 +1,18 @@
 export const colors = {
+  theme: {
+    light: {
+      background: "#ffffff",
+      foreground: "#111827",
+      card: "#ffffff",
+      border: "#e5e7eb",
+    },
+    dark: {
+      background: "#111827",
+      foreground: "#f9fafb",
+      card: "#1f2937",
+      border: "#374151",
+    },
+  },
   primary: {
     50: "#eff6ff",
     100: "#dbeafe",

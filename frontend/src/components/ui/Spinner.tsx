@@ -12,7 +12,7 @@ export function Spinner({ size = "md", className, label = "Loading" }: SpinnerPr
     <span className="inline-flex items-center gap-2" role="status" aria-live="polite" aria-label={label}>
       <span
         className={cn(
-          "inline-block animate-spin rounded-full border-current border-r-transparent text-current",
+          "inline-block animate-spin rounded-full border-current border-r-transparent text-primary",
           sizeStyles[size],
           className,
         )}

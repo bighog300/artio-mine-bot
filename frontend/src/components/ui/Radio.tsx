@@ -7,7 +7,7 @@ export function Radio({ id, name, label, checked, disabled, onChange }: ChoiceCo
   };
 
   return (
-    <label htmlFor={id} className="inline-flex items-center gap-2 text-sm text-gray-700">
+    <label htmlFor={id} className="inline-flex items-center gap-2 text-sm text-foreground">
       <input
         id={id}
         type="radio"
@@ -15,7 +15,7 @@ export function Radio({ id, name, label, checked, disabled, onChange }: ChoiceCo
         checked={checked}
         disabled={disabled}
         onChange={handleChange}
-        className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+        className="h-4 w-4 border-input bg-background text-primary focus:ring-ring disabled:cursor-not-allowed"
       />
       <span>{label}</span>
     </label>
