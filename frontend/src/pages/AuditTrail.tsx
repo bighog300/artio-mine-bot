@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { AuditEventModal } from "@/components/audit/AuditEventModal";
 import { AuditFilterBar, type AuditFilters } from "@/components/audit/AuditFilterBar";
 import { AuditTimeline } from "@/components/audit/AuditTimeline";
+import { Button } from "@/components/ui";
 import { exportAuditTrail, getAuditEvent, getAuditTrail, type AuditEvent } from "@/lib/api";
 
 const PAGE_SIZE = 25;
@@ -108,13 +109,13 @@ export function AuditTrail() {
           Showing {eventsQuery.data?.items.length ?? 0} of {eventsQuery.data?.total ?? 0} events
         </p>
         <div className="flex items-center gap-2">
-          <button type="button" className="rounded border px-3 py-1.5 disabled:opacity-50" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+          <Button type="button" variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
             Previous
-          </button>
+          </Button>
           <span>Page {page} / {totalPages}</span>
-          <button type="button" className="rounded border px-3 py-1.5 disabled:opacity-50" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
+          <Button type="button" variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
             Next
-          </button>
+          </Button>
         </div>
       </div>
 

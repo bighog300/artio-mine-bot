@@ -7,6 +7,7 @@ import {
   type BackfillCampaign,
   type BackfillSchedule,
 } from "@/lib/api";
+import { Badge, Button, Input } from "@/components/ui";
 
 const statusClass: Record<string, string> = {
   pending: "bg-gray-100 text-gray-700",
@@ -69,35 +70,32 @@ export function Backfill() {
       <section className="rounded-lg border border-gray-200 bg-white p-4">
         <h2 className="mb-3 text-lg font-semibold text-gray-900">Create Schedule</h2>
         <form className="grid gap-3 md:grid-cols-4" onSubmit={onSubmit}>
-          <input
+          <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="rounded border border-gray-300 px-3 py-2 text-sm"
             placeholder="Schedule name"
             required
           />
-          <input
+          <Input
             value={cron}
             onChange={(e) => setCron(e.target.value)}
-            className="rounded border border-gray-300 px-3 py-2 text-sm"
             placeholder="Cron expression"
             required
           />
-          <input
+          <Input
             type="number"
             value={limit}
             onChange={(e) => setLimit(Number(e.target.value))}
-            className="rounded border border-gray-300 px-3 py-2 text-sm"
             min={1}
             max={1000}
           />
-          <button
+          <Button
             type="submit"
             disabled={createSchedule.isPending}
-            className="rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+            loading={createSchedule.isPending}
           >
             {createSchedule.isPending ? "Creating…" : "Create"}
-          </button>
+          </Button>
         </form>
         {createSchedule.isError ? (
           <p className="mt-2 text-sm text-red-600">{(createSchedule.error as Error).message}</p>
@@ -147,9 +145,9 @@ function CampaignTable({ items }: { items: BackfillCampaign[] }) {
             <tr key={campaign.id} className="border-b border-gray-100">
               <td className="py-2 text-gray-900">{campaign.name}</td>
               <td className="py-2">
-                <span className={`rounded px-2 py-1 text-xs ${statusClass[campaign.status] ?? "bg-gray-100 text-gray-700"}`}>
+                <Badge className={statusClass[campaign.status] ?? "bg-gray-100 text-gray-700"}>
                   {campaign.status}
-                </span>
+                </Badge>
               </td>
               <td className="py-2 text-gray-700">
                 {campaign.processed_records}/{campaign.total_records}

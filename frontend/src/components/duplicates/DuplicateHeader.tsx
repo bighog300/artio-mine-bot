@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight, HelpCircle } from "lucide-react";
+import { Button } from "@/components/ui";
 
 interface DuplicateHeaderProps {
   total: number;
@@ -39,32 +40,37 @@ export function DuplicateHeader({
         </div>
 
         <div className="flex items-center gap-2">
-          <button
+          <Button
             onClick={onPrevious}
             disabled={current === 0}
-            className="p-2 border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            variant="ghost"
+            size="sm"
+            className="border"
             title="Previous (P)"
             aria-label="Previous duplicate"
+            icon={<ChevronLeft className="h-5 w-5" />}
           >
-            <ChevronLeft className="h-5 w-5" />
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={onNext}
             disabled={current >= total - 1}
-            className="p-2 border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            variant="ghost"
+            size="sm"
+            className="border"
             title="Next (N)"
             aria-label="Next duplicate"
+            icon={<ChevronRight className="h-5 w-5" />}
           >
-            <ChevronRight className="h-5 w-5" />
-          </button>
-          <button
-            className="p-2 border rounded hover:bg-gray-50"
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="border"
             title="Keyboard shortcuts: N=Next, P=Previous, M=Merge, D=Dismiss, S=Skip"
             aria-label="Keyboard shortcuts"
-            type="button"
+            icon={<HelpCircle className="h-5 w-5" />}
           >
-            <HelpCircle className="h-5 w-5" />
-          </button>
+          </Button>
         </div>
       </div>
     </header>
