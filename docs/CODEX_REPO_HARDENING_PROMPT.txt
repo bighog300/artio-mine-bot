@@ -1,0 +1,14 @@
+Implement the repository hardening task described in `docs/root/CODEX_REPO_HARDENING_BRIEF.md`.
+
+Constraints:
+- Keep the scope narrow.
+- Change only the files required to satisfy the brief.
+- Do not introduce unrelated refactors.
+- Prefer simple, explicit fixes.
+- After editing, run the verification commands from the brief and confirm the results in your final summary.
+
+Return a concise summary that includes:
+1. files changed
+2. what was fixed in each file
+3. verification results
+4. any remaining risks or assumptions
