@@ -429,9 +429,10 @@ async def test_pipeline_handles_ai_error(db_session: AsyncSession, mock_ai_clien
             new=AsyncMock(side_effect=AIExtractionError("API error")),
         ):
             # Should not crash
-            result = await runner.run_extraction_for_page(page)
+            metrics_payload, result = await runner.run_extraction_for_page(page)
 
     assert result is None
+    assert metrics_payload == {}
 
 
 @pytest.mark.asyncio

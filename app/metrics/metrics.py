@@ -9,6 +9,7 @@ class RuntimeMetrics:
     pages_expanded: int = 0
     pages_deepened: int = 0
     records_created: int = 0
+    records_updated: int = 0
     records_enriched: int = 0
     duplicate_items_skipped: int = 0
     semantic_queries: int = 0
@@ -42,6 +43,7 @@ def snapshot() -> dict[str, float | int]:
         "pages_expanded": _METRICS.pages_expanded,
         "pages_deepened": _METRICS.pages_deepened,
         "records_created": _METRICS.records_created,
+        "records_updated": _METRICS.records_updated,
         "records_enriched": _METRICS.records_enriched,
         "duplicate_items_skipped": _METRICS.duplicate_items_skipped,
         "semantic_queries": _METRICS.semantic_queries,
