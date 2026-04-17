@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
+  applySourceMappingPreset,
   applySourceMappingAction,
   createSourceMappingPreset,
   createSourceMappingDraft,
@@ -45,6 +46,7 @@ export function SourceMapping() {
   const [settings, setSettings] = useState({ max_pages: 50, max_depth: 3, sample_pages_per_type: 5 });
   const [createPresetOpen, setCreatePresetOpen] = useState(false);
   const [deletingPresetId, setDeletingPresetId] = useState<string | null>(null);
+  const [applyingPresetId, setApplyingPresetId] = useState<string | null>(null);
 
   useEffect(() => {
     const draftFromUrl = searchParams.get("draft");
@@ -213,6 +215,17 @@ export function SourceMapping() {
     onSettled: () => setDeletingPresetId(null),
   });
 
+  const applyPresetMutation = useMutation({
+    mutationFn: (presetId: string) => applySourceMappingPreset(id!, presetId),
+    onSuccess: () => {
+      setMessage("Preset applied to runtime map.");
+      qc.invalidateQueries({ queryKey: ["source", id] });
+      qc.invalidateQueries({ queryKey: ["source-mapping-presets", id] });
+    },
+    onError: (e: Error) => setMessage(e.message),
+    onSettled: () => setApplyingPresetId(null),
+  });
+
   const rowItems = rows?.items ?? [];
   const selectedCount = selectedRowIds.length;
   const filteredRows = useMemo(
@@ -272,8 +285,13 @@ export function SourceMapping() {
         presets={presets?.items ?? []}
         loading={presetsLoading}
         deletingPresetId={deletingPresetId}
+        applyingPresetId={applyingPresetId}
         canCreate={!!draftId}
         onOpenCreate={() => setCreatePresetOpen(true)}
+        onApply={(presetId) => {
+          setApplyingPresetId(presetId);
+          applyPresetMutation.mutate(presetId);
+        }}
         onDelete={(presetId) => {
           if (!window.confirm("Delete this preset? This cannot be undone.")) return;
           setDeletingPresetId(presetId);

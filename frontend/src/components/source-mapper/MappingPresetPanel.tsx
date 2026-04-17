@@ -4,12 +4,23 @@ interface Props {
   presets: SourceMappingPreset[];
   loading: boolean;
   deletingPresetId: string | null;
+  applyingPresetId: string | null;
   onOpenCreate: () => void;
   onDelete: (presetId: string) => void;
+  onApply: (presetId: string) => void;
   canCreate: boolean;
 }
 
-export function MappingPresetPanel({ presets, loading, deletingPresetId, onOpenCreate, onDelete, canCreate }: Props) {
+export function MappingPresetPanel({
+  presets,
+  loading,
+  deletingPresetId,
+  applyingPresetId,
+  onOpenCreate,
+  onDelete,
+  onApply,
+  canCreate,
+}: Props) {
   return (
     <section className="rounded border bg-card p-4 space-y-2">
       <div className="flex items-center justify-between gap-2">
@@ -36,13 +47,22 @@ export function MappingPresetPanel({ presets, loading, deletingPresetId, onOpenC
                     {preset.created_from_mapping_version_id ? `From version: ${preset.created_from_mapping_version_id}` : "From current draft"} · Created {new Date(preset.created_at).toLocaleString()}
                   </div>
                 </div>
-                <button
-                  className="px-2 py-1 border rounded text-xs disabled:opacity-60"
-                  onClick={() => onDelete(preset.id)}
-                  disabled={deletingPresetId === preset.id}
-                >
-                  {deletingPresetId === preset.id ? "Deleting..." : "Delete"}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="px-2 py-1 border rounded text-xs disabled:opacity-60"
+                    onClick={() => onApply(preset.id)}
+                    disabled={applyingPresetId === preset.id}
+                  >
+                    {applyingPresetId === preset.id ? "Applying..." : "Apply"}
+                  </button>
+                  <button
+                    className="px-2 py-1 border rounded text-xs disabled:opacity-60"
+                    onClick={() => onDelete(preset.id)}
+                    disabled={deletingPresetId === preset.id}
+                  >
+                    {deletingPresetId === preset.id ? "Deleting..." : "Delete"}
+                  </button>
+                </div>
               </div>
             </li>
           ))}

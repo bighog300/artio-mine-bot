@@ -55,6 +55,8 @@ def _is_job_stale(job: Job) -> bool:
 
 
 def _serialize_job(job: Job, source_name: str | None) -> dict[str, Any]:
+    result = _parse_json(job.result, {})
+    metrics = _parse_json(job.metrics_json, {})
     return {
         "id": job.id,
         "source_id": job.source_id,
@@ -66,8 +68,16 @@ def _serialize_job(job: Job, source_name: str | None) -> dict[str, Any]:
         "max_attempts": job.max_attempts,
         "payload": _parse_json(job.payload, {}),
         "error_message": job.error_message,
-        "processed_count": int(_parse_json(job.result, {}).get("processed_count", 0)),
-        "failure_count": int(_parse_json(job.result, {}).get("failure_count", 0)) + (1 if job.error_message else 0),
+        "processed_count": int(result.get("processed_count", 0)),
+        "failure_count": int(result.get("failure_count", 0)) + (1 if job.error_message else 0),
+        "runtime_mode": result.get("runtime_mode") or metrics.get("runtime_mode"),
+        "runtime_map_source": result.get("runtime_map_source") or metrics.get("runtime_map_source"),
+        "deterministic_hits": int(result.get("deterministic_hits", metrics.get("deterministic_hits", 0))),
+        "deterministic_misses": int(result.get("deterministic_misses", metrics.get("deterministic_misses", 0))),
+        "records_created": int(result.get("records_created", metrics.get("records_created", 0))),
+        "records_updated": int(result.get("records_updated", metrics.get("records_updated", 0))),
+        "media_assets_captured": int(result.get("media_assets_captured", metrics.get("media_assets_captured", 0))),
+        "entity_links_created": int(result.get("entity_links_created", metrics.get("entity_links_created", 0))),
         "duration_seconds": _duration_seconds(job),
         "current_stage": job.current_stage,
         "stage": job.current_stage,
@@ -80,7 +90,7 @@ def _serialize_job(job: Job, source_name: str | None) -> dict[str, Any]:
         "last_heartbeat_at": job.last_heartbeat_at,
         "heartbeat": job.last_heartbeat_at,
         "last_log_message": job.last_log_message,
-        "metrics": _parse_json(job.metrics_json, {}),
+        "metrics": metrics,
         "is_stale": _is_job_stale(job),
         "started_at": job.started_at,
         "completed_at": job.completed_at,
@@ -118,7 +128,7 @@ async def get_job_detail(
         raise HTTPException(status_code=404, detail="Job not found")
     source = await crud.get_source(db, job.source_id)
     payload = _serialize_job(job, source.name if source else None)
-    payload["result"] = _parse_json(job.result, {})
+    payload["result"] = result = _parse_json(job.result, {})
     return payload
 
 

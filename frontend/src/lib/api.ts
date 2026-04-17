@@ -253,6 +253,14 @@ export interface Job {
   metrics?: Record<string, unknown>;
   is_stale?: boolean;
   result?: Record<string, unknown>;
+  runtime_mode?: string | null;
+  runtime_map_source?: string | null;
+  deterministic_hits?: number;
+  deterministic_misses?: number;
+  records_created?: number;
+  records_updated?: number;
+  media_assets_captured?: number;
+  entity_links_created?: number;
 }
 
 export interface JobEvent {
@@ -709,6 +717,16 @@ export const getSource = (id: string): Promise<Source> =>
 export const getSourceJobs = (sourceId: string): Promise<{ items: Job[] }> =>
   api.get(`/sources/${sourceId}/jobs`).then((r) => r.data);
 
+export const getSourceRuntimeMap = (
+  sourceId: string
+): Promise<{
+  source_id: string;
+  runtime_map_source: string;
+  active_mapping_preset_id: string | null;
+  runtime_mapping_updated_at: string | null;
+  runtime_map: Record<string, unknown> | null;
+}> => api.get(`/sources/${sourceId}/runtime-map`).then((r) => r.data);
+
 export const createSource = (data: CreateSourceInput): Promise<Source> =>
   api.post("/sources", data).then((r) => r.data);
 
@@ -928,9 +946,37 @@ export const deleteSourceMappingPreset = (
 ): Promise<{ ok: boolean }> =>
   api.delete(`/sources/${sourceId}/mapping-presets/${presetId}`).then((r) => r.data);
 
+export const applySourceMappingPreset = (
+  sourceId: string,
+  presetId: string
+): Promise<{ source_id: string; active_mapping_preset_id: string; runtime_map_source: string; has_runtime_map: boolean }> =>
+  api.post(`/sources/${sourceId}/mapping-presets/${presetId}/apply`).then((r) => r.data);
+
 // Mining
 export const startMining = (sourceId: string, opts?: MineOptions): Promise<MineStartResponse> =>
   api.post(`/mine/${sourceId}/start`, opts ?? {}).then((r) => r.data);
+
+export const runDeterministicMine = (sourceId: string): Promise<MineStartResponse> =>
+  api.post(`/sources/${sourceId}/run-deterministic-mine`).then((r) => r.data);
+
+export const runEnrichment = (sourceId: string): Promise<MineStartResponse> =>
+  api.post(`/sources/${sourceId}/run-enrichment`).then((r) => r.data);
+
+export const reprocessExistingPages = (sourceId: string): Promise<MineStartResponse> =>
+  api.post(`/sources/${sourceId}/reprocess-existing-pages`).then((r) => r.data);
+
+export const getEnrichmentSummary = (
+  sourceId: string
+): Promise<{
+  source_id: string;
+  runs: number;
+  records_created: number;
+  records_updated: number;
+  deterministic_hits: number;
+  deterministic_misses: number;
+  media_assets_captured: number;
+  entity_links_created: number;
+}> => api.get(`/sources/${sourceId}/enrichment-summary`).then((r) => r.data);
 
 // Backfill
 export const getBackfillCampaigns = (): Promise<{ items: BackfillCampaign[]; total: number }> =>
