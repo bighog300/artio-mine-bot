@@ -36,19 +36,20 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Artio Miner API", version="1.0.0", lifespan=lifespan)
 
-# CORS Configuration
-# In development: allow all origins (localhost development)
-# In production/serverless: restrict to configured origins only
-cors_origins = (
-    ["*"]
-    if not IS_SERVERLESS
-    else [o.strip() for o in settings.cors_origins.split(",")]
-)
+# CORS configuration
+configured_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+if IS_SERVERLESS:
+    cors_origins = configured_origins
+else:
+    cors_origins = configured_origins or [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_credentials=True,
+    allow_credentials=bool(cors_origins),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -151,7 +152,6 @@ app.include_router(graph.router, prefix="/api")
 app.include_router(intelligence.router, prefix="/api")
 app.include_router(audit.router, prefix="/api")
 app.include_router(metrics_routes.router, prefix="/api")
-app.include_router(metrics_routes.router)
 app.include_router(operations.router, prefix="/api")
 app.include_router(api_keys.router, prefix="/api")
 app.include_router(usage.router, prefix="/api")

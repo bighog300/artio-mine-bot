@@ -182,7 +182,7 @@ if [[ "$BUILD_ONLY" == false ]]; then
   step "Waiting for API to be ready"
   MAX_WAIT=60
   WAITED=0
-  until curl -sf http://localhost:8000/health &>/dev/null; do
+  until curl -sf http://localhost:8765/health &>/dev/null; do
     if [[ $WAITED -ge $MAX_WAIT ]]; then
       error "API did not become healthy after ${MAX_WAIT}s"
       echo ""
@@ -201,7 +201,7 @@ fi
 # ── Run migrations ────────────────────────────────────────────────────────────
 if [[ "$DO_MIGRATE" == true ]] && [[ "$BUILD_ONLY" == false ]]; then
   step "Running database migrations"
-  $COMPOSE --profile migrate run --rm migrate
+  $COMPOSE run --rm migrate
   success "Migrations applied"
 else
   info "Skipping migrations"
@@ -215,8 +215,8 @@ if [[ "$BUILD_ONLY" == false ]]; then
   echo -e "${GREEN}${BOLD}════════════════════════════════════════${RESET}"
   echo ""
   echo -e "  ${BOLD}Admin UI${RESET}   →  http://localhost:5173"
-  echo -e "  ${BOLD}API${RESET}        →  http://localhost:8000"
-  echo -e "  ${BOLD}Health${RESET}     →  http://localhost:8000/health"
+  echo -e "  ${BOLD}API${RESET}        →  http://localhost:8765"
+  echo -e "  ${BOLD}Health${RESET}     →  http://localhost:8765/health"
   echo -e "  ${BOLD}Commit${RESET}     →  $COMMIT  ($BRANCH_NOW)"
   echo ""
   echo -e "  Logs:   ${BLUE}$COMPOSE logs -f${RESET}"
