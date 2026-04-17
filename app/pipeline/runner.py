@@ -707,6 +707,8 @@ class PipelineRunner:
                 classify_result.page_type,
                 final_status="extracted",
             )
+            if artist_record is None:
+                return {}, None
             return {
                 "deterministic_hit": 1 if deterministic_hit else 0,
                 "deterministic_miss": 0 if deterministic_hit else 1,
