@@ -113,6 +113,7 @@ class Page(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
     source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
+    crawl_run_id: Mapped[str | None] = mapped_column(String, ForeignKey("crawl_runs.id"), nullable=True)
     url: Mapped[str] = mapped_column(String, nullable=False)
     original_url: Mapped[str] = mapped_column(String, nullable=False)
     page_type: Mapped[str] = mapped_column(String, default="unknown", nullable=False)
@@ -135,6 +136,7 @@ class Page(Base):
         UniqueConstraint("source_id", "url"),
         Index("ix_pages_tenant_id", "tenant_id"),
         Index("ix_pages_source_id", "source_id"),
+        Index("ix_pages_crawl_run_id", "crawl_run_id"),
         Index("ix_pages_status", "status"),
         Index("ix_pages_page_type", "page_type"),
     )
@@ -146,6 +148,7 @@ class Record(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
     source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
+    crawl_run_id: Mapped[str | None] = mapped_column(String, ForeignKey("crawl_runs.id"), nullable=True)
     page_id: Mapped[str | None] = mapped_column(String, ForeignKey("pages.id"), nullable=True)
     record_type: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, default="pending", nullable=False)
@@ -233,6 +236,7 @@ class Record(Base):
     __table_args__ = (
         Index("ix_records_tenant_id", "tenant_id"),
         Index("ix_records_source_id", "source_id"),
+        Index("ix_records_crawl_run_id", "crawl_run_id"),
         Index("ix_records_status", "status"),
         Index("ix_records_record_type", "record_type"),
         Index("ix_records_confidence_band", "confidence_band"),
@@ -280,6 +284,7 @@ class Job(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
     source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
+    crawl_run_id: Mapped[str | None] = mapped_column(String, ForeignKey("crawl_runs.id"), nullable=True)
     job_type: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, default="pending", nullable=False)
     worker_id: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -305,8 +310,66 @@ class Job(Base):
     __table_args__ = (
         Index("ix_jobs_tenant_id", "tenant_id"),
         Index("ix_jobs_source_id", "source_id"),
+        Index("ix_jobs_crawl_run_id", "crawl_run_id"),
         Index("ix_jobs_status", "status"),
         Index("ix_jobs_worker_id", "worker_id"),
+    )
+
+
+class CrawlRun(Base):
+    __tablename__ = "crawl_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
+    source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
+    job_id: Mapped[str | None] = mapped_column(String, ForeignKey("jobs.id"), nullable=True)
+    status: Mapped[str] = mapped_column(String, default="queued", nullable=False)
+    seed_url: Mapped[str] = mapped_column(String, nullable=False)
+    worker_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    cooldown_until: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    stats_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
+
+    __table_args__ = (
+        Index("ix_crawl_runs_source_id_status", "source_id", "status"),
+        Index("ix_crawl_runs_last_heartbeat_at", "last_heartbeat_at"),
+    )
+
+
+class CrawlFrontier(Base):
+    __tablename__ = "crawl_frontier"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
+    crawl_run_id: Mapped[str] = mapped_column(String, ForeignKey("crawl_runs.id"), nullable=False)
+    source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
+    url: Mapped[str] = mapped_column(String, nullable=False)
+    normalized_url: Mapped[str] = mapped_column(String, nullable=False)
+    depth: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    discovered_from_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="queued", nullable=False)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    leased_by_worker: Mapped[str | None] = mapped_column(String, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    next_retry_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    last_status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_fetched_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("source_id", "normalized_url", name="uq_crawl_frontier_source_normalized_url"),
+        Index("ix_crawl_frontier_crawl_run_id_status", "crawl_run_id", "status"),
+        Index("ix_crawl_frontier_lease_expires_at", "lease_expires_at"),
+        Index("ix_crawl_frontier_next_retry_at", "next_retry_at"),
     )
 
 
