@@ -1,6 +1,6 @@
 import json
 from asyncio import sleep
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -12,6 +12,8 @@ from app.ai.embeddings import cosine_similarity, create_embedding
 from app.db.models import (
     APIKey,
     APIUsageEvent,
+    CrawlFrontier,
+    CrawlRun,
     AuditAction,
     AuditEvent,
     DuplicateReview,
@@ -39,6 +41,7 @@ from app.db.models import (
 
 logger = structlog.get_logger()
 TERMINAL_JOB_STATUSES = {"done", "completed", "failed", "cancelled"}
+TERMINAL_CRAWL_RUN_STATUSES = {"completed", "failed", "cancelled"}
 
 MAPPING_ALLOWED_FIELDS: dict[str, set[str]] = {
     "artist": {"title", "description", "bio", "nationality", "birth_year", "website_url", "instagram_url", "email"},
@@ -2516,3 +2519,181 @@ async def get_usage_summary(
         "avg_response_time_ms": float(avg_ms or 0),
         "endpoint_usage": [{"endpoint": row[0], "count": row[1]} for row in endpoint_rows],
     }
+
+
+async def create_crawl_run(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    seed_url: str,
+    job_id: str | None = None,
+    status: str = "queued",
+    worker_id: str | None = None,
+) -> CrawlRun:
+    crawl_run = CrawlRun(
+        source_id=source_id,
+        job_id=job_id,
+        seed_url=seed_url,
+        status=status,
+        worker_id=worker_id,
+        started_at=datetime.now(UTC) if status == "running" else None,
+    )
+    db.add(crawl_run)
+    await db.commit()
+    await db.refresh(crawl_run)
+    return crawl_run
+
+
+async def get_crawl_run(db: AsyncSession, crawl_run_id: str) -> CrawlRun | None:
+    return (await db.execute(select(CrawlRun).where(CrawlRun.id == crawl_run_id))).scalar_one_or_none()
+
+
+async def list_crawl_runs(db: AsyncSession, source_id: str, limit: int = 20) -> list[CrawlRun]:
+    stmt = select(CrawlRun).where(CrawlRun.source_id == source_id).order_by(CrawlRun.created_at.desc()).limit(limit)
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def get_active_crawl_run_for_source(db: AsyncSession, source_id: str) -> CrawlRun | None:
+    stmt = (
+        select(CrawlRun)
+        .where(
+            CrawlRun.source_id == source_id,
+            CrawlRun.status.in_(["queued", "running", "paused", "cooling_down", "stale"]),
+        )
+        .order_by(CrawlRun.created_at.desc())
+        .limit(1)
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def update_crawl_run(
+    db: AsyncSession,
+    crawl_run_id: str,
+    **kwargs: Any,
+) -> CrawlRun:
+    crawl_run = await get_crawl_run(db, crawl_run_id)
+    if crawl_run is None:
+        raise ValueError(f"Crawl run {crawl_run_id} not found")
+    for key, value in kwargs.items():
+        setattr(crawl_run, key, value)
+    crawl_run.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(crawl_run)
+    return crawl_run
+
+
+async def upsert_crawl_frontier_rows(
+    db: AsyncSession,
+    *,
+    crawl_run_id: str,
+    source_id: str,
+    rows: list[dict[str, Any]],
+) -> int:
+    inserted = 0
+    for row in rows:
+        normalized_url = row["normalized_url"]
+        existing = (
+            await db.execute(
+                select(CrawlFrontier).where(
+                    CrawlFrontier.source_id == source_id,
+                    CrawlFrontier.normalized_url == normalized_url,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            continue
+        frontier = CrawlFrontier(
+            crawl_run_id=crawl_run_id,
+            source_id=source_id,
+            url=row["url"],
+            normalized_url=normalized_url,
+            depth=int(row.get("depth", 0)),
+            discovered_from_url=row.get("discovered_from_url"),
+            status=row.get("status", "queued"),
+            next_retry_at=row.get("next_retry_at"),
+        )
+        db.add(frontier)
+        inserted += 1
+    await db.commit()
+    return inserted
+
+
+async def claim_frontier_rows(
+    db: AsyncSession,
+    *,
+    crawl_run_id: str,
+    worker_id: str,
+    limit: int = 10,
+    lease_seconds: int = 120,
+) -> list[CrawlFrontier]:
+    now = datetime.now(UTC)
+    stmt = (
+        select(CrawlFrontier)
+        .where(
+            CrawlFrontier.crawl_run_id == crawl_run_id,
+            CrawlFrontier.status.in_(["queued", "rate_limited"]),
+            or_(CrawlFrontier.next_retry_at.is_(None), CrawlFrontier.next_retry_at <= now),
+        )
+        .order_by(CrawlFrontier.depth.asc(), CrawlFrontier.created_at.asc())
+        .limit(limit)
+    )
+    rows = list((await db.execute(stmt)).scalars().all())
+    lease_expires_at = now + timedelta(seconds=lease_seconds)
+    for row in rows:
+        row.status = "leased"
+        row.leased_by_worker = worker_id
+        row.lease_expires_at = lease_expires_at
+        row.updated_at = now
+    if rows:
+        await db.commit()
+    return rows
+
+
+async def update_frontier_row(db: AsyncSession, frontier_id: str, **kwargs: Any) -> CrawlFrontier:
+    row = (await db.execute(select(CrawlFrontier).where(CrawlFrontier.id == frontier_id))).scalar_one_or_none()
+    if row is None:
+        raise ValueError(f"Crawl frontier row {frontier_id} not found")
+    for key, value in kwargs.items():
+        setattr(row, key, value)
+    row.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+async def reclaim_expired_frontier_leases(
+    db: AsyncSession,
+    *,
+    crawl_run_id: str,
+) -> int:
+    now = datetime.now(UTC)
+    rows = list(
+        (
+            await db.execute(
+                select(CrawlFrontier).where(
+                    CrawlFrontier.crawl_run_id == crawl_run_id,
+                    CrawlFrontier.status == "leased",
+                    CrawlFrontier.lease_expires_at.is_not(None),
+                    CrawlFrontier.lease_expires_at < now,
+                )
+            )
+        ).scalars().all()
+    )
+    for row in rows:
+        row.status = "queued"
+        row.leased_by_worker = None
+        row.lease_expires_at = None
+        row.updated_at = now
+    if rows:
+        await db.commit()
+    return len(rows)
+
+
+async def get_crawl_frontier_counts(db: AsyncSession, crawl_run_id: str) -> dict[str, int]:
+    stmt = (
+        select(CrawlFrontier.status, func.count(CrawlFrontier.id))
+        .where(CrawlFrontier.crawl_run_id == crawl_run_id)
+        .group_by(CrawlFrontier.status)
+    )
+    rows = (await db.execute(stmt)).all()
+    return {status: int(count) for status, count in rows}

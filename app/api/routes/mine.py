@@ -59,13 +59,16 @@ async def _choose_resume_job_type(db: AsyncSession, source_id: str) -> str:
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
 
+    active_crawl_run = await crud.get_active_crawl_run_for_source(db, source_id)
     pending_extraction = await crud.count_pages_in_statuses(
         db,
         source_id,
         statuses=["fetched", "classified"],
     )
 
-    if pending_extraction > 0:
+    if active_crawl_run is not None and active_crawl_run.status in {"queued", "running", "paused", "cooling_down", "stale"}:
+        chosen = "crawl_section"
+    elif pending_extraction > 0:
         chosen = "extract_page"
     elif source.status in {"paused", "error", "crawling", "mapping"} and source.site_map:
         chosen = "crawl_section"

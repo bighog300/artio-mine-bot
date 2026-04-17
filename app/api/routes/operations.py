@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.api.rbac import require_permission
 from app.db import crud
+from app.db.log_writer import log_stream_manager
 from app.db.models import DuplicateReview, EntityRelationship, Job, Record
 
 router = APIRouter(tags=["operations"])
@@ -251,6 +254,36 @@ async def resume_job(
         raise HTTPException(status_code=400, detail="Only paused jobs can be resumed")
     updated = await crud.update_job_status(db, job.id, "pending")
     return {"id": updated.id, "status": _job_status_external(updated.status)}
+
+
+@router.get("/jobs/{job_id}/stream")
+async def stream_job_events(
+    job_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    job = await crud.get_job(db, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    async def stream():
+        queue = log_stream_manager.subscribe()
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=10)
+                    if event.get("stream_type") == "job_progress" and event.get("job_id") == job_id:
+                        yield f"event: {event.get('event_type', 'progress')}\ndata: {json.dumps(event, default=str)}\n\n"
+                except TimeoutError:
+                    refreshed = await crud.get_job(db, job_id)
+                    if refreshed is None or refreshed.status in {"done", "completed", "failed", "cancelled"}:
+                        yield f"event: complete\ndata: {json.dumps({'job_id': job_id}, default=str)}\n\n"
+                        break
+                    yield f"event: heartbeat\ndata: {json.dumps({'job_id': job_id, 'timestamp': datetime.now(UTC).isoformat()})}\n\n"
+        finally:
+            log_stream_manager.unsubscribe(queue)
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 @router.get("/queues")

@@ -25,9 +25,9 @@ from app.ai.extractors.exhibition import ExhibitionExtractor
 from app.ai.extractors.venue import VenueExtractor
 from app.crawler.fetcher import fetch
 from app.crawler.automated_crawler import AutomatedCrawler
-from app.crawler.link_follower import crawl_source
+from app.crawler.durable_frontier import run_durable_crawl
 from app.crawler.robots import RobotsChecker
-from app.crawler.site_mapper import SiteMap, Section, map_site
+from app.crawler.site_mapper import SiteMap, map_site
 from app.config import settings
 from app.db import crud
 from app.db.database import AsyncSessionLocal
@@ -453,26 +453,22 @@ class PipelineRunner:
             if settings.crawler_require_runtime_map:
                 raise RuntimeError("Runtime map required for crawl but none exists.")
 
-        if site_map is None:
-            if source and source.site_map:
-                data = json.loads(source.site_map)
-                site_map = SiteMap(
-                    root_url=data["root_url"],
-                    platform=data.get("platform", "unknown"),
-                    sections=[Section(**s) for s in data.get("sections", [])],
-                )
-            else:
-                source_obj = await crud.get_source(self.db, source_id)
-                site_map = SiteMap(root_url=source_obj.url if source_obj else "")
-
-        stats = await crawl_source(
+        durable_stats = await run_durable_crawl(
+            self.db,
             source_id=source_id,
-            site_map=site_map,
-            db=self.db,
-            robots_checker=self.robots_checker,
+            seed_url=source.url,
+            job_id=self.job_id,
+            worker_id=WORKER_ID,
+            max_pages=int(source.max_pages or settings.max_pages_per_source),
+            max_depth=int(source.max_depth or settings.max_crawl_depth),
         )
-        pages_crawled = max(stats.pages_fetched, 1)
-        fallback_stats = {"pages_crawled": stats.pages_fetched, "failed": stats.pages_error}
+        pages_crawled = max(int(durable_stats.get("pages_crawled", stats.pages_fetched)), 1)
+        fallback_stats = {
+            "crawl_run_id": durable_stats.get("crawl_run_id"),
+            "pages_crawled": max(int(durable_stats.get("pages_crawled", 0)), stats.pages_fetched),
+            "failed": max(int(durable_stats.get("failed", 0)), stats.pages_error),
+            "rate_limited": int(durable_stats.get("rate_limited", 0)),
+        }
         logger.info(
             "crawl_stats",
             source_id=source_id,
