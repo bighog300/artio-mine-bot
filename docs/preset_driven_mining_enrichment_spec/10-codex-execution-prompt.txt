@@ -1,0 +1,94 @@
+You are working in the artio-mine-bot repository.
+
+At the repository root, read and follow these documents before making any changes:
+
+- 01-overview.md
+- 02-runtime-modes-spec.md
+- 03-preset-driven-crawl-spec.md
+- 04-enrichment-spec.md
+- 05-entity-media-linking-spec.md
+- 06-operator-ui-spec.md
+- 07-backend-api-spec.md
+- 08-implementation-plan.md
+- 09-codex-implementation-brief.md
+
+Treat those documents as the source of truth for scope, architecture, and acceptance criteria.
+
+OBJECTIVE
+
+Implement preset-driven mining and enrichment for existing sources.
+
+The intended behavior is:
+- sources with applied preset/runtime map default to deterministic mining
+- enrichment can run on existing stored pages/content without a full recrawl
+- presets influence crawl behavior, not just extraction selectors
+- deterministic runs capture and link media assets
+- entity completeness improves over repeated mining/enrichment runs
+- operators can choose and monitor mining vs enrichment modes
+
+REQUIRED OUTCOMES
+
+1. Explicit runtime modes for deterministic mining and enrichment
+2. Preset-driven crawl behavior for known sources
+3. Enrichment-only pipeline for stored pages/content
+4. Media capture + entity linking improvements
+5. Source/operator controls and metrics for mining/enrichment
+
+BACKEND REQUIREMENTS
+
+Implement at minimum:
+- explicit job types or clear runtime mode separation
+- enrichment-only path using existing stored pages/content
+- runtime map translation extended toward crawl/follow semantics
+- media asset capture/linking improvements
+- entity merge/link improvements for artist/event/venue
+- backend endpoints to trigger deterministic mine and enrichment
+- job metadata/counters for deterministic hits, misses, records, media, links
+
+FRONTEND / OPERATOR REQUIREMENTS
+
+Add or extend operator controls so users can:
+- run deterministic mine
+- run enrichment
+- reprocess existing pages
+- inspect runtime map usage and result metrics
+
+CONSTRAINTS
+
+- do not redesign the whole platform
+- preserve AI-assisted mode for explicit refresh workflows
+- keep implementation incremental
+- avoid unrelated refactors
+- focus on existing known sources with saved mappings
+
+WORKFLOW
+
+1. Read the spec docs
+2. Inspect current runtime map, preset, crawler, and enrichment-related code
+3. Implement explicit mining/enrichment modes
+4. Implement enrichment-only path
+5. Extend preset-driven crawl semantics
+6. Improve media/entity linking
+7. Add operator controls/metrics
+8. Run relevant checks/tests if available
+9. Summarize files changed, migrations, routes, and caveats
+
+DEFINITION OF DONE
+
+The task is complete when:
+- existing sources with applied presets can mine deterministically
+- enrichment-only runs improve existing records without a recrawl
+- preset-driven runs improve crawl quality and record completeness
+- operator can intentionally run and monitor mining vs enrichment
+
+FINAL OUTPUT
+
+Provide:
+- files changed
+- migrations added
+- routes/endpoints added or changed
+- runtime behavior changes
+- operator UI changes
+- limitations or follow-up recommendations
+
+Begin by reading the spec documents and inspecting the repo before editing.
