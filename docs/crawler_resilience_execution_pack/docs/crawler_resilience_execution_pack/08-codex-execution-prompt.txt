@@ -1,0 +1,46 @@
+You are working in the Artio Miner repository.
+
+Implement the crawler resilience plan described in:
+
+- docs/crawler_resilience_execution_pack/01-overview.md
+- docs/crawler_resilience_execution_pack/02-phase-1-durable-crawl-state.md
+- docs/crawler_resilience_execution_pack/03-phase-2-lease-based-crawl-engine.md
+- docs/crawler_resilience_execution_pack/04-phase-3-rate-limit-stale-recovery-and-controls.md
+- docs/crawler_resilience_execution_pack/05-phase-4-real-time-progress-and-data-visibility.md
+- docs/crawler_resilience_execution_pack/06-phase-5-enrichment-decoupling-tests-and-rollout.md
+- docs/crawler_resilience_execution_pack/07-codex-implementation-brief.md
+
+Execution requirements:
+
+1. Work phase by phase in the order listed above.
+2. Keep crawl ingestion separate from enrichment.
+3. Use a durable crawl frontier in the database as the source of truth.
+4. Make pause/resume/cancel/reclaim explicit and testable.
+5. Prefer SSE for real-time crawl updates.
+6. Add or update tests for each phase.
+7. Include Alembic migrations if schema changes are introduced.
+8. Avoid unrelated refactors.
+
+Repository-specific expectations:
+
+- Build on existing modules in `app/crawler/`, `app/pipeline/`, `app/api/routes/`, and `app/db/`.
+- Reuse the existing jobs/events architecture instead of replacing it wholesale.
+- Preserve existing source-level enrichment endpoints where possible.
+- Update the frontend only as needed to display live crawl progress and newly crawled pages/records.
+
+Deliverables:
+
+- code changes
+- migrations
+- tests
+- any small doc updates needed to explain new endpoints and operator behavior
+
+Before finishing, verify at minimum:
+
+- schema/migrations are valid
+- targeted tests for crawl state, resume, rate limiting, and live progress pass
+- no existing core API tests are broken by the new crawl-run architecture
+
+Output expectation:
+
+Return a concise implementation summary and a unified diff patch.
