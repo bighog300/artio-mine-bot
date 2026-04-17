@@ -19,6 +19,7 @@ from app.api.schemas import (
 )
 from app.db import crud
 from app.db.models import JobEvent, Record
+from app.queue import get_default_queue
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 logger = structlog.get_logger()
@@ -42,6 +43,9 @@ def _serialize_job_run(job: object) -> dict[str, object]:
         end = completed_at or datetime.now(UTC)
         duration_seconds = max(0, int((end - started_at).total_seconds()))
 
+    metrics = _parse_json(getattr(job, "metrics_json", None), {})
+    result = _parse_json(getattr(job, "result", None), {})
+
     return {
         "id": getattr(job, "id"),
         "source_id": getattr(job, "source_id"),
@@ -62,9 +66,17 @@ def _serialize_job_run(job: object) -> dict[str, object]:
         ),
         "last_heartbeat_at": getattr(job, "last_heartbeat_at", None),
         "last_log_message": getattr(job, "last_log_message", None),
-        "metrics": _parse_json(getattr(job, "metrics_json", None), {}),
+        "runtime_mode": result.get("runtime_mode") or metrics.get("runtime_mode"),
+        "runtime_map_source": result.get("runtime_map_source") or metrics.get("runtime_map_source"),
+        "deterministic_hits": int(result.get("deterministic_hits", metrics.get("deterministic_hits", 0))),
+        "deterministic_misses": int(result.get("deterministic_misses", metrics.get("deterministic_misses", 0))),
+        "records_created": int(result.get("records_created", metrics.get("records_created", 0))),
+        "records_updated": int(result.get("records_updated", metrics.get("records_updated", 0))),
+        "media_assets_captured": int(result.get("media_assets_captured", metrics.get("media_assets_captured", 0))),
+        "entity_links_created": int(result.get("entity_links_created", metrics.get("entity_links_created", 0))),
+        "metrics": metrics,
         "payload": _parse_json(getattr(job, "payload", None), {}),
-        "result": _parse_json(getattr(job, "result", None), {}),
+        "result": result,
         "started_at": started_at,
         "completed_at": completed_at,
         "created_at": getattr(job, "created_at"),
@@ -366,6 +378,27 @@ async def _ensure_source(db: AsyncSession, source_id: str):
     return source
 
 
+async def _enqueue_source_job(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    job_type: str,
+    payload: dict[str, object] | None = None,
+) -> str:
+    await _ensure_source(db, source_id)
+    job = await crud.create_job(db, source_id=source_id, job_type=job_type, payload=payload or {})
+    queue = get_default_queue()
+    queue.enqueue(
+        "app.pipeline.runner.process_pipeline_job",
+        job.id,
+        source_id,
+        job_type,
+        payload or {},
+        job_timeout=900,
+    )
+    return job.id
+
+
 @router.post("/{source_id}/actions/start-discovery", response_model=SourceActionResponse)
 async def start_discovery_action(
     source_id: str,
@@ -388,6 +421,87 @@ async def start_full_mining_action(
     job = await crud.create_job(db, source_id=source_id, job_type="run_full_pipeline", payload={})
     source = await crud.set_source_operational_status(db, source_id, "running", queue_paused=False, error_message=None)
     return SourceActionResponse(source_id=source.id, status=source.status, operational_status=source.operational_status, queued_jobs=1 if job else 0)
+
+
+@router.post("/{source_id}/run-deterministic-mine", response_model=dict, status_code=202)
+async def run_deterministic_mine(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    job_id = await _enqueue_source_job(
+        db,
+        source_id=source_id,
+        job_type="mine_source_deterministic",
+        payload={"runtime_mode": "deterministic"},
+    )
+    await crud.set_source_operational_status(db, source_id, "running", queue_paused=False, error_message=None)
+    return {"job_id": job_id, "source_id": source_id, "status": "queued", "runtime_mode": "deterministic"}
+
+
+@router.post("/{source_id}/run-enrichment", response_model=dict, status_code=202)
+async def run_enrichment(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    job_id = await _enqueue_source_job(
+        db,
+        source_id=source_id,
+        job_type="enrich_source_existing_pages",
+        payload={"runtime_mode": "enrichment_only"},
+    )
+    await crud.set_source_operational_status(db, source_id, "running", queue_paused=False, error_message=None)
+    return {"job_id": job_id, "source_id": source_id, "status": "queued", "runtime_mode": "enrichment_only"}
+
+
+@router.post("/{source_id}/reprocess-existing-pages", response_model=dict, status_code=202)
+async def reprocess_existing_pages(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
+    job_id = await _enqueue_source_job(
+        db,
+        source_id=source_id,
+        job_type="reprocess_source_runtime_map",
+        payload={"runtime_mode": "reprocess_existing_pages"},
+    )
+    await crud.set_source_operational_status(db, source_id, "running", queue_paused=False, error_message=None)
+    return {"job_id": job_id, "source_id": source_id, "status": "queued", "runtime_mode": "reprocess_existing_pages"}
+
+
+@router.get("/{source_id}/enrichment-summary", response_model=dict)
+async def source_enrichment_summary(
+    source_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    await _ensure_source(db, source_id)
+    jobs = await crud.list_jobs(db, source_id=source_id, skip=0, limit=200)
+    target_types = {"enrich_source_existing_pages", "reprocess_source_runtime_map", "mine_source_deterministic"}
+    summary = {
+        "source_id": source_id,
+        "runs": 0,
+        "records_created": 0,
+        "records_updated": 0,
+        "deterministic_hits": 0,
+        "deterministic_misses": 0,
+        "media_assets_captured": 0,
+        "entity_links_created": 0,
+    }
+    for job in jobs:
+        if job.job_type not in target_types:
+            continue
+        payload = _serialize_job_run(job)
+        summary["runs"] += 1
+        summary["records_created"] += int(payload.get("records_created", 0))
+        summary["records_updated"] += int(payload.get("records_updated", 0))
+        summary["deterministic_hits"] += int(payload.get("deterministic_hits", 0))
+        summary["deterministic_misses"] += int(payload.get("deterministic_misses", 0))
+        summary["media_assets_captured"] += int(payload.get("media_assets_captured", 0))
+        summary["entity_links_created"] += int(payload.get("entity_links_created", 0))
+    return summary
 
 
 @router.post("/{source_id}/actions/pause", response_model=SourceActionResponse)
@@ -444,6 +558,21 @@ async def run_source(
     db: AsyncSession = Depends(get_db),
     _role: str = Depends(require_permission("write")),
 ):
+    runtime_map, _runtime_map_source = await crud.get_active_runtime_map(db, source_id)
+    if crud.has_usable_runtime_map_payload(runtime_map):
+        job_id = await _enqueue_source_job(
+            db,
+            source_id=source_id,
+            job_type="mine_source_deterministic",
+            payload={"runtime_mode": "deterministic"},
+        )
+        source = await crud.set_source_operational_status(db, source_id, "running", queue_paused=False, error_message=None)
+        return SourceActionResponse(
+            source_id=source.id,
+            status=source.status,
+            operational_status=source.operational_status,
+            queued_jobs=1 if job_id else 0,
+        )
     return await start_full_mining_action(source_id=source_id, db=db, _role=_role)
 
 

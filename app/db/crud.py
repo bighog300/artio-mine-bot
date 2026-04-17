@@ -968,16 +968,74 @@ def build_runtime_map_from_preset_rows(
     if not isinstance(extraction_rules, dict):
         extraction_rules = {}
         runtime_map["extraction_rules"] = extraction_rules
+    page_type_rules = runtime_map.get("page_type_rules")
+    if not isinstance(page_type_rules, dict):
+        page_type_rules = {}
+        runtime_map["page_type_rules"] = page_type_rules
+    follow_rules = runtime_map.get("follow_rules")
+    if not isinstance(follow_rules, dict):
+        follow_rules = {}
+        runtime_map["follow_rules"] = follow_rules
+    asset_rules = runtime_map.get("asset_rules")
+    if not isinstance(asset_rules, dict):
+        asset_rules = {}
+        runtime_map["asset_rules"] = asset_rules
+    crawl_plan = runtime_map.get("crawl_plan")
+    if not isinstance(crawl_plan, dict):
+        crawl_plan = {"phases": []}
+        runtime_map["crawl_plan"] = crawl_plan
+    if not isinstance(crawl_plan.get("phases"), list):
+        crawl_plan["phases"] = []
 
+    page_type_seen: set[str] = set()
     for row in rows:
         if not row.is_enabled:
             continue
         page_type_key = row.page_type_key or "unknown"
+        page_type_seen.add(page_type_key)
         page_rules = extraction_rules.setdefault(page_type_key, {})
         css_selectors = page_rules.setdefault("css_selectors", {})
         destination_field = row.destination_field or "raw_value"
         if row.selector and destination_field not in css_selectors:
             css_selectors[destination_field] = row.selector
+
+        type_rule = page_type_rules.setdefault(
+            page_type_key,
+            {
+                "page_type_label": row.page_type_label or page_type_key,
+                "destination_entities": [],
+                "required_fields": [],
+            },
+        )
+        if row.destination_entity and row.destination_entity not in type_rule["destination_entities"]:
+            type_rule["destination_entities"].append(row.destination_entity)
+        if row.is_required and destination_field not in type_rule["required_fields"]:
+            type_rule["required_fields"].append(destination_field)
+
+        selector_l = (row.selector or "").lower()
+        field_l = destination_field.lower()
+        attr_l = (row.attribute_name or "").lower()
+        category_l = (row.category_target or "").lower()
+        extraction_mode_l = (row.extraction_mode or "").lower()
+        follow = follow_rules.setdefault(page_type_key, {"selectors": [], "pagination_selectors": [], "max_depth": 1})
+        if any(token in field_l for token in ("url", "link", "source_url", "ticket", "website")) or attr_l == "href":
+            if row.selector not in follow["selectors"]:
+                follow["selectors"].append(row.selector)
+        if "pagination" in category_l or "next" in field_l or "page" in field_l:
+            if row.selector not in follow["pagination_selectors"]:
+                follow["pagination_selectors"].append(row.selector)
+
+        assets = asset_rules.setdefault(page_type_key, {"selectors": [], "roles": {}})
+        if any(token in field_l for token in ("image", "avatar", "thumbnail", "hero", "gallery", "logo", "document")) or extraction_mode_l in {"image", "asset"}:
+            if row.selector not in assets["selectors"]:
+                assets["selectors"].append(row.selector)
+            role = "document" if "document" in field_l else "thumbnail" if "thumbnail" in field_l else "hero" if "hero" in field_l else "profile" if "avatar" in field_l else "gallery"
+            assets["roles"][row.selector] = role
+            if row.selector not in follow["selectors"] and ("href" in selector_l or attr_l == "href"):
+                follow["selectors"].append(row.selector)
+
+    if page_type_seen and not crawl_plan.get("phases"):
+        crawl_plan["phases"] = []
 
     runtime_map["runtime_map_source"] = "applied_preset"
     runtime_map["applied_preset_id"] = preset.id
@@ -1870,6 +1928,36 @@ async def upsert_entity_relationship(
     await db.commit()
     await db.refresh(rel)
     return rel
+
+
+async def ensure_entity_relationship(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    from_record_id: str,
+    to_record_id: str,
+    relationship_type: str,
+    metadata: dict[str, Any] | None = None,
+) -> bool:
+    stmt = select(EntityRelationship).where(
+        EntityRelationship.source_id == source_id,
+        EntityRelationship.from_record_id == from_record_id,
+        EntityRelationship.to_record_id == to_record_id,
+        EntityRelationship.relationship_type == relationship_type,
+    )
+    existing = (await db.execute(stmt)).scalar_one_or_none()
+    if existing is not None:
+        return False
+    rel = EntityRelationship(
+        source_id=source_id,
+        from_record_id=from_record_id,
+        to_record_id=to_record_id,
+        relationship_type=relationship_type,
+        metadata_json=json.dumps(metadata or {}),
+    )
+    db.add(rel)
+    await db.commit()
+    return True
 
 
 async def list_relationships_for_record(

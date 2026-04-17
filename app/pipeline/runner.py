@@ -67,8 +67,13 @@ WORKER_ID = os.environ.get("WORKER_ID", f"{socket.gethostname()}-{os.getpid()}")
 @dataclass
 class ExtractionStats:
     records_created: int = 0
+    records_updated: int = 0
     records_failed: int = 0
     pages_processed: int = 0
+    deterministic_hits: int = 0
+    deterministic_misses: int = 0
+    media_assets_captured: int = 0
+    entity_links_created: int = 0
 
 
 class PipelineRunner:
@@ -264,6 +269,103 @@ class PipelineRunner:
                 logger.warning("pipeline_error_source_missing", source_id=source_id)
             raise
 
+    async def run_deterministic_mine(self, source_id: str) -> dict[str, Any]:
+        """Run deterministic mining using existing runtime map."""
+        runtime_map, runtime_map_source = await crud.get_active_runtime_map(self.db, source_id)
+        if not crud.has_usable_runtime_map_payload(runtime_map):
+            raise RuntimeError("Deterministic mining requires an active runtime map.")
+
+        await self._report(
+            stage="starting",
+            item=source_id,
+            message="Runtime mode selected: deterministic",
+            event_type="runtime_mode_selected",
+            metrics_payload={
+                "runtime_mode": "deterministic",
+                "runtime_map_source": runtime_map_source,
+                "has_runtime_map": True,
+            },
+        )
+        await crud.update_source(self.db, source_id, status="crawling")
+        crawl_stats = await self.run_crawl(source_id)
+        await self.db.commit()
+        await crud.update_source(self.db, source_id, status="extracting")
+        extract_stats = await self.run_extract(source_id, allow_updates=True, include_existing=False)
+        await crud.update_source(
+            self.db,
+            source_id,
+            status="done",
+            last_crawled_at=datetime.now(UTC),
+        )
+        result = {
+            "runtime_mode": "deterministic",
+            "runtime_map_source": runtime_map_source,
+            "records_created": extract_stats.records_created,
+            "records_updated": extract_stats.records_updated,
+            "records_failed": extract_stats.records_failed,
+            "pages_processed": extract_stats.pages_processed,
+            "deterministic_hits": extract_stats.deterministic_hits + int(crawl_stats.get("extracted_deterministic", 0)),
+            "deterministic_misses": extract_stats.deterministic_misses + int(crawl_stats.get("failed", 0)),
+            "media_assets_captured": extract_stats.media_assets_captured,
+            "entity_links_created": extract_stats.entity_links_created,
+        }
+        await self._report(
+            stage="finalizing",
+            item=source_id,
+            message="Deterministic mining completed",
+            event_type="job_completed",
+            progress_current=100,
+            progress_total=100,
+            metrics_payload=result,
+        )
+        return result
+
+    async def run_enrichment_existing_pages(self, source_id: str) -> dict[str, Any]:
+        """Enrichment-only run over stored page content; no recrawl."""
+        runtime_map, runtime_map_source = await crud.get_active_runtime_map(self.db, source_id)
+        if not crud.has_usable_runtime_map_payload(runtime_map):
+            raise RuntimeError("Enrichment requires an active runtime map.")
+        await self._report(
+            stage="starting",
+            item=source_id,
+            message="Runtime mode selected: enrichment_only",
+            event_type="runtime_mode_selected",
+            metrics_payload={
+                "runtime_mode": "enrichment_only",
+                "runtime_map_source": runtime_map_source,
+                "has_runtime_map": True,
+            },
+        )
+        await crud.update_source(self.db, source_id, status="extracting")
+        stats = await self.run_extract(source_id, allow_updates=True, include_existing=True)
+        await crud.update_source(self.db, source_id, status="done")
+        result = {
+            "runtime_mode": "enrichment_only",
+            "runtime_map_source": runtime_map_source,
+            "records_created": stats.records_created,
+            "records_updated": stats.records_updated,
+            "records_failed": stats.records_failed,
+            "pages_processed": stats.pages_processed,
+            "deterministic_hits": stats.deterministic_hits,
+            "deterministic_misses": stats.deterministic_misses,
+            "media_assets_captured": stats.media_assets_captured,
+            "entity_links_created": stats.entity_links_created,
+        }
+        await self._report(
+            stage="finalizing",
+            item=source_id,
+            message="Enrichment completed",
+            event_type="job_completed",
+            progress_current=100,
+            progress_total=100,
+            metrics_payload=result,
+        )
+        return result
+
+    async def run_reprocess_source_runtime_map(self, source_id: str) -> dict[str, Any]:
+        """Reprocess all stored pages with current runtime map."""
+        return await self.run_enrichment_existing_pages(source_id)
+
     async def run_map_site(self, source_id: str) -> SiteMap:
         """Map site structure and store in Source record."""
         if settings.environment == "production":
@@ -382,7 +484,13 @@ class PipelineRunner:
         )
         return fallback_stats
 
-    async def run_extract(self, source_id: str) -> ExtractionStats:
+    async def run_extract(
+        self,
+        source_id: str,
+        *,
+        allow_updates: bool = False,
+        include_existing: bool = False,
+    ) -> ExtractionStats:
         """Extract records from eligible pages that are not yet terminal."""
         if settings.environment == "production":
             raise RuntimeError("This task must run in a worker environment, not Vercel.")
@@ -393,10 +501,13 @@ class PipelineRunner:
             .group_by(Page.status)
         )
         status_counts = {status: count for status, count in status_result.all()}
+        statuses = ["fetched", "classified"]
+        if include_existing:
+            statuses.extend(["extracted", "expanded", "skipped"])
         pages = await crud.list_pages_by_statuses(
             self.db,
             source_id=source_id,
-            statuses=["fetched", "classified"],
+            statuses=statuses,
             limit=10000,
         )
         logger.info(
@@ -430,9 +541,19 @@ class PipelineRunner:
         for idx, page in enumerate(pages, start=1):
             await self._control_checkpoint()
             try:
-                record = await self.run_extraction_for_page(page, structure_map=structure_map)
-                if record:
+                record, action = await self.run_extraction_for_page(
+                    page,
+                    structure_map=structure_map,
+                    allow_updates=allow_updates,
+                )
+                if action == "created":
                     stats.records_created += 1
+                elif action == "updated":
+                    stats.records_updated += 1
+                stats.deterministic_hits += int(record.get("deterministic_hit", 0)) if isinstance(record, dict) else 0
+                stats.deterministic_misses += int(record.get("deterministic_miss", 0)) if isinstance(record, dict) else 0
+                stats.media_assets_captured += int(record.get("media_assets_captured", 0)) if isinstance(record, dict) else 0
+                stats.entity_links_created += int(record.get("entity_links_created", 0)) if isinstance(record, dict) else 0
                 stats.pages_processed += 1
             except Exception as exc:
                 logger.error("extract_page_error", page_id=page.id, error=str(exc))
@@ -446,8 +567,13 @@ class PipelineRunner:
                     progress_total=total_pages,
                     metrics_payload={
                         "records_created": stats.records_created,
+                        "records_updated": stats.records_updated,
                         "records_failed": stats.records_failed,
                         "pages_processed": stats.pages_processed,
+                        "deterministic_hits": stats.deterministic_hits,
+                        "deterministic_misses": stats.deterministic_misses,
+                        "media_assets_captured": stats.media_assets_captured,
+                        "entity_links_created": stats.entity_links_created,
                     },
                     event_type="progress",
                 )
@@ -457,10 +583,12 @@ class PipelineRunner:
             source_id=source_id,
             pages_processed=stats.pages_processed,
             records_created=stats.records_created,
+            records_updated=stats.records_updated,
             records_failed=stats.records_failed,
         )
         metrics.increment("pages_processed", stats.pages_processed)
         metrics.increment("records_created", stats.records_created)
+        metrics.increment("records_updated", stats.records_updated)
         total_records = await crud.count_records(self.db, source_id=source_id)
         await crud.update_source(self.db, source_id, total_records=total_records)
         return stats
@@ -470,7 +598,8 @@ class PipelineRunner:
         page: Page,
         *,
         structure_map: dict[str, Any] | None = None,
-    ) -> Record | None:
+        allow_updates: bool = False,
+    ) -> tuple[dict[str, int], str | None]:
         """Classify page, extract record, score confidence, store in DB."""
         if settings.environment == "production":
             raise RuntimeError("This task must run in a worker environment, not Vercel.")
@@ -481,7 +610,7 @@ class PipelineRunner:
                 page_id=page.id,
                 url=page.url,
             )
-            return None
+            return {}, None
 
         logger.info(
             "page_classified",
@@ -492,10 +621,11 @@ class PipelineRunner:
         source_hints = await self._get_crawl_hints(page.source_id)
         if self._should_ignore_url(page.url, source_hints):
             await crud.update_page(self.db, page.id, status="skipped")
-            return None
+            return {}, None
 
         forced_page_type = self._get_page_role_override(page.url, source_hints)
         expected_fields: list[str] | None = None
+        deterministic_hit = False
         if forced_page_type is not None:
             classify_result = type(
                 "ForcedClassifyResult",
@@ -509,6 +639,7 @@ class PipelineRunner:
         else:
             structured = self.classify_page_with_structure(page.url, structure_map)
             if structured is not None:
+                deterministic_hit = True
                 classify_result = type(
                     "StructuredClassifyResult",
                     (),
@@ -565,17 +696,23 @@ class PipelineRunner:
                 classify_result.page_type,
                 source_hints=source_hints,
             )
-            return None
+            return {}, None
 
         if self._is_force_deepen(page.url, source_hints):
             await self.deepen_same_slug_children(page, source_hints=source_hints)
 
         if classify_result.page_type in ARTIST_RELATED_PAGE_TYPES:
-            return await self.process_artist_related_page(
+            artist_record = await self.process_artist_related_page(
                 page,
                 classify_result.page_type,
                 final_status="extracted",
             )
+            return {
+                "deterministic_hit": 1 if deterministic_hit else 0,
+                "deterministic_miss": 0 if deterministic_hit else 1,
+                "media_assets_captured": 0,
+                "entity_links_created": 0,
+            }, "updated" if artist_record is not None else None
 
         record_type = DETAIL_PAGE_TYPES.get(classify_result.page_type)
         if record_type is None:
@@ -588,7 +725,7 @@ class PipelineRunner:
                 url=page.url,
                 page_type=classify_result.page_type,
             )
-            return None
+            return {}, None
 
         # Extract
         extractor = self._extractors.get(record_type)
@@ -607,7 +744,7 @@ class PipelineRunner:
                 url=page.url,
                 record_type=record_type,
             )
-            return None
+            return {}, None
 
         existing_record = await crud.get_record_by_page_and_type(
             self.db,
@@ -615,7 +752,7 @@ class PipelineRunner:
             page_id=page.id,
             record_type=record_type,
         )
-        if existing_record is not None:
+        if existing_record is not None and not allow_updates:
             await crud.update_page(self.db, page.id, status="extracted", extracted_at=datetime.now(UTC))
             logger.info(
                 "record_duplicate_skipped",
@@ -625,7 +762,7 @@ class PipelineRunner:
                 record_type=record_type,
             )
             metrics.increment("duplicate_items_skipped")
-            return None
+            return {}, None
 
         try:
             context = {"expected_fields": expected_fields, "page_type": classify_result.page_type} if expected_fields else None
@@ -649,7 +786,7 @@ class PipelineRunner:
                     raw_error=str(exc),
                 )
             await crud.update_page(self.db, page.id, status="error", error_message=str(exc))
-            return None
+            return {}, None
 
         # Score confidence
         image_urls = data.pop("image_urls", [])
@@ -710,12 +847,17 @@ class PipelineRunner:
             if isinstance(val, list):
                 record_kwargs[arr_field] = json.dumps(val)
 
-        record = await crud.create_record(
-            self.db,
-            source_id=page.source_id,
-            record_type=record_type,
-            **record_kwargs,
-        )
+        action = "created"
+        if existing_record is None:
+            record = await crud.create_record(
+                self.db,
+                source_id=page.source_id,
+                record_type=record_type,
+                **record_kwargs,
+            )
+        else:
+            record = await crud.update_record(self.db, existing_record.id, **record_kwargs)
+            action = "updated"
         logger.info(
             "record_created",
             source_id=page.source_id,
@@ -725,15 +867,16 @@ class PipelineRunner:
             confidence_score=score,
             confidence_band=band,
         )
-        metrics.increment("records_created")
+        metrics.increment("records_created" if action == "created" else "records_updated")
 
         await crud.update_page(
             self.db, page.id, status="extracted", extracted_at=datetime.now(UTC)
         )
 
         # Collect images
+        media_assets_captured = 0
         try:
-            await collect_images(
+            collected_images = await collect_images(
                 record_id=record.id,
                 page_url=page.url,
                 html=page.html,
@@ -742,10 +885,102 @@ class PipelineRunner:
                 source_id=page.source_id,
                 page_id=page.id,
             )
+            media_assets_captured = len(collected_images)
         except Exception as exc:
             logger.warning("image_collection_error", record_id=record.id, error=str(exc))
 
-        return record
+        entity_links_created = await self._assemble_entity_relationships(record)
+        return {
+            "deterministic_hit": 1 if deterministic_hit else 0,
+            "deterministic_miss": 0 if deterministic_hit else 1,
+            "media_assets_captured": media_assets_captured,
+            "entity_links_created": entity_links_created,
+        }, action
+
+    async def _assemble_entity_relationships(self, record: Record) -> int:
+        created_links = 0
+        if record.record_type in {"event", "exhibition"}:
+            venue_name = (record.venue_name or "").strip()
+            if venue_name:
+                target = await self._find_record_by_title(
+                    source_id=record.source_id,
+                    record_type="venue",
+                    title=venue_name,
+                )
+                if target is not None:
+                    if await crud.ensure_entity_relationship(
+                        self.db,
+                        source_id=record.source_id,
+                        from_record_id=record.id,
+                        to_record_id=target.id,
+                        relationship_type="event_venue",
+                        metadata={"venue_name": venue_name},
+                    ):
+                        created_links += 1
+            artist_names = self._parse_list_field(record.artist_names)
+            for artist_name in artist_names:
+                target = await self._find_record_by_title(
+                    source_id=record.source_id,
+                    record_type="artist",
+                    title=artist_name,
+                )
+                if target is None:
+                    continue
+                if await crud.ensure_entity_relationship(
+                    self.db,
+                    source_id=record.source_id,
+                    from_record_id=target.id,
+                    to_record_id=record.id,
+                    relationship_type="artist_event",
+                    metadata={"artist_name": artist_name},
+                ):
+                    created_links += 1
+        elif record.record_type == "venue":
+            events = await crud.list_records(
+                self.db,
+                source_id=record.source_id,
+                record_type="event",
+                skip=0,
+                limit=5000,
+            )
+            for event in events:
+                if (event.venue_name or "").strip().lower() != (record.title or "").strip().lower():
+                    continue
+                if await crud.ensure_entity_relationship(
+                    self.db,
+                    source_id=record.source_id,
+                    from_record_id=event.id,
+                    to_record_id=record.id,
+                    relationship_type="event_venue",
+                    metadata={"venue_name": event.venue_name},
+                ):
+                    created_links += 1
+        return created_links
+
+    async def _find_record_by_title(self, *, source_id: str, record_type: str, title: str) -> Record | None:
+        candidates = await crud.list_records(
+            self.db,
+            source_id=source_id,
+            record_type=record_type,
+            skip=0,
+            limit=5000,
+        )
+        title_key = title.strip().lower()
+        for candidate in candidates:
+            if (candidate.title or "").strip().lower() == title_key:
+                return candidate
+        return None
+
+    def _parse_list_field(self, raw_value: str | None) -> list[str]:
+        if not raw_value:
+            return []
+        try:
+            parsed = json.loads(raw_value)
+        except json.JSONDecodeError:
+            parsed = []
+        if not isinstance(parsed, list):
+            return []
+        return [str(item).strip() for item in parsed if str(item).strip()]
 
     async def handle_discovery_page(
         self,
@@ -1282,17 +1517,29 @@ async def _run_pipeline_job_async(
                 if job_type == "run_full_pipeline":
                     await runner.run_full_pipeline(source_id)
                     result = {"status": "done"}
+                elif job_type == "mine_source_deterministic":
+                    result = await runner.run_deterministic_mine(source_id)
+                elif job_type == "enrich_source_existing_pages":
+                    result = await runner.run_enrichment_existing_pages(source_id)
+                elif job_type == "reprocess_source_runtime_map":
+                    result = await runner.run_reprocess_source_runtime_map(source_id)
                 elif job_type == "map_site":
                     site_map = await runner.run_map_site(source_id)
                     result = {"sections": len(site_map.sections)}
                 elif job_type == "crawl_section":
                     result = await runner.run_crawl(source_id)
                 elif job_type == "extract_page":
-                    stats = await runner.run_extract(source_id)
+                    stats = await runner.run_extract(source_id, allow_updates=False, include_existing=False)
                     result = {
+                        "runtime_mode": "extract_only",
                         "records_created": stats.records_created,
+                        "records_updated": stats.records_updated,
                         "records_failed": stats.records_failed,
                         "pages_processed": stats.pages_processed,
+                        "deterministic_hits": stats.deterministic_hits,
+                        "deterministic_misses": stats.deterministic_misses,
+                        "media_assets_captured": stats.media_assets_captured,
+                        "entity_links_created": stats.entity_links_created,
                     }
                 else:
                     raise ValueError(f"Unsupported job type: {job_type}")

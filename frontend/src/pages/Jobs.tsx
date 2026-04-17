@@ -28,6 +28,7 @@ export function Jobs() {
             <tr>
               <th className="text-left p-3">Source</th>
               <th className="text-left p-3">Type</th>
+              <th className="text-left p-3">Mode</th>
               <th className="text-left p-3">Status</th>
               <th className="text-left p-3">Worker</th>
               <th className="text-left p-3">Stage</th>
@@ -41,11 +42,12 @@ export function Jobs() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td colSpan={12} className="p-6 text-center text-muted-foreground/80">Loading...</td></tr>}
+            {isLoading && <tr><td colSpan={13} className="p-6 text-center text-muted-foreground/80">Loading...</td></tr>}
             {data?.items.map((job) => (
               <tr key={job.id} className="border-t">
                 <td className="p-3">{job.source ?? job.source_id}</td>
                 <td className="p-3">{job.job_type}</td>
+                <td className="p-3 text-xs">{job.runtime_mode ?? "—"}</td>
                 <td className="p-3"><StatusBadge status={job.status} /></td>
                 <td className="p-3 text-xs font-mono">{job.worker_id ?? "—"}</td>
                 <td className="p-3 text-xs">{job.current_stage ?? "—"}</td>

@@ -3,13 +3,18 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   deleteSource,
+  getEnrichmentSummary,
   getMiningStatus,
   getPages,
   getRecords,
   getSource,
   getSourceJobs,
+  getSourceRuntimeMap,
   mapSite,
   pauseSource,
+  reprocessExistingPages,
+  runDeterministicMine,
+  runEnrichment,
   resumeSource,
   retryFailedSource,
   startMining,
@@ -42,6 +47,17 @@ export function SourceDetail() {
   const { data: pages } = useQuery({ queryKey: ["pages", id], queryFn: () => getPages({ source_id: id, limit: 50 }), enabled: activeTab === "pages" && !!id });
   const { data: records } = useQuery({ queryKey: ["records", id], queryFn: () => getRecords({ source_id: id, limit: 50 }), enabled: activeTab === "records" && !!id });
   const { data: jobs } = useQuery({ queryKey: ["source-jobs", id], queryFn: () => getSourceJobs(id!), enabled: !!id, refetchInterval: 5000 });
+  const { data: runtimeMapData } = useQuery({
+    queryKey: ["source-runtime-map", id],
+    queryFn: () => getSourceRuntimeMap(id!),
+    enabled: !!id,
+  });
+  const { data: enrichmentSummary } = useQuery({
+    queryKey: ["source-enrichment-summary", id],
+    queryFn: () => getEnrichmentSummary(id!),
+    enabled: !!id,
+    refetchInterval: 5000,
+  });
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ["source", id] });
@@ -51,10 +67,13 @@ export function SourceDetail() {
   };
 
   const actionMutation = useMutation({
-    mutationFn: async (action: "discovery" | "full" | "pause" | "resume" | "stop" | "retry") => {
+    mutationFn: async (action: "discovery" | "full" | "deterministic" | "enrichment" | "reprocess" | "pause" | "resume" | "stop" | "retry") => {
       if (!id) return;
       if (action === "discovery") return mapSite(id);
       if (action === "full") return startMining(id);
+      if (action === "deterministic") return runDeterministicMine(id);
+      if (action === "enrichment") return runEnrichment(id);
+      if (action === "reprocess") return reprocessExistingPages(id);
       if (action === "pause") return pauseSource(id);
       if (action === "resume") return resumeSource(id);
       if (action === "stop") return stopSource(id);
@@ -117,6 +136,9 @@ export function SourceDetail() {
           <Button size="sm" variant="secondary" onClick={() => navigate(`/sources/${id}/operations`)}>Open Operations Console</Button>
           <Button size="sm" variant="primary" onClick={() => actionMutation.mutate("discovery")}>Start Discovery</Button>
           <Button size="sm" variant="primary" onClick={() => actionMutation.mutate("full")}>Start Full Mining</Button>
+          <Button size="sm" variant="primary" onClick={() => actionMutation.mutate("deterministic")}>Run Deterministic Mine</Button>
+          <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("enrichment")}>Run Enrichment</Button>
+          <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("reprocess")}>Reprocess Existing Pages</Button>
           <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("pause")}>Pause</Button>
           <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("resume")}>Resume</Button>
           <Button size="sm" variant="danger" onClick={() => actionMutation.mutate("stop")}>Stop</Button>
@@ -131,6 +153,14 @@ export function SourceDetail() {
             onRetry={() => actionMutation.mutate("full")}
             retryPending={actionMutation.isPending}
           />
+        </div>
+        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 text-xs text-muted-foreground">
+          <div>Runtime map source: <strong>{runtimeMapData?.runtime_map_source ?? "none"}</strong></div>
+          <div>Active preset: <strong>{runtimeMapData?.active_mapping_preset_id ?? "none"}</strong></div>
+          <div>Deterministic hits: <strong>{enrichmentSummary?.deterministic_hits ?? 0}</strong></div>
+          <div>Deterministic misses: <strong>{enrichmentSummary?.deterministic_misses ?? 0}</strong></div>
+          <div>Media assets captured: <strong>{enrichmentSummary?.media_assets_captured ?? 0}</strong></div>
+          <div>Entity links created: <strong>{enrichmentSummary?.entity_links_created ?? 0}</strong></div>
         </div>
       </div>
 

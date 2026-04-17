@@ -16,6 +16,7 @@ from app.config import settings
 from app.crawler.fetcher import fetch
 from app.crawler.site_structure_analyzer import _generate_urls_from_pattern
 from app.db import crud
+from app.pipeline.image_collector import collect_images
 
 logger = structlog.get_logger()
 
@@ -27,6 +28,8 @@ class AutomatedCrawler:
         self.structure_map = structure_map
         self.crawl_plan = structure_map.get("crawl_plan", {}) or {}
         self.extraction_rules = structure_map.get("extraction_rules", {}) or {}
+        self.follow_rules = structure_map.get("follow_rules", {}) or {}
+        self.asset_rules = structure_map.get("asset_rules", {}) or {}
         self.db = db
         self.ai_client = ai_client
         self.stats: dict[str, Any] = {
@@ -36,8 +39,10 @@ class AutomatedCrawler:
             "failed": 0,
             "tokens_used": 0,
             "cost": 0.0,
+            "media_assets_captured": 0,
         }
         self._ai_fallback_used = 0
+        self._seen_urls: set[str] = set()
 
     async def execute_crawl_plan(self, source_id: str) -> dict[str, Any]:
         """Execute the AI-generated crawl plan."""
@@ -65,7 +70,7 @@ class AutomatedCrawler:
                             limit=settings.max_pages_per_source,
                         )
                         break
-                    await self._crawl_and_extract(source_id, url)
+                    await self._crawl_and_extract(source_id, url, depth=0)
 
         logger.info(
             "crawl_complete",
@@ -89,10 +94,15 @@ class AutomatedCrawler:
 
         urls = self._generate_urls(base_url, pattern, pagination, num_pages)
         for url in urls:
-            await self._crawl_and_extract(source_id, url)
+            await self._crawl_and_extract(source_id, url, depth=0)
 
-    async def _crawl_and_extract(self, source_id: str, url: str) -> None:
+    async def _crawl_and_extract(self, source_id: str, url: str, *, depth: int = 0) -> None:
         """Crawl URL and extract data deterministically."""
+        if url in self._seen_urls:
+            return
+        self._seen_urls.add(url)
+        if len(self._seen_urls) > settings.max_pages_per_source:
+            return
         try:
             result = await fetch(url)
             if not result.html:
@@ -105,6 +115,10 @@ class AutomatedCrawler:
 
             page_type = self._classify_by_url(url)
             deterministic = self._extract_deterministic(html, page_type, url)
+            asset_urls = self._extract_asset_urls(html=html, page_type=page_type, base_url=url)
+            if asset_urls:
+                deterministic.setdefault("data", {})
+                deterministic["data"]["image_urls"] = list(asset_urls)
             confidence = int(deterministic.get("confidence", 0))
 
             page, created = await crud.get_or_create_page(self.db, source_id=source_id, url=url)
@@ -124,7 +138,22 @@ class AutomatedCrawler:
 
             if confidence >= settings.deterministic_confidence_threshold:
                 self.stats["extracted_deterministic"] += 1
-                await self._save_record(source_id, page.id, page_type, deterministic, url)
+                record = await self._save_record(source_id, page.id, page_type, deterministic, url)
+                if record is not None and asset_urls:
+                    try:
+                        collected = await collect_images(
+                            record_id=record.id,
+                            page_url=url,
+                            html=html,
+                            image_urls=list(asset_urls),
+                            db=self.db,
+                            source_id=source_id,
+                            page_id=page.id,
+                        )
+                        self.stats["media_assets_captured"] += len(collected)
+                    except Exception as exc:
+                        logger.debug("automated_crawler_collect_images_failed", page_id=page.id, error=str(exc))
+                await self._follow_links(source_id=source_id, page_type=page_type, html=html, current_url=url, depth=depth)
                 return
 
             if self._should_use_ai_fallback():
@@ -136,6 +165,7 @@ class AutomatedCrawler:
                 self.stats["extracted_ai_fallback"] += 1
                 self._ai_fallback_used += 1
                 await self._save_record(source_id, page.id, page_type, ai_data, url)
+                await self._follow_links(source_id=source_id, page_type=page_type, html=html, current_url=url, depth=depth)
                 return
 
             logger.warning("skipping_low_confidence", url=url, confidence=confidence)
@@ -143,6 +173,67 @@ class AutomatedCrawler:
         except Exception as exc:
             logger.error("crawl_extract_failed", url=url, error=str(exc))
             self.stats["failed"] += 1
+
+    async def _follow_links(
+        self,
+        *,
+        source_id: str,
+        page_type: str,
+        html: str,
+        current_url: str,
+        depth: int,
+    ) -> None:
+        rules = self.follow_rules.get(page_type, {}) or {}
+        selectors = list(rules.get("selectors", []) or [])
+        selectors.extend(list(rules.get("pagination_selectors", []) or []))
+        if not selectors:
+            return
+        max_depth = int(rules.get("max_depth", 1))
+        if depth >= max_depth:
+            return
+        soup = BeautifulSoup(html or "", "lxml")
+        discovered: set[str] = set()
+        current_netloc = urlparse(current_url).netloc
+        for selector in selectors:
+            try:
+                nodes = soup.select(selector)
+            except Exception:
+                continue
+            for node in nodes:
+                href = (node.get("href") or "").strip()
+                if not href or href.startswith("#") or href.startswith("javascript:"):
+                    continue
+                full_url = urljoin(current_url, href).split("#")[0]
+                if urlparse(full_url).netloc != current_netloc:
+                    continue
+                if full_url in self._seen_urls:
+                    continue
+                discovered.add(full_url)
+        for next_url in discovered:
+            await self._crawl_and_extract(source_id, next_url, depth=depth + 1)
+
+    def _extract_asset_urls(self, *, html: str, page_type: str, base_url: str) -> set[str]:
+        rules = self.asset_rules.get(page_type, {}) or {}
+        selectors = list(rules.get("selectors", []) or [])
+        if not selectors:
+            return set()
+        soup = BeautifulSoup(html or "", "lxml")
+        urls: set[str] = set()
+        for selector in selectors:
+            try:
+                nodes = soup.select(selector)
+            except Exception:
+                continue
+            for node in nodes:
+                attr_candidates = ["src", "data-src", "href"]
+                for attr in attr_candidates:
+                    value = (node.get(attr) or "").strip()
+                    if not value or value.startswith("data:"):
+                        continue
+                    full_url = urljoin(base_url, value).split("#")[0]
+                    urls.add(full_url)
+                    break
+        return urls
 
     def _classify_by_url(self, url: str) -> str:
         """Classify page type by URL pattern matching (NO AI)."""
@@ -277,7 +368,7 @@ class AutomatedCrawler:
         page_type: str,
         data: dict[str, Any],
         url: str,
-    ) -> None:
+    ) -> Any:
         """Save extracted record to database."""
         payload = data.get("data", {}) if isinstance(data.get("data"), dict) else {}
         title = payload.get("name") or payload.get("title")
@@ -303,9 +394,9 @@ class AutomatedCrawler:
                 record_type=record_type,
             )
             if existing is not None:
-                return
+                return existing
 
-        await crud.create_record(
+        return await crud.create_record(
             self.db,
             source_id=source_id,
             page_id=page_id,

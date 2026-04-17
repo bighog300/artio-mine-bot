@@ -5,6 +5,8 @@ import {
   approveSourceModeratedAction,
   backfillSource,
   cancelActiveSourceRuns,
+  getEnrichmentSummary,
+  getSourceRuntimeMap,
   getSourceEvents,
   getSourceModeratedActions,
   getSourceOperations,
@@ -12,6 +14,9 @@ import {
   pauseSourceRun,
   rejectSourceModeratedAction,
   resumeSourceRun,
+  reprocessExistingPages,
+  runDeterministicMine,
+  runEnrichment,
   runSource,
   type Job,
   type SourceEvent,
@@ -29,6 +34,7 @@ function RunRow({ run }: { run: Job }) {
   return (
     <tr className="border-t text-sm">
       <td className="p-2">{run.job_type}</td>
+      <td className="p-2">{run.runtime_mode ?? "—"}</td>
       <td className="p-2"><StatusBadge status={run.status} /></td>
       <td className="p-2">{run.current_stage ?? "—"}</td>
       <td className="p-2">{run.progress_total ? `${run.progress_current ?? 0}/${run.progress_total}` : "—"}</td>
@@ -47,6 +53,8 @@ export function SourceOperations() {
   const { data: ops } = useQuery({ queryKey: ["source-operations", id], queryFn: () => getSourceOperations(id!), enabled: !!id, refetchInterval: 5000 });
   const { data: runs } = useQuery({ queryKey: ["source-runs", id], queryFn: () => getSourceRuns(id!, { limit: 25 }), enabled: !!id, refetchInterval: 5000 });
   const { data: events } = useQuery({ queryKey: ["source-events", id], queryFn: () => getSourceEvents(id!, { limit: 200 }), enabled: !!id, refetchInterval: 3000 });
+  const { data: runtimeMap } = useQuery({ queryKey: ["source-runtime-map", id], queryFn: () => getSourceRuntimeMap(id!), enabled: !!id });
+  const { data: enrichmentSummary } = useQuery({ queryKey: ["source-enrichment-summary", id], queryFn: () => getEnrichmentSummary(id!), enabled: !!id, refetchInterval: 5000 });
   const { data: moderation } = useQuery({ queryKey: ["source-moderated-actions", id], queryFn: () => getSourceModeratedActions(id!, { status: "pending", limit: 100 }), enabled: !!id, refetchInterval: 5000 });
 
   const refresh = () => {
@@ -57,9 +65,12 @@ export function SourceOperations() {
   };
 
   const actionMutation = useMutation({
-    mutationFn: async (action: "run" | "pause" | "resume" | "cancel" | "backfill") => {
+    mutationFn: async (action: "run" | "deterministic" | "enrichment" | "reprocess" | "pause" | "resume" | "cancel" | "backfill") => {
       if (!id) return;
       if (action === "run") return runSource(id);
+      if (action === "deterministic") return runDeterministicMine(id);
+      if (action === "enrichment") return runEnrichment(id);
+      if (action === "reprocess") return reprocessExistingPages(id);
       if (action === "pause") return pauseSourceRun(id);
       if (action === "resume") return resumeSourceRun(id);
       if (action === "cancel") return cancelActiveSourceRuns(id);
@@ -118,13 +129,25 @@ export function SourceOperations() {
             <StatusBadge status={ops?.source?.operational_status ?? ops?.source?.status ?? "unknown"} />
             <span>Active jobs: {ops?.active_jobs?.length ?? 0}</span>
             <span>Pending moderation: {ops?.pending_moderation_count ?? 0}</span>
+            <span>Runtime map: {runtimeMap?.runtime_map_source ?? "none"}</span>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("run")}>Run</Button>
+            <Button size="sm" variant="primary" onClick={() => actionMutation.mutate("deterministic")}>Deterministic Mine</Button>
+            <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("enrichment")}>Enrichment</Button>
+            <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("reprocess")}>Reprocess Pages</Button>
             <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("pause")}>Pause</Button>
             <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("resume")}>Resume</Button>
             <Button size="sm" variant="danger" onClick={() => actionMutation.mutate("cancel")}>Cancel Active</Button>
             <Button size="sm" variant="primary" onClick={() => actionMutation.mutate("backfill")}>Backfill</Button>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+            <div>Runs: <strong>{enrichmentSummary?.runs ?? 0}</strong></div>
+            <div>Records updated: <strong>{enrichmentSummary?.records_updated ?? 0}</strong></div>
+            <div>Deterministic hits: <strong>{enrichmentSummary?.deterministic_hits ?? 0}</strong></div>
+            <div>Deterministic misses: <strong>{enrichmentSummary?.deterministic_misses ?? 0}</strong></div>
+            <div>Media captured: <strong>{enrichmentSummary?.media_assets_captured ?? 0}</strong></div>
+            <div>Entity links: <strong>{enrichmentSummary?.entity_links_created ?? 0}</strong></div>
           </div>
         </div>
 
@@ -173,6 +196,7 @@ export function SourceOperations() {
           <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
             <tr>
               <th className="p-2 text-left">Type</th>
+              <th className="p-2 text-left">Mode</th>
               <th className="p-2 text-left">Status</th>
               <th className="p-2 text-left">Stage</th>
               <th className="p-2 text-left">Progress</th>
