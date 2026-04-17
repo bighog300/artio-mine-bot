@@ -489,12 +489,18 @@ async def test_export_artists_clean_endpoint(test_client: AsyncClient, db_sessio
 
 @pytest.mark.asyncio
 async def test_metrics_endpoint(test_client: AsyncClient):
-    resp = await test_client.get("/metrics")
+    resp = await test_client.get("/api/metrics")
     assert resp.status_code == 200
     payload = resp.json()
     assert "total_artists" in payload
     assert "avg_completeness" in payload
     assert "conflicts_count" in payload
+
+
+@pytest.mark.asyncio
+async def test_legacy_metrics_endpoint_not_exposed(test_client: AsyncClient):
+    resp = await test_client.get("/metrics")
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
