@@ -1,9 +1,8 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:16
     pull_policy: if_not_present
+    restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -13,25 +12,30 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d artio"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
+      start_period: 10s
 
   redis:
     image: redis:7
     pull_policy: if_not_present
+    restart: unless-stopped
     ports:
       - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 20
+      start_period: 5s
 
   api:
     build: .
     restart: unless-stopped
+    init: true
+    stop_grace_period: 20s
     command: ["./scripts/start.sh", "uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8765:8000"
@@ -46,19 +50,19 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
-      start_period: 15s
+      start_period: 20s
       retries: 5
 
   worker-1: &worker-template
     build: .
     command: ["python", "-m", "app.pipeline.runner"]
     restart: unless-stopped
+    init: true
+    stop_grace_period: 20s
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/artio
@@ -72,8 +76,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
 
   worker-2:
     <<: *worker-template
@@ -117,6 +119,9 @@ services:
 
   migrate:
     build: .
+    profiles: ["ops"]
+    restart: "no"
+    init: true
     command: ["alembic", "upgrade", "head"]
     env_file: .env
     environment:
@@ -132,6 +137,8 @@ services:
 
   frontend:
     restart: unless-stopped
+    init: true
+    stop_grace_period: 15s
     build:
       context: .
       dockerfile: Dockerfile.frontend
@@ -145,7 +152,8 @@ services:
       timeout: 3s
       retries: 5
     depends_on:
-      - api
+      api:
+        condition: service_started
 
 volumes:
   postgres_data:
