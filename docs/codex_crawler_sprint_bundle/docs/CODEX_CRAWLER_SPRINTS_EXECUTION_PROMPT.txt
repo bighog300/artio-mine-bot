@@ -1,0 +1,74 @@
+You are working in the artio-mine-bot repository.
+
+Read and follow these documents before making changes:
+
+- AGENTS.md
+- docs/CODEX_CRAWLER_SPRINTS_OVERVIEW.md
+- docs/CODEX_CRAWLER_SPRINT_1_ROBOTS_COMPLIANCE.md
+- docs/CODEX_CRAWLER_SPRINT_2_SINGLE_CRAWL_ENGINE.md
+- docs/CODEX_CRAWLER_SPRINT_3_PRIORITY_AWARE_DURABLE_CRAWL.md
+- docs/CODEX_CRAWLER_SPRINTS_CHECKLIST.md
+- docs/CODEX_CRAWLER_SPRINTS_FILE_MAP.md
+
+If AGENTS.override.md exists, follow it as the workstream override.
+
+OBJECTIVE
+
+Consolidate the crawler into a compliant, priority-aware durable frontier.
+
+REQUIRED OUTCOMES
+
+1. durable frontier enforces robots rules before fetch
+2. `link_follower` is no longer an independent production crawl engine
+3. frontier rows can carry priority and predicted page-type hints
+4. claim ordering prefers higher-value pages before utility pages
+5. extraction remains downstream rather than being merged into crawl
+
+WORK ORDER
+
+Execute the work in sprint order:
+1. Sprint 1 — robots compliance
+2. Sprint 2 — single crawl engine
+3. Sprint 3 — priority-aware durable crawl
+
+For each sprint:
+- inspect the current code first
+- make the smallest viable change set
+- add or update tests for the changed behavior
+- run targeted verification where possible
+- summarize files changed, migrations, tests, and caveats
+
+CONSTRAINTS
+
+- do not redesign the crawler from scratch
+- do not widen scope beyond the sprint docs
+- do not merge full extraction into durable crawl
+- do not remove useful behavior from legacy paths until it has been preserved or migrated
+- keep heuristics simple and explainable
+
+EXPECTED FILE AREAS
+
+Likely files include:
+- app/crawler/durable_frontier.py
+- app/crawler/link_follower.py
+- app/crawler/robots.py
+- app/crawler/seeding.py
+- app/crawler/crawl_policy.py
+- app/db/crud.py
+- frontier/page models
+- Alembic migration files
+- tests/test_crawler.py
+- tests/test_crawl_state.py
+- tests/test_pipeline.py
+
+FINAL OUTPUT FORMAT
+
+For each sprint, provide:
+- summary of changes
+- files changed
+- migrations added or not needed
+- tests added/updated
+- verification run
+- known caveats or follow-up recommendations
+
+Begin by reading the listed docs and inspecting the crawler-related modules before editing.
