@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useId, useRef } from "react";
 import type { HTMLAttributes, ReactNode } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useEscapeKey } from "@/hooks/useKeyboard";
 
 interface ModalProps {
   open: boolean;
@@ -12,6 +13,10 @@ interface ModalProps {
 }
 
 export function Modal({ open, onClose, title, children, size = "md" }: ModalProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const headingId = useId();
+
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "unset";
     return () => {
@@ -19,20 +24,51 @@ export function Modal({ open, onClose, title, children, size = "md" }: ModalProp
     };
   }, [open]);
 
+  useEscapeKey(onClose, open);
+
   useEffect(() => {
-    if (!open) {
+    if (!open || !dialogRef.current) {
       return undefined;
     }
 
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    dialog.focus();
+
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          "a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])",
+        ),
+      ).filter((element) => !element.hasAttribute("aria-hidden"));
+
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     };
 
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [open, onClose]);
+    dialog.addEventListener("keydown", trapFocus);
+    return () => {
+      dialog.removeEventListener("keydown", trapFocus);
+      previousFocusRef.current?.focus();
+    };
+  }, [open]);
 
   if (!open) {
     return null;
@@ -51,6 +87,7 @@ export function Modal({ open, onClose, title, children, size = "md" }: ModalProp
 
       <div className="fixed inset-0 z-50 flex items-end justify-center p-0 lg:items-center lg:p-4">
         <div
+          ref={dialogRef}
           className={cn(
             "max-h-[90vh] w-full overflow-hidden bg-background shadow-xl lg:max-h-[85vh] lg:w-auto",
             "rounded-t-2xl lg:rounded-lg",
@@ -58,10 +95,12 @@ export function Modal({ open, onClose, title, children, size = "md" }: ModalProp
           )}
           role="dialog"
           aria-modal="true"
+          aria-labelledby={title ? headingId : undefined}
+          tabIndex={-1}
         >
           {title ? (
             <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-background px-4 py-4 lg:px-6">
-              <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+              <h2 id={headingId} className="text-lg font-semibold text-foreground">{title}</h2>
               <button
                 type="button"
                 onClick={onClose}
