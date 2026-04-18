@@ -6,6 +6,7 @@ from httpx import Response
 
 from app.crawler.fetcher import FetchResult, fetch
 from app.crawler.automated_crawler import AutomatedCrawler
+from app.crawler.crawl_policy import score_url
 from app.crawler.link_follower import CrawlQueue, _extract_links
 from app.crawler.robots import RobotsChecker
 from app.crawler.site_mapper import _extract_nav_links
@@ -106,6 +107,14 @@ def test_link_extraction():
     assert "https://external.com/page" not in links
 
 
+def test_crawl_policy_prioritizes_detail_over_utility():
+    detail_score, detail_type = score_url("https://example.com/artists/john-doe")
+    utility_score, utility_type = score_url("https://example.com/privacy")
+    assert detail_type == "artist_profile"
+    assert utility_type == "utility"
+    assert detail_score > utility_score
+
+
 @pytest.mark.asyncio
 async def test_crawl_respects_max_pages(db_session):
     from app.crawler.link_follower import crawl_source
@@ -136,7 +145,7 @@ async def test_crawl_respects_max_pages(db_session):
         db_session, url="https://example.com"
     )
 
-    with patch("app.crawler.link_follower.fetch", new=AsyncMock(return_value=fetch_result)):
+    with patch("app.crawler.durable_frontier.fetch", new=AsyncMock(return_value=fetch_result)):
         with patch.object(robots_checker, "is_allowed", new=AsyncMock(return_value=True)):
             stats = await crawl_source(
                 source_id=source.id,
@@ -176,7 +185,7 @@ async def test_crawl_sanitizes_null_bytes_before_store(db_session):
     )
     robots_checker = RobotsChecker()
 
-    with patch("app.crawler.link_follower.fetch", new=AsyncMock(return_value=fetch_result)):
+    with patch("app.crawler.durable_frontier.fetch", new=AsyncMock(return_value=fetch_result)):
         with patch.object(robots_checker, "is_allowed", new=AsyncMock(return_value=True)):
             stats = await crawl_source(
                 source_id=source.id,

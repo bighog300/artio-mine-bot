@@ -353,6 +353,10 @@ class CrawlFrontier(Base):
     normalized_url: Mapped[str] = mapped_column(String, nullable=False)
     depth: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     discovered_from_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    predicted_page_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    discovered_from_page_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    discovery_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, default="queued", nullable=False)
     lease_expires_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
     leased_by_worker: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -368,6 +372,7 @@ class CrawlFrontier(Base):
     __table_args__ = (
         UniqueConstraint("source_id", "normalized_url", name="uq_crawl_frontier_source_normalized_url"),
         Index("ix_crawl_frontier_crawl_run_id_status", "crawl_run_id", "status"),
+        Index("ix_crawl_frontier_crawl_run_priority_depth_created", "crawl_run_id", "priority", "depth", "created_at"),
         Index("ix_crawl_frontier_lease_expires_at", "lease_expires_at"),
         Index("ix_crawl_frontier_next_retry_at", "next_retry_at"),
     )
