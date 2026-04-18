@@ -38,8 +38,8 @@ export function AdminReview() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold text-foreground">Admin Review</h1>
-      <div className="grid grid-cols-3 gap-4">
+      <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Admin Review</h1>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-card rounded border p-3 space-y-3">
           <Input placeholder="Search artists..." value={query} onChange={(e) => setQuery(e.target.value)} />
           <div className="space-y-2 max-h-[620px] overflow-auto">

@@ -21,9 +21,9 @@ export function SemanticExplorer() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold text-foreground">Semantic Explorer</h1>
+      <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Semantic Explorer</h1>
       <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Semantic search artists…" />
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-card rounded border p-3">
           <h2 className="font-semibold mb-2">Results</h2>
           <div className="space-y-2">

@@ -1,9 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { Badge, Spinner } from "@/components/ui";
+import { MobileCard, MobileCardRow } from "@/components/ui/MobileCard";
 import { getWorkers } from "@/lib/api";
+import { useIsMobile } from "@/lib/mobile-utils";
 
 export function Workers() {
+  const isMobile = useIsMobile();
   const { data, isLoading } = useQuery({
     queryKey: ["workers"],
     queryFn: getWorkers,
@@ -11,10 +14,27 @@ export function Workers() {
   });
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-bold">Workers</h1>
+    <div className="space-y-4 lg:space-y-6">
+      <h1 className="text-2xl lg:text-3xl font-bold">Workers</h1>
+      {isMobile ? (
+        <div className="space-y-3">
+          {(data?.items ?? []).map((worker) => (
+            <MobileCard key={worker.worker_id}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-mono text-xs truncate">{worker.worker_id}</div>
+                <Badge variant={worker.status === "running" ? "success" : "default"}>{worker.status}</Badge>
+              </div>
+              <div className="grid grid-cols-1 gap-2">
+                <MobileCardRow label="Current job" value={worker.current_job_id ?? "—"} />
+                <MobileCardRow label="Stage" value={worker.stage ?? "—"} />
+                <MobileCardRow label="Heartbeat" value={worker.heartbeat ? new Date(worker.heartbeat).toLocaleString() : "—"} />
+              </div>
+            </MobileCard>
+          ))}
+        </div>
+      ) : (
       <div className="bg-card border rounded overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm block overflow-x-auto lg:table">
           <thead className="bg-muted/40">
             <tr>
               <th className="text-left p-3">Worker</th>
@@ -48,6 +68,7 @@ export function Workers() {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }

@@ -5,8 +5,11 @@ import { JobProgressBar } from "@/components/jobs/JobProgressBar";
 import { HeartbeatBadge } from "@/components/jobs/HeartbeatBadge";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui";
+import { MobileCard, MobileCardRow } from "@/components/ui/MobileCard";
+import { useIsMobile } from "@/lib/mobile-utils";
 
 export function Jobs() {
+  const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ["jobs"], queryFn: () => getJobs({ limit: 200 }), refetchInterval: 5000 });
   const mutate = useMutation({
@@ -20,10 +23,33 @@ export function Jobs() {
   });
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-2xl font-bold">Jobs</h1>
+    <div className="space-y-4 lg:space-y-6">
+      <h1 className="text-2xl lg:text-3xl font-bold">Jobs</h1>
+      {isMobile ? (
+        <div className="space-y-3">
+          {data?.items.map((job) => (
+            <MobileCard key={job.id}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-medium text-sm truncate">{job.source ?? job.source_id}</div>
+                <StatusBadge status={job.status} />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <MobileCardRow label="Type" value={job.job_type} />
+                <MobileCardRow label="Mode" value={job.runtime_mode ?? "—"} />
+                <MobileCardRow label="Processed" value={job.processed_count ?? 0} />
+                <MobileCardRow label="Failures" value={job.failure_count ?? 0} />
+              </div>
+              <JobProgressBar current={job.progress_current} total={job.progress_total} percent={job.progress_percent} />
+              <div className="grid grid-cols-2 gap-2">
+                <Link className="inline-flex h-10 items-center justify-center rounded-md bg-muted px-3 text-sm font-medium hover:bg-gray-200" to={`/jobs/${job.id}`}>Details</Link>
+                <Button size="sm" variant="danger" onClick={() => mutate.mutate({ id: job.id, action: "cancel" })}>Cancel</Button>
+              </div>
+            </MobileCard>
+          ))}
+        </div>
+      ) : (
       <div className="bg-card border rounded overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm block overflow-x-auto lg:table">
           <thead className="bg-muted/40">
             <tr>
               <th className="text-left p-3">Source</th>
@@ -77,6 +103,7 @@ export function Jobs() {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }

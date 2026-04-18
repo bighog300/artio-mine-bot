@@ -32,8 +32,10 @@ import { ScanSetupForm } from "@/components/source-mapper/ScanSetupForm";
 import { VersionHistoryPanel } from "@/components/source-mapper/VersionHistoryPanel";
 import { CreatePresetDialog } from "@/components/source-mapper/CreatePresetDialog";
 import { Button } from "@/components/ui";
+import { useIsMobile } from "@/lib/mobile-utils";
 
 export function SourceMapping() {
+  const isMobile = useIsMobile();
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -236,10 +238,10 @@ export function SourceMapping() {
   if (!id) return <div className="p-6">Missing source ID.</div>;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 lg:space-y-6">
       <div>
         <Button variant="ghost" size="sm" onClick={() => navigate(`/sources/${id}`)}>← Back to source</Button>
-        <h1 className="text-2xl font-bold">AI Source Mapper</h1>
+        <h1 className="text-2xl lg:text-3xl font-bold">AI Source Mapper</h1>
         <p className="text-sm text-muted-foreground">{source?.url ?? "Loading source..."}</p>
       </div>
 
@@ -300,10 +302,10 @@ export function SourceMapping() {
       />
 
       {selectedCount > 0 && (
-        <div className="flex gap-2 text-xs">
-          <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate({ rowIds: selectedRowIds, action: "approve" })}>Bulk approve ({selectedCount})</Button>
-          <Button size="sm" variant="danger" onClick={() => actionMutation.mutate({ rowIds: selectedRowIds, action: "reject" })}>Bulk reject</Button>
-          <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate({ rowIds: selectedRowIds, action: "ignore" })}>Bulk ignore</Button>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+          <Button fullWidth={isMobile} size="sm" variant="secondary" onClick={() => actionMutation.mutate({ rowIds: selectedRowIds, action: "approve" })}>Bulk approve ({selectedCount})</Button>
+          <Button fullWidth={isMobile} size="sm" variant="danger" onClick={() => actionMutation.mutate({ rowIds: selectedRowIds, action: "reject" })}>Bulk reject</Button>
+          <Button fullWidth={isMobile} size="sm" variant="secondary" onClick={() => actionMutation.mutate({ rowIds: selectedRowIds, action: "ignore" })}>Bulk ignore</Button>
         </div>
       )}
 

@@ -123,16 +123,16 @@ export function RecordDetail() {
     setFormData((prev) => ({ ...prev, [key]: value }));
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+    <div className="space-y-4 lg:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <Button onClick={() => navigate(-1)} variant="ghost" size="sm">
             ← Back
           </Button>
           <Badge>{record.record_type}</Badge>
           <Badge>{record.status}</Badge>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid grid-cols-2 sm:flex items-center gap-2 w-full sm:w-auto">
           <Button
             onClick={() => goToAdjacent(adjacent?.prev_id ?? null)}
             disabled={!adjacent?.prev_id}
@@ -152,8 +152,8 @@ export function RecordDetail() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-6">
-        <div className="col-span-2 bg-card border rounded-lg p-4 space-y-3">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+        <div className="lg:col-span-2 bg-card border rounded-lg p-4 space-y-3">
           <h1 className="text-xl font-bold">{record.title ?? "Untitled"}</h1>
           {hasConflictSignals && (
             <Alert

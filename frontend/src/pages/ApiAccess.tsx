@@ -29,12 +29,12 @@ export function ApiAccess() {
   const endpointRows = useMemo(() => usageQuery.data?.endpoint_usage ?? [], [usageQuery.data]);
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-foreground">API Access</h1>
+    <div className="space-y-4 lg:space-y-6">
+      <h1 className="text-2xl lg:text-3xl font-bold text-foreground">API Access</h1>
 
       <div className="bg-card border rounded-lg p-4 space-y-3">
         <h2 className="font-semibold">Create API key</h2>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Input placeholder="Key name" value={name} onChange={(e) => setName(e.target.value)} />
           <input
             className="border rounded px-3 py-2"
@@ -94,7 +94,7 @@ export function ApiAccess() {
 
       <div className="bg-card border rounded-lg p-4">
         <h2 className="font-semibold mb-3">Usage Dashboard</h2>
-        <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
           <div className="border rounded p-3">
             <div className="text-xs text-muted-foreground">Total requests</div>
             <div className="text-xl font-semibold">{usageQuery.data?.total_requests ?? 0}</div>

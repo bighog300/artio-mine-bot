@@ -55,9 +55,9 @@ export function Backfill() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 lg:space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-foreground">Backfill Dashboard</h1>
+        <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Backfill Dashboard</h1>
         <p className="text-sm text-muted-foreground">Manage campaigns, schedules, and enrichment automation.</p>
       </div>
 
@@ -69,7 +69,7 @@ export function Backfill() {
 
       <section className="rounded-lg border border-border bg-card p-4">
         <h2 className="mb-3 text-lg font-semibold text-foreground">Create Schedule</h2>
-        <form className="grid gap-3 md:grid-cols-4" onSubmit={onSubmit}>
+        <form className="grid gap-3 grid-cols-1 md:grid-cols-4" onSubmit={onSubmit}>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
