@@ -14,7 +14,7 @@ export function ImageThumbnail({ url, alt, imageType, className }: ImageThumbnai
   if (error) {
     return (
       <div className={`flex items-center justify-center bg-muted rounded ${className ?? "w-full h-full"}`}>
-        <Image className="text-muted-foreground/80" size={24} />
+        <Image className="text-muted-foreground/80" size={24} aria-hidden="true" />
       </div>
     );
   }
@@ -23,7 +23,7 @@ export function ImageThumbnail({ url, alt, imageType, className }: ImageThumbnai
     <div className={`relative overflow-hidden rounded ${className ?? ""}`}>
       <img
         src={url}
-        alt={alt ?? "Image"}
+        alt={alt ?? "Thumbnail image"}
         className="w-full h-full object-cover"
         onError={() => setError(true)}
         loading="lazy"

@@ -38,7 +38,7 @@ export function MobileNav() {
     <>
       <header className="fixed inset-x-0 top-0 z-50 h-14 border-b border-border bg-card lg:hidden">
         <div className="flex h-full items-center justify-between px-4">
-          <h1 className="text-base font-semibold text-foreground">Artio Miner</h1>
+          <p className="text-base font-semibold text-foreground">Artio Miner</p>
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <button
@@ -47,6 +47,7 @@ export function MobileNav() {
               className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg p-2 transition-colors hover:bg-accent"
               aria-label="Toggle menu"
               aria-expanded={isOpen}
+              aria-controls="mobile-primary-nav"
             >
               {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
@@ -57,6 +58,8 @@ export function MobileNav() {
       {isOpen ? <button type="button" className="fixed inset-0 top-14 z-40 bg-black/50 lg:hidden" aria-label="Close menu" onClick={() => setIsOpen(false)} /> : null}
 
       <nav
+        id="mobile-primary-nav"
+        aria-label="Mobile primary"
         className={cn(
           "fixed right-0 top-14 z-40 h-[calc(100vh-3.5rem)] w-72 border-l border-border bg-card transition-transform duration-200 lg:hidden",
           isOpen ? "translate-x-0" : "translate-x-full",

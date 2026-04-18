@@ -130,7 +130,7 @@ export function DuplicateResolution() {
 
   if (isPairsLoading || isPairLoading || !pairDetails) {
     return (
-      <div className="h-screen flex items-center justify-center">
+      <div className="h-screen flex items-center justify-center" role="status" aria-live="polite" aria-busy="true">
         <div className="text-muted-foreground">Loading duplicate pair…</div>
       </div>
     );
@@ -138,7 +138,7 @@ export function DuplicateResolution() {
 
   if (isPairError) {
     return (
-      <div className="h-screen flex items-center justify-center">
+      <div className="h-screen flex items-center justify-center" role="alert">
         <div className="text-red-700">Unable to load duplicate details right now.</div>
       </div>
     );
@@ -148,6 +148,7 @@ export function DuplicateResolution() {
 
   return (
     <div className="h-screen flex flex-col bg-muted/40">
+      <h1 className="sr-only">Duplicate Resolution</h1>
       <DuplicateHeader
         total={pairs.length}
         current={safeIndex}
@@ -156,7 +157,7 @@ export function DuplicateResolution() {
         onNext={moveToNext}
       />
 
-      <main className="flex-1 overflow-auto">
+      <section className="flex-1 overflow-auto" aria-label="Duplicate record comparison">
         <div className="max-w-7xl mx-auto p-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             <div>
@@ -200,7 +201,7 @@ export function DuplicateResolution() {
             onChange={(field, choice) => setMergeStrategy((previous) => ({ ...previous, [field]: choice }))}
           />
         </div>
-      </main>
+      </section>
 
       <ActionBar
         onMerge={() => mergeMutation.mutate()}

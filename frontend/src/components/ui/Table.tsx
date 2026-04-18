@@ -22,7 +22,13 @@ export function TableRow({ className, ...props }: HTMLAttributes<HTMLTableRowEle
 }
 
 export function TableHead({ className, ...props }: ThHTMLAttributes<HTMLTableCellElement>) {
-  return <th className={cn("px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground lg:px-4", className)} {...props} />;
+  return (
+    <th
+      scope={props.scope ?? "col"}
+      className={cn("px-3 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground lg:px-4", className)}
+      {...props}
+    />
+  );
 }
 
 export function TableCell({ className, ...props }: TdHTMLAttributes<HTMLTableCellElement>) {
