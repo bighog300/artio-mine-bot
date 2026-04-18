@@ -21,7 +21,7 @@ export function Pages() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold text-foreground">Pages</h1>
+      <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Pages</h1>
 
       <div className="flex gap-3 flex-wrap">
         <select

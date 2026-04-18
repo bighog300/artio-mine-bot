@@ -82,8 +82,8 @@ export function Settings() {
   }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-foreground">Settings</h1>
+    <div className="space-y-4 lg:space-y-6">
+      <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Settings</h1>
 
       {/* ── Warning banner ─────────────────────────────────────────────────── */}
       {!data?.artio_configured && (
@@ -103,7 +103,7 @@ export function Settings() {
 
       {/* ── Artio API card ──────────────────────────────────────────────────── */}
       <div className="rounded-lg border bg-card">
-        <div className="flex items-center justify-between border-b p-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b p-4">
           <div>
             <h2 className="font-semibold text-foreground">Artio API</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">

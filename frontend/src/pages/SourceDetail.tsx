@@ -120,10 +120,10 @@ export function SourceDetail() {
   const tabs = ["overview", "pages", "records", "jobs", "mapping", "settings"] as const;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 lg:space-y-6">
       <div>
         <Button variant="ghost" size="sm" onClick={() => navigate("/sources")} className="mb-1">← Sources</Button>
-        <h1 className="text-2xl font-bold">{source.name ?? source.url}</h1>
+        <h1 className="text-2xl lg:text-3xl font-bold">{source.name ?? source.url}</h1>
         <p className="text-sm text-muted-foreground">{source.url}</p>
       </div>
 
@@ -131,7 +131,7 @@ export function SourceDetail() {
 
       <div className="bg-card border rounded p-4">
         <h2 className="font-semibold mb-3">Operational Controls</h2>
-        <div className="flex flex-wrap items-center gap-2 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2 text-sm">
           <StatusBadge status={source.operational_status ?? source.status} />
           <Button size="sm" variant="secondary" onClick={() => navigate(`/sources/${id}/operations`)}>Open Operations Console</Button>
           <Button size="sm" variant="primary" onClick={() => actionMutation.mutate("discovery")}>Start Discovery</Button>
@@ -165,7 +165,7 @@ export function SourceDetail() {
       </div>
 
       <div className="border-b">
-        <div className="flex gap-4">
+        <div className="flex gap-4 overflow-x-auto">
           {tabs.map((tab) => (
             <button key={tab} onClick={() => setActiveTab(tab)} className={`py-2 px-1 text-sm font-medium border-b-2 capitalize ${activeTab === tab ? "border-blue-500 text-blue-600" : "border-transparent text-muted-foreground"}`}>
               {tab}
@@ -178,7 +178,7 @@ export function SourceDetail() {
 
       {activeTab === "pages" && (
         <div className="bg-card border rounded overflow-hidden">
-          <table className="w-full text-sm"><thead className="bg-muted/40"><tr><th className="text-left p-3">URL</th><th className="text-left p-3">Type</th><th className="text-left p-3">Status</th></tr></thead>
+          <table className="w-full text-sm block overflow-x-auto lg:table"><thead className="bg-muted/40"><tr><th className="text-left p-3">URL</th><th className="text-left p-3">Type</th><th className="text-left p-3">Status</th></tr></thead>
             <tbody>{pages?.items.map((p) => <tr key={p.id} className="border-t"><td className="p-3 truncate max-w-[440px]">{p.url}</td><td className="p-3">{p.page_type}</td><td className="p-3"><StatusBadge status={p.status} /></td></tr>)}</tbody>
           </table>
         </div>
@@ -199,7 +199,7 @@ export function SourceDetail() {
 
       {activeTab === "jobs" && (
         <div className="bg-card border rounded overflow-hidden">
-          <table className="w-full text-sm"><thead className="bg-muted/40"><tr><th className="text-left p-3">Type</th><th className="text-left p-3">Status</th><th className="text-left p-3">Started</th><th className="text-left p-3">Completed</th></tr></thead>
+          <table className="w-full text-sm block overflow-x-auto lg:table"><thead className="bg-muted/40"><tr><th className="text-left p-3">Type</th><th className="text-left p-3">Status</th><th className="text-left p-3">Started</th><th className="text-left p-3">Completed</th></tr></thead>
             <tbody>{(jobs?.items ?? []).map((job) => <tr key={job.id} className="border-t"><td className="p-3">{job.job_type}</td><td className="p-3"><StatusBadge status={job.status} /></td><td className="p-3">{job.started_at ? new Date(job.started_at).toLocaleString() : "—"}</td><td className="p-3">{job.completed_at ? new Date(job.completed_at).toLocaleString() : "—"}</td></tr>)}</tbody>
           </table>
         </div>
@@ -208,7 +208,7 @@ export function SourceDetail() {
       {activeTab === "settings" && (
         <div className="bg-card border rounded p-4 space-y-3 text-sm">
           <h3 className="font-semibold">Source behavior settings</h3>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="space-y-1">
               <span className="text-muted-foreground">Crawl intent</span>
               <Select

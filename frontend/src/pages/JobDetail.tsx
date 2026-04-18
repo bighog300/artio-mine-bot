@@ -8,8 +8,10 @@ import { JobProgressBar } from "@/components/jobs/JobProgressBar";
 import { HeartbeatBadge } from "@/components/jobs/HeartbeatBadge";
 import { JobEventTimeline } from "@/components/jobs/JobEventTimeline";
 import { Button, Spinner } from "@/components/ui";
+import { useIsMobile } from "@/lib/mobile-utils";
 
 export function JobDetail() {
+  const isMobile = useIsMobile();
   const { id = "" } = useParams();
   const queryClient = useQueryClient();
   const [liveLines, setLiveLines] = useState<string[]>([]);
@@ -58,32 +60,34 @@ export function JobDetail() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Job detail</h1>
+    <div className="space-y-4 lg:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <h1 className="text-2xl lg:text-3xl font-bold">Job detail</h1>
         <Link to="/jobs" className="text-sm text-blue-600">← Back to Jobs</Link>
       </div>
 
       <div className="bg-card border rounded p-4 space-y-3">
-        <div className="flex gap-3 items-center">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="font-semibold">{job.source ?? job.source_id}</div>
           <StatusBadge status={job.status} />
           <HeartbeatBadge job={job} />
           <span className="text-xs font-mono text-muted-foreground">{job.worker_id ?? "unassigned"}</span>
-          <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("retry")}>Retry</Button>
-          <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("pause")}>Pause</Button>
-          <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("resume")}>Resume</Button>
-          <Button size="sm" variant="danger" onClick={() => actionMutation.mutate("cancel")}>Cancel</Button>
+          <div className="grid grid-cols-2 sm:flex gap-2 w-full sm:w-auto">
+            <Button fullWidth={isMobile} size="sm" variant="secondary" onClick={() => actionMutation.mutate("retry")}>Retry</Button>
+            <Button fullWidth={isMobile} size="sm" variant="secondary" onClick={() => actionMutation.mutate("pause")}>Pause</Button>
+            <Button fullWidth={isMobile} size="sm" variant="secondary" onClick={() => actionMutation.mutate("resume")}>Resume</Button>
+            <Button fullWidth={isMobile} size="sm" variant="danger" onClick={() => actionMutation.mutate("cancel")}>Cancel</Button>
+          </div>
         </div>
         {job.error_message && <div className="text-sm text-red-600">{job.error_message}</div>}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-sm">
           <div><div className="text-muted-foreground">Type</div><div>{job.job_type}</div></div>
           <div><div className="text-muted-foreground">Mode</div><div>{job.runtime_mode ?? "—"}</div></div>
           <div><div className="text-muted-foreground">Stage</div><div>{job.current_stage ?? "—"}</div></div>
           <div><div className="text-muted-foreground">Processed</div><div>{job.processed_count ?? 0}</div></div>
           <div><div className="text-muted-foreground">Failures</div><div>{job.failure_count ?? 0}</div></div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs text-muted-foreground">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs text-muted-foreground">
           <div>Deterministic hits: <strong>{job.deterministic_hits ?? 0}</strong></div>
           <div>Deterministic misses: <strong>{job.deterministic_misses ?? 0}</strong></div>
           <div>Records created: <strong>{job.records_created ?? 0}</strong></div>

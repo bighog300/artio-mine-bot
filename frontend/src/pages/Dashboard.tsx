@@ -23,10 +23,10 @@ export function Dashboard() {
   const recentSources = sources?.items?.slice(0, 3) ?? [];
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+    <div className="space-y-4 lg:space-y-6">
+      <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Dashboard</h1>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
         <StatCard label="Total Sources" value={stats?.sources.total ?? 0} />
         <StatCard
           label="Total Records"
@@ -37,7 +37,7 @@ export function Dashboard() {
         <StatCard label="Export Ready" value={stats?.records.approved ?? 0} highlight />
       </div>
 
-      <div className="grid grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <MiniMetric label="Artists" value={metrics?.total_artists ?? 0} />
         <MiniMetric label="Avg completeness" value={metrics?.avg_completeness ?? 0} />
         <MiniMetric label="Conflicts" value={metrics?.conflicts_count ?? 0} />
@@ -45,7 +45,7 @@ export function Dashboard() {
         <MiniMetric label="Merges" value={metrics?.merges_performed ?? 0} />
         <MiniMetric label="Pages processed" value={metrics?.pages_processed ?? 0} />
       </div>
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <MiniMetric label="Jobs pending" value={jobs?.items.filter((j) => ["queued", "pending"].includes(j.status)).length ?? 0} />
         <MiniMetric label="Jobs running" value={jobs?.items.filter((j) => j.status === "running").length ?? 0} />
         <MiniMetric label="Jobs failed" value={jobs?.items.filter((j) => j.status === "failed").length ?? 0} />
@@ -53,7 +53,7 @@ export function Dashboard() {
         <MiniMetric label="Oldest queue age (s)" value={queues?.items[0]?.oldest_item_age_seconds ?? 0} />
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 lg:gap-6">
         <div className="space-y-6">
           <div className="bg-card rounded-lg border p-4">
             <h2 className="font-semibold text-foreground mb-3">Records by Type</h2>
@@ -85,7 +85,7 @@ export function Dashboard() {
             <div className="p-4 border-b">
               <h2 className="font-semibold text-foreground">Recent Sources</h2>
             </div>
-            <table className="w-full text-sm">
+            <table className="w-full text-sm block overflow-x-auto lg:table">
               <thead className="bg-muted/40">
                 <tr>
                   <th className="text-left p-3 text-muted-foreground font-medium">Source</th>
@@ -120,11 +120,11 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-card rounded-lg border p-4">
+        <div className="bg-card rounded-lg border p-4 lg:p-6">
           <h2 className="font-semibold text-foreground mb-3">Recent activity</h2>
-          <div className="space-y-3">
+          <div className="space-y-2 lg:space-y-3">
             {activity?.items.map((item) => (
-              <div key={item.id} className="flex items-start gap-2 text-sm">
+              <div key={item.id} className="flex items-start gap-2 text-sm p-2 rounded active:bg-muted/60">
                 <span
                   className={`mt-1 h-2 w-2 rounded-full ${
                     item.level === "error"
@@ -164,7 +164,7 @@ function MiniMetric({ label, value }: { label: string; value: number }) {
   return (
     <div className="bg-card border rounded p-3">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-lg font-semibold">{value}</div>
+      <div className="text-lg lg:text-xl font-semibold">{value}</div>
     </div>
   );
 }
@@ -176,10 +176,10 @@ function StatCard({ label, value, sub, highlight }: {
   highlight?: boolean;
 }) {
   return (
-    <div className={`bg-card rounded-lg border p-4 ${highlight ? "border-green-200" : ""}`}>
+    <div className={`bg-card rounded-lg border p-4 lg:p-6 ${highlight ? "border-green-200" : ""}`}>
       <div className="text-sm text-muted-foreground font-medium">{label}</div>
-      <div className={`text-3xl font-bold mt-1 ${highlight ? "text-green-600" : "text-foreground"}`}>
-        {value}
+      <div className={`text-3xl lg:text-4xl font-bold mt-1 ${highlight ? "text-green-600" : "text-foreground"}`}>
+        {value.toLocaleString()}
       </div>
       {sub && <div className="text-xs text-muted-foreground/80 mt-1">{sub}</div>}
     </div>

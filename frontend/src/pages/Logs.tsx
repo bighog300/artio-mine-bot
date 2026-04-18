@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Terminal, Trash2, Download } from "lucide-react";
 import { deleteLogs, getLogs, getSources, type LogEntry } from "@/lib/api";
+import { useIsMobile } from "@/lib/mobile-utils";
 import { Badge, Button, Input, Select, Switch } from "@/components/ui";
+import { MobileCard, MobileCardRow } from "@/components/ui/MobileCard";
 
 const LEVEL_COLORS: Record<string, string> = {
   error: "bg-red-100 text-red-700",
@@ -28,6 +30,7 @@ function toCsv(logs: LogEntry[]): string {
 }
 
 export function Logs() {
+  const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const [level, setLevel] = useState("");
   const [service, setService] = useState("");
@@ -135,11 +138,12 @@ export function Logs() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-foreground">Logs</h1>
-        <div className="flex items-center gap-2">
+    <div className="space-y-4 lg:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Logs</h1>
+        <div className="grid grid-cols-2 sm:flex items-center gap-2 w-full sm:w-auto">
           <Button
+            fullWidth={isMobile}
             onClick={() => exportLogs("json")}
             variant="secondary"
             icon={<Download size={16} />}
@@ -147,6 +151,7 @@ export function Logs() {
             Export JSON
           </Button>
           <Button
+            fullWidth={isMobile}
             onClick={() => exportLogs("csv")}
             variant="secondary"
             icon={<Download size={16} />}
@@ -157,11 +162,11 @@ export function Logs() {
       </div>
 
       <div className="bg-card border rounded-lg p-3 space-y-3">
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-2">
           <Select
             value={level}
             onChange={(e) => setLevel(e.target.value)}
-            className="min-w-40"
+            className="w-full"
             options={[
               { value: "", label: "All Levels" },
               { value: "debug", label: "Debug" },
@@ -173,7 +178,7 @@ export function Logs() {
           <Select
             value={service}
             onChange={(e) => setService(e.target.value)}
-            className="min-w-40"
+            className="w-full"
             options={[
               { value: "", label: "All Services" },
               { value: "api", label: "API" },
@@ -183,18 +188,18 @@ export function Logs() {
           <Select
             value={sourceId}
             onChange={(e) => setSourceId(e.target.value)}
-            className="min-w-56"
+            className="w-full"
             options={[{ value: "", label: "All Sources" }, ...(sources?.items.map((s) => ({ value: s.id, label: s.name ?? s.url })) ?? [])]}
           />
           <Input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search logs"
-            className="min-w-52"
+            className="w-full"
           />
-          <Input value={jobId} onChange={(e) => setJobId(e.target.value)} placeholder="job_id" className="min-w-36" />
-          <Input value={workerId} onChange={(e) => setWorkerId(e.target.value)} placeholder="worker_id" className="min-w-36" />
-          <Input value={stage} onChange={(e) => setStage(e.target.value)} placeholder="stage" className="min-w-28" />
+          <Input value={jobId} onChange={(e) => setJobId(e.target.value)} placeholder="job_id" className="w-full" />
+          <Input value={workerId} onChange={(e) => setWorkerId(e.target.value)} placeholder="worker_id" className="w-full" />
+          <Input value={stage} onChange={(e) => setStage(e.target.value)} placeholder="stage" className="w-full" />
           <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
           <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
           <div className="px-2">
@@ -218,6 +223,21 @@ export function Logs() {
         </div>
       </div>
 
+      {isMobile ? (
+        <div className="space-y-2">
+          {logs.map((log) => (
+            <MobileCard key={log.id}>
+              <div className="flex items-center justify-between gap-2">
+                <Badge className={LEVEL_COLORS[log.level] ?? LEVEL_COLORS.info}>{log.level}</Badge>
+                <span className="text-xs text-muted-foreground">{new Date(log.timestamp).toLocaleString()}</span>
+              </div>
+              <MobileCardRow label="Service" value={log.service} />
+              <MobileCardRow label="Source" value={log.source_id ?? "—"} />
+              <p className="text-sm text-foreground break-words">{log.message}</p>
+            </MobileCard>
+          ))}
+        </div>
+      ) : (
       <div className="bg-card border rounded-lg overflow-hidden">
         <div className="grid grid-cols-6 bg-muted/40 text-xs font-semibold uppercase text-muted-foreground sticky top-0 z-10">
           {['Timestamp', 'Level', 'Service', 'Source', 'Message', 'Context'].map((c) => (
@@ -267,6 +287,7 @@ export function Logs() {
           )}
         </div>
       </div>
+      )}
 
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">Showing {Math.min(skip + 1, total)}–{Math.min(skip + limit, total)} of {total}</div>

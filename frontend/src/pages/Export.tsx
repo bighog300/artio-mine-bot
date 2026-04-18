@@ -19,8 +19,8 @@ export function Export() {
   });
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-foreground">Export to Artio</h1>
+    <div className="space-y-4 lg:space-y-6">
+      <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Export to Artio</h1>
 
       {/* Connection status */}
       <Alert
@@ -32,7 +32,7 @@ export function Export() {
       {/* Preview */}
       <div className="bg-card border rounded-lg p-4 space-y-4">
         <h2 className="font-semibold text-foreground">Export Preview</h2>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-muted/40 rounded p-3">
             <div className="text-sm text-muted-foreground">Ready to export</div>
             <div className="text-3xl font-bold text-blue-600">{preview?.record_count ?? 0}</div>

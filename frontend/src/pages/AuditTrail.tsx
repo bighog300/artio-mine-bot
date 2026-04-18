@@ -78,7 +78,7 @@ export function AuditTrail() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Audit Trail</h1>
+          <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Audit Trail</h1>
           <p className="text-sm text-muted-foreground">Track create/update/delete/approval activity across sources and records.</p>
         </div>
         <div className="text-sm text-muted-foreground">Auto-refresh: every 30s</div>
@@ -104,7 +104,7 @@ export function AuditTrail() {
         <AuditTimeline events={eventsQuery.data?.items ?? []} onSelectEvent={(event) => setSelectedEventId(event.id)} />
       )}
 
-      <div className="flex items-center justify-between rounded-lg border bg-card px-4 py-3 text-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-lg border bg-card px-4 py-3 text-sm">
         <p>
           Showing {eventsQuery.data?.items.length ?? 0} of {eventsQuery.data?.total ?? 0} events
         </p>

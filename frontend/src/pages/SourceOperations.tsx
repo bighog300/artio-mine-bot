@@ -23,6 +23,7 @@ import {
 } from "@/lib/api";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Button, Select } from "@/components/ui";
+import { useIsMobile } from "@/lib/mobile-utils";
 
 function formatConsoleLine(event: SourceEvent): string {
   const stage = event.stage ? `[${event.stage}]` : "";
@@ -45,6 +46,7 @@ function RunRow({ run }: { run: Job }) {
 }
 
 export function SourceOperations() {
+  const isMobile = useIsMobile();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -115,33 +117,33 @@ export function SourceOperations() {
   if (!id) return <div className="p-6 text-red-500">Missing source id.</div>;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 lg:space-y-6">
       <div>
         <Button variant="ghost" size="sm" onClick={() => navigate(`/sources/${id}`)} className="mb-1">← Source Detail</Button>
-        <h1 className="text-2xl font-bold">Source Operations Console</h1>
+        <h1 className="text-2xl lg:text-3xl font-bold">Source Operations Console</h1>
         <p className="text-sm text-muted-foreground">{ops?.source?.name ?? ops?.source?.url ?? id}</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-card border rounded p-4 space-y-3">
           <h2 className="font-semibold">Source Summary</h2>
-          <div className="text-sm flex items-center gap-3">
+          <div className="text-sm flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
             <StatusBadge status={ops?.source?.operational_status ?? ops?.source?.status ?? "unknown"} />
             <span>Active jobs: {ops?.active_jobs?.length ?? 0}</span>
             <span>Pending moderation: {ops?.pending_moderation_count ?? 0}</span>
             <span>Runtime map: {runtimeMap?.runtime_map_source ?? "none"}</span>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("run")}>Run</Button>
-            <Button size="sm" variant="primary" onClick={() => actionMutation.mutate("deterministic")}>Deterministic Mine</Button>
-            <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("enrichment")}>Enrichment</Button>
-            <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("reprocess")}>Reprocess Pages</Button>
-            <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("pause")}>Pause</Button>
-            <Button size="sm" variant="secondary" onClick={() => actionMutation.mutate("resume")}>Resume</Button>
-            <Button size="sm" variant="danger" onClick={() => actionMutation.mutate("cancel")}>Cancel Active</Button>
-            <Button size="sm" variant="primary" onClick={() => actionMutation.mutate("backfill")}>Backfill</Button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
+            <Button fullWidth={isMobile} size="sm" variant="secondary" onClick={() => actionMutation.mutate("run")}>Run</Button>
+            <Button fullWidth={isMobile} size="sm" variant="primary" onClick={() => actionMutation.mutate("deterministic")}>Deterministic Mine</Button>
+            <Button fullWidth={isMobile} size="sm" variant="secondary" onClick={() => actionMutation.mutate("enrichment")}>Enrichment</Button>
+            <Button fullWidth={isMobile} size="sm" variant="secondary" onClick={() => actionMutation.mutate("reprocess")}>Reprocess Pages</Button>
+            <Button fullWidth={isMobile} size="sm" variant="secondary" onClick={() => actionMutation.mutate("pause")}>Pause</Button>
+            <Button fullWidth={isMobile} size="sm" variant="secondary" onClick={() => actionMutation.mutate("resume")}>Resume</Button>
+            <Button fullWidth={isMobile} size="sm" variant="danger" onClick={() => actionMutation.mutate("cancel")}>Cancel Active</Button>
+            <Button fullWidth={isMobile} size="sm" variant="primary" onClick={() => actionMutation.mutate("backfill")}>Backfill</Button>
           </div>
-          <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-muted-foreground">
             <div>Runs: <strong>{enrichmentSummary?.runs ?? 0}</strong></div>
             <div>Records updated: <strong>{enrichmentSummary?.records_updated ?? 0}</strong></div>
             <div>Deterministic hits: <strong>{enrichmentSummary?.deterministic_hits ?? 0}</strong></div>
@@ -158,9 +160,9 @@ export function SourceOperations() {
               <div key={item.id} className="border rounded p-2 text-sm space-y-2">
                 <div className="font-medium">Possible duplicate ({item.similarity_score ?? 0}%)</div>
                 <div className="text-muted-foreground">{item.left_record?.title ?? item.left_record?.id} ↔ {item.right_record?.title ?? item.right_record?.id}</div>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="primary" onClick={() => moderationMutation.mutate({ actionId: item.id, decision: "approve" })}>Approve</Button>
-                  <Button size="sm" variant="danger" onClick={() => moderationMutation.mutate({ actionId: item.id, decision: "reject" })}>Reject</Button>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button fullWidth={isMobile} size="sm" variant="primary" onClick={() => moderationMutation.mutate({ actionId: item.id, decision: "approve" })}>Approve</Button>
+                  <Button fullWidth={isMobile} size="sm" variant="danger" onClick={() => moderationMutation.mutate({ actionId: item.id, decision: "reject" })}>Reject</Button>
                 </div>
               </div>
             ))}
@@ -192,7 +194,7 @@ export function SourceOperations() {
 
       <div className="bg-card border rounded overflow-hidden">
         <div className="p-3 border-b font-semibold">Recent Run History</div>
-        <table className="w-full">
+        <table className="w-full block overflow-x-auto lg:table">
           <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
             <tr>
               <th className="p-2 text-left">Type</th>

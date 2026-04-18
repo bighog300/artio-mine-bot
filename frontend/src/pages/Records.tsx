@@ -1,12 +1,17 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getRecords, approveRecord, rejectRecord, bulkApprove, getSources } from "@/lib/api";
+import { getRecords, approveRecord, rejectRecord, bulkApprove, getSources, type ArtRecord } from "@/lib/api";
 import { RecordTableRow } from "@/components/records/RecordTableRow";
+import { MobileCard, MobileCardRow } from "@/components/ui/MobileCard";
+import { RecordTypeBadge } from "@/components/shared/RecordTypeBadge";
+import { ConfidenceBadge } from "@/components/shared/ConfidenceBadge";
 import { Button, Input, Select } from "@/components/ui";
+import { useIsMobile } from "@/lib/mobile-utils";
 
 const PAGE_SIZE = 25;
 
 export function Records() {
+  const isMobile = useIsMobile();
   const [sourceId, setSourceId] = useState("");
   const [recordType, setRecordType] = useState("");
   const [statusTab, setStatusTab] = useState<"pending" | "approved" | "rejected">("pending");
@@ -106,10 +111,12 @@ export function Records() {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-foreground">Records</h1>
+    <div className="space-y-4 lg:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Records</h1>
         <Button
+          fullWidth={isMobile}
+          className="sm:w-auto"
           onClick={() => {
             if (confirm("Approve all HIGH confidence records?")) bulkApproveMutation.mutate();
           }}
@@ -120,23 +127,23 @@ export function Records() {
         </Button>
       </div>
 
-      <div className="flex gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <StatusTab label="Pending" count={pendingCount.data?.total ?? 0} active={statusTab === "pending"} onClick={() => { setStatusTab("pending"); setSkip(0); }} />
         <StatusTab label="Approved" count={approvedCount.data?.total ?? 0} active={statusTab === "approved"} onClick={() => { setStatusTab("approved"); setSkip(0); }} />
         <StatusTab label="Rejected" count={rejectedCount.data?.total ?? 0} active={statusTab === "rejected"} onClick={() => { setStatusTab("rejected"); setSkip(0); }} />
       </div>
 
-      <div className="flex gap-3 flex-wrap">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <Select
           value={sourceId}
           onChange={(e) => { setSourceId(e.target.value); setSkip(0); }}
-          className="w-52"
+          className="w-full"
           options={[{ value: "", label: "All sources" }, ...(sources?.items.map((s) => ({ value: s.id, label: s.name ?? s.url })) ?? [])]}
         />
         <Select
           value={recordType}
           onChange={(e) => { setRecordType(e.target.value); setSkip(0); }}
-          className="w-44"
+          className="w-full"
           options={[
             { value: "", label: "All types" },
             ...["artist", "event", "exhibition", "venue", "artwork"].map((t) => ({ value: t, label: t })),
@@ -145,7 +152,7 @@ export function Records() {
         <Select
           value={confidenceBand}
           onChange={(e) => { setConfidenceBand(e.target.value); setSkip(0); }}
-          className="w-44"
+          className="w-full"
           options={[
             { value: "", label: "All confidence" },
             ...["HIGH", "MEDIUM", "LOW"].map((b) => ({ value: b, label: b })),
@@ -155,21 +162,31 @@ export function Records() {
           value={search}
           onChange={(e) => { setSearch(e.target.value); setSkip(0); }}
           placeholder="Search title..."
-          className="flex-1 min-w-[200px]"
+          className="w-full"
         />
       </div>
 
       {selectedCount > 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded p-3 flex items-center justify-between">
+        <div className="bg-blue-50 border border-blue-200 rounded p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div className="text-sm text-blue-800">{selectedCount} selected</div>
-          <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => runBulkStatusUpdate("approve")}>Approve selected ({selectedCount})</Button>
-            <Button size="sm" variant="danger" onClick={() => runBulkStatusUpdate("reject")}>Reject selected ({selectedCount})</Button>
-            <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>Clear selection</Button>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 w-full sm:w-auto">
+            <Button size="sm" fullWidth={isMobile} onClick={() => runBulkStatusUpdate("approve")}>Approve selected ({selectedCount})</Button>
+            <Button size="sm" fullWidth={isMobile} variant="danger" onClick={() => runBulkStatusUpdate("reject")}>Reject selected ({selectedCount})</Button>
+            <Button size="sm" fullWidth={isMobile} variant="ghost" onClick={() => setSelectedIds(new Set())}>Clear selection</Button>
           </div>
         </div>
       )}
 
+      {isMobile ? (
+        <div className="space-y-3">
+          {data?.items.map((record) => (
+            <RecordMobileCard key={record.id} record={record} onToggleSelected={toggleSelected} onApprove={approveMutation.mutate} onReject={rejectMutation.mutate} selected={selectedIds.has(record.id)} />
+          ))}
+          {!isLoading && data?.items.length === 0 && (
+            <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground/80">No records found.</div>
+          )}
+        </div>
+      ) : (
       <div className="bg-card rounded-lg border overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-muted/40">
@@ -208,9 +225,11 @@ export function Records() {
           </tbody>
         </table>
       </div>
+      )}
 
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
         <Button
+          fullWidth={isMobile}
           onClick={() => setSkip((prev) => Math.max(0, prev - PAGE_SIZE))}
           disabled={skip === 0}
           variant="secondary"
@@ -218,6 +237,7 @@ export function Records() {
           Prev
         </Button>
         <Button
+          fullWidth={isMobile}
           onClick={() => setSkip((prev) => prev + PAGE_SIZE)}
           disabled={(data?.items.length ?? 0) < PAGE_SIZE}
           variant="secondary"
@@ -226,6 +246,40 @@ export function Records() {
         </Button>
       </div>
     </div>
+  );
+}
+
+function RecordMobileCard({
+  record,
+  selected,
+  onToggleSelected,
+  onApprove,
+  onReject,
+}: {
+  record: ArtRecord;
+  selected: boolean;
+  onToggleSelected: (id: string, checked: boolean) => void;
+  onApprove: (id: string) => void;
+  onReject: (id: string) => void;
+}) {
+  return (
+    <MobileCard>
+      <div className="flex items-start gap-3">
+        <input type="checkbox" checked={selected} onChange={(e) => onToggleSelected(record.id, e.target.checked)} aria-label={`select-${record.id}`} className="mt-1 h-4 w-4" />
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="font-medium text-sm text-foreground line-clamp-2">{record.title ?? "Untitled"}</h3>
+            <RecordTypeBadge type={record.record_type} />
+          </div>
+          <MobileCardRow label="Confidence" value={<ConfidenceBadge band={record.confidence_band as "HIGH" | "MEDIUM" | "LOW"} score={record.confidence_score} />} />
+          <MobileCardRow label="Source" value={<span className="max-w-[140px] truncate inline-block align-bottom">{record.source_id}</span>} />
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <Button size="sm" onClick={() => onApprove(record.id)}>Approve</Button>
+            <Button size="sm" variant="danger" onClick={() => onReject(record.id)}>Reject</Button>
+          </div>
+        </div>
+      </div>
+    </MobileCard>
   );
 }
 

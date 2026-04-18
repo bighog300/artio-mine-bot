@@ -16,8 +16,11 @@ import {
   type CreateSourceInput,
 } from "@/lib/api";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { MobileCard, MobileCardRow } from "@/components/ui/MobileCard";
 import { formatRelative } from "@/lib/utils";
 import { Button, Input, Select } from "@/components/ui";
+import { useIsMobile } from "@/lib/mobile-utils";
+import type { Source } from "@/lib/api";
 
 type SourceAction = "start-discovery" | "start-full" | "pause" | "resume" | "stop" | "retry-failed";
 
@@ -29,6 +32,7 @@ const CRAWL_INTENT_OPTIONS: Array<{ value: CreateSourceInput["crawl_intent"]; la
 ];
 
 export function Sources() {
+  const isMobile = useIsMobile();
   const [showDialog, setShowDialog] = useState(false);
   const [form, setForm] = useState<CreateSourceInput>({
     url: "",
@@ -128,16 +132,24 @@ export function Sources() {
   const canSubmit = useMemo(() => Boolean(form.url?.trim()), [form.url]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-foreground">Sources</h1>
-        <Button onClick={() => setShowDialog(true)}>Add Source</Button>
+    <div className="space-y-4 lg:space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Sources</h1>
+        <Button fullWidth={isMobile} className="sm:w-auto" onClick={() => setShowDialog(true)}>Add Source</Button>
       </div>
 
       {actionFeedback && <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm">{actionFeedback}</div>}
 
+      {isMobile ? (
+        <div className="space-y-3">
+          {isLoading && <div className="rounded border border-border bg-card p-6 text-center text-sm text-muted-foreground/80">Loading...</div>}
+          {data?.items.map((source) => (
+            <SourceMobileCard key={source.id} source={source} onView={() => navigate(`/sources/${source.id}`)} />
+          ))}
+        </div>
+      ) : (
       <div className="bg-card rounded-lg border overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm block overflow-x-auto lg:table">
           <thead className="bg-muted/40">
             <tr>
               <th className="text-left p-3 font-medium text-muted-foreground">Name / URL</th>
@@ -199,14 +211,15 @@ export function Sources() {
           </tbody>
         </table>
       </div>
+      )}
 
       {showDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-card rounded-lg p-6 w-full max-w-2xl shadow-xl">
+          <div className="bg-card rounded-lg p-4 lg:p-6 w-full max-w-2xl shadow-xl mx-4">
             <h2 className="text-lg font-semibold mb-4">Add Source</h2>
             {error && <p className="text-red-600 text-sm mb-3">{error}</p>}
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="col-span-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div className="sm:col-span-2">
                 <label className="block mb-1">URL *</label>
                 <Input type="url" value={form.url ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, url: e.target.value }))} className="w-full" />
               </div>
@@ -231,7 +244,7 @@ export function Sources() {
                 <label className="block mb-1">Max depth</label>
                 <Input type="number" min={1} value={form.max_depth ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, max_depth: e.target.value ? Number(e.target.value) : undefined }))} className="w-full" />
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <label className="block mb-1">Crawl hints (JSON)</label>
                 <textarea rows={2} placeholder='{"seed": ["/artists"]}' className="w-full border rounded px-3 py-2" onChange={(e) => {
                   try {
@@ -243,7 +256,7 @@ export function Sources() {
                   }
                 }} />
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <label className="block mb-1">Extraction rules (JSON)</label>
                 <textarea rows={2} placeholder='{"artists": {"required": ["title"]}}' className="w-full border rounded px-3 py-2" onChange={(e) => {
                   try {
@@ -255,21 +268,42 @@ export function Sources() {
                   }
                 }} />
               </div>
-              <label className="col-span-2 flex items-center gap-2">
+              <label className="sm:col-span-2 flex items-center gap-2">
                 <input type="checkbox" checked={form.enabled ?? true} onChange={(e) => setForm((prev) => ({ ...prev, enabled: e.target.checked }))} />
                 Enabled
               </label>
             </div>
-            <div className="flex flex-wrap gap-2 mt-4">
-              <Button disabled={!canSubmit || isCreateBusy} onClick={() => createMutation.mutate(form)} variant="secondary">Save Source</Button>
-              <Button disabled={!canSubmit || isCreateBusy} onClick={() => createAndOpenMappingMutation.mutate()} variant="secondary">Save & Open Mapping Scan</Button>
-              <Button disabled={!canSubmit || isCreateBusy} onClick={() => createAndRunMutation.mutate({ action: "start-discovery" })}>Save & Start Discovery</Button>
-              <Button disabled={!canSubmit || isCreateBusy} onClick={() => createAndRunMutation.mutate({ action: "start-full" })}>Save & Start Full Mining</Button>
-              <Button onClick={() => setShowDialog(false)} variant="ghost">Cancel</Button>
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 mt-4">
+              <Button fullWidth={isMobile} disabled={!canSubmit || isCreateBusy} onClick={() => createMutation.mutate(form)} variant="secondary">Save Source</Button>
+              <Button fullWidth={isMobile} disabled={!canSubmit || isCreateBusy} onClick={() => createAndOpenMappingMutation.mutate()} variant="secondary">Save & Open Mapping Scan</Button>
+              <Button fullWidth={isMobile} disabled={!canSubmit || isCreateBusy} onClick={() => createAndRunMutation.mutate({ action: "start-discovery" })}>Save & Start Discovery</Button>
+              <Button fullWidth={isMobile} disabled={!canSubmit || isCreateBusy} onClick={() => createAndRunMutation.mutate({ action: "start-full" })}>Save & Start Full Mining</Button>
+              <Button fullWidth={isMobile} onClick={() => setShowDialog(false)} variant="ghost">Cancel</Button>
             </div>
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+function SourceMobileCard({ source, onView }: { source: Source; onView: () => void }) {
+  return (
+    <MobileCard>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <h3 className="font-medium text-foreground truncate">{source.name ?? source.url}</h3>
+          <p className="text-xs text-muted-foreground truncate mt-1">{source.url}</p>
+        </div>
+        <StatusBadge status={source.operational_status ?? source.status} />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <MobileCardRow label="Pages" value={source.total_pages} />
+        <MobileCardRow label="Records" value={source.total_records} />
+        <MobileCardRow label="Last run" value={source.last_crawled_at ? formatRelative(source.last_crawled_at) : "Never"} />
+        <MobileCardRow label="Intent" value={source.crawl_intent ?? "—"} />
+      </div>
+      <Button fullWidth onClick={onView} variant="secondary">View source</Button>
+    </MobileCard>
   );
 }
