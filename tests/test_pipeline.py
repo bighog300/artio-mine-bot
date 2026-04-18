@@ -102,7 +102,7 @@ async def test_full_pipeline_happy_path(db_session: AsyncSession, mock_ai_client
     runner = PipelineRunner(db=db_session, ai_client=mock_ai_client)
 
     with patch("app.pipeline.runner.map_site", new=AsyncMock(return_value=site_map)):
-        with patch("app.crawler.link_follower.fetch", new=AsyncMock(return_value=fetch_result)):
+        with patch("app.crawler.durable_frontier.fetch", new=AsyncMock(return_value=fetch_result)):
             with patch.object(
                 runner.robots_checker, "is_allowed", new=AsyncMock(return_value=True)
             ):
@@ -337,7 +337,7 @@ async def test_crawl_preserves_terminal_page_statuses(db_session: AsyncSession):
     robots_checker = MagicMock()
     robots_checker.is_allowed = AsyncMock(return_value=True)
 
-    with patch("app.crawler.link_follower.fetch", new=AsyncMock(return_value=fetch_result)):
+    with patch("app.crawler.durable_frontier.fetch", new=AsyncMock(return_value=fetch_result)):
         await crawl_source(
             source_id=source.id,
             site_map=site_map,
@@ -383,7 +383,7 @@ async def test_pipeline_handles_fetch_error(db_session: AsyncSession, mock_ai_cl
 
     runner = PipelineRunner(db=db_session, ai_client=mock_ai_client)
     with patch("app.pipeline.runner.map_site", new=AsyncMock(return_value=site_map)):
-        with patch("app.crawler.link_follower.fetch", new=AsyncMock(return_value=error_result)):
+        with patch("app.crawler.durable_frontier.fetch", new=AsyncMock(return_value=error_result)):
             with patch.object(
                 runner.robots_checker, "is_allowed", new=AsyncMock(return_value=True)
             ):

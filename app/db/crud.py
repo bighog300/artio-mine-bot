@@ -2609,6 +2609,10 @@ async def upsert_crawl_frontier_rows(
             normalized_url=normalized_url,
             depth=int(row.get("depth", 0)),
             discovered_from_url=row.get("discovered_from_url"),
+            priority=int(row.get("priority", 0)),
+            predicted_page_type=row.get("predicted_page_type"),
+            discovered_from_page_type=row.get("discovered_from_page_type"),
+            discovery_reason=row.get("discovery_reason"),
             status=row.get("status", "queued"),
             next_retry_at=row.get("next_retry_at"),
         )
@@ -2634,7 +2638,7 @@ async def claim_frontier_rows(
             CrawlFrontier.status.in_(["queued", "rate_limited"]),
             or_(CrawlFrontier.next_retry_at.is_(None), CrawlFrontier.next_retry_at <= now),
         )
-        .order_by(CrawlFrontier.depth.asc(), CrawlFrontier.created_at.asc())
+        .order_by(CrawlFrontier.priority.desc(), CrawlFrontier.depth.asc(), CrawlFrontier.created_at.asc())
         .limit(limit)
     )
     rows = list((await db.execute(stmt)).scalars().all())
@@ -2697,3 +2701,16 @@ async def get_crawl_frontier_counts(db: AsyncSession, crawl_run_id: str) -> dict
     )
     rows = (await db.execute(stmt)).all()
     return {status: int(count) for status, count in rows}
+
+
+async def count_crawl_frontier_rows_by_error(
+    db: AsyncSession,
+    *,
+    crawl_run_id: str,
+    last_error: str,
+) -> int:
+    stmt = select(func.count(CrawlFrontier.id)).where(
+        CrawlFrontier.crawl_run_id == crawl_run_id,
+        CrawlFrontier.last_error == last_error,
+    )
+    return int((await db.execute(stmt)).scalar_one() or 0)

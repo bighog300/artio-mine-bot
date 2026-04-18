@@ -10,12 +10,16 @@ from bs4 import BeautifulSoup
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crawler.fetcher import fetch
+from app.crawler.crawl_policy import score_url
+from app.crawler.robots import RobotsChecker
+from app.crawler.seeding import build_seed_rows
 from app.crawler.url_utils import normalize_url
 from app.db import crud
 from app.pipeline.job_progress import report_job_progress
 
 logger = structlog.get_logger()
 RETRYABLE_STATUS_CODES = {429, 503}
+TERMINAL_PAGE_STATUSES = {"extracted", "skipped", "expanded"}
 
 
 def _extract_links(html: str, base_url: str) -> list[str]:
@@ -89,27 +93,43 @@ async def run_durable_crawl(
     worker_id: str,
     max_pages: int,
     max_depth: int,
+    robots_checker: RobotsChecker | None = None,
 ) -> dict[str, Any]:
+    robots_checker = robots_checker or RobotsChecker()
+    source = await crud.get_source(db, source_id)
+    if source is None:
+        raise ValueError(f"Source {source_id} not found")
+    resolved_seed_url = source.url or seed_url
     crawl_run = await crud.get_active_crawl_run_for_source(db, source_id)
     if crawl_run is None or crawl_run.status in {"completed", "failed", "cancelled"}:
         crawl_run = await crud.create_crawl_run(
             db,
             source_id=source_id,
-            seed_url=seed_url,
+            seed_url=resolved_seed_url,
             job_id=job_id,
             status="running",
             worker_id=worker_id,
         )
+        seed_rows = build_seed_rows(
+            root_url=resolved_seed_url,
+            structure_map=source.structure_map,
+        )
+        seed_priority, seed_page_type = score_url(resolved_seed_url, source.structure_map)
         await crud.upsert_crawl_frontier_rows(
             db,
             crawl_run_id=crawl_run.id,
             source_id=source_id,
-            rows=[
+            rows=seed_rows
+            or [
                 {
-                    "url": seed_url,
-                    "normalized_url": normalize_url(seed_url),
+                    "url": resolved_seed_url,
+                    "normalized_url": normalize_url(resolved_seed_url),
                     "depth": 0,
                     "status": "queued",
+                    "priority": seed_priority,
+                    "predicted_page_type": seed_page_type,
+                    "discovered_from_page_type": "seed",
+                    "discovery_reason": "seed_root",
                 }
             ],
         )
@@ -169,6 +189,27 @@ async def run_durable_crawl(
             if row.depth > max_depth:
                 await crud.update_frontier_row(db, row.id, status="skipped", last_error="max_depth_exceeded")
                 continue
+            allowed_by_robots = await robots_checker.is_allowed(row.url)
+            if not allowed_by_robots:
+                await crud.update_frontier_row(
+                    db,
+                    row.id,
+                    status="skipped",
+                    last_error="robots_blocked",
+                    lease_expires_at=None,
+                    leased_by_worker=None,
+                )
+                await _emit_crawl_event(
+                    db,
+                    job_id=job_id,
+                    source_id=source_id,
+                    crawl_run_id=crawl_run.id,
+                    worker_id=worker_id,
+                    event_type="crawl_policy_skipped",
+                    message="URL skipped by robots policy",
+                    context={"url": row.url, "reason": "robots_blocked"},
+                )
+                continue
             result = await fetch(row.url)
             now = datetime.now(UTC)
             if result.status_code in RETRYABLE_STATUS_CODES:
@@ -212,18 +253,23 @@ async def run_durable_crawl(
                 continue
 
             page, _created = await crud.get_or_create_page(db, source_id=source_id, url=result.final_url)
-            await crud.update_page(
-                db,
-                page.id,
-                crawl_run_id=crawl_run.id,
-                original_url=row.url,
-                status="fetched",
-                depth=row.depth,
-                fetch_method=result.method,
-                html=(result.html or "").replace("\x00", "")[: 500 * 1024],
-                title=(BeautifulSoup(result.html or "", "lxml").title.string.strip() if BeautifulSoup(result.html or "", "lxml").title and BeautifulSoup(result.html or "", "lxml").title.string else None),
-                crawled_at=now,
-            )
+            update_kwargs: dict[str, Any] = {
+                "crawl_run_id": crawl_run.id,
+                "original_url": row.url,
+                "depth": row.depth,
+                "fetch_method": result.method,
+                "html": (result.html or "").replace("\x00", "")[: 500 * 1024],
+                "title": (
+                    BeautifulSoup(result.html or "", "lxml").title.string.strip()
+                    if BeautifulSoup(result.html or "", "lxml").title
+                    and BeautifulSoup(result.html or "", "lxml").title.string
+                    else None
+                ),
+                "crawled_at": now,
+            }
+            if page.status not in TERMINAL_PAGE_STATUSES:
+                update_kwargs["status"] = "fetched"
+            await crud.update_page(db, page.id, **update_kwargs)
             await crud.update_frontier_row(
                 db,
                 row.id,
@@ -234,20 +280,28 @@ async def run_durable_crawl(
                 leased_by_worker=None,
             )
             links = _extract_links(result.html or "", result.final_url)
-            await crud.upsert_crawl_frontier_rows(
-                db,
-                crawl_run_id=crawl_run.id,
-                source_id=source_id,
-                rows=[
+            source_page_type = row.predicted_page_type or "generic"
+            discovered_rows: list[dict[str, Any]] = []
+            for link in links:
+                priority, predicted_page_type = score_url(link, source.structure_map)
+                discovered_rows.append(
                     {
                         "url": link,
                         "normalized_url": normalize_url(link),
                         "depth": row.depth + 1,
                         "status": "queued",
                         "discovered_from_url": result.final_url,
+                        "priority": priority,
+                        "predicted_page_type": predicted_page_type,
+                        "discovered_from_page_type": source_page_type,
+                        "discovery_reason": "outlink",
                     }
-                    for link in links
-                ],
+                )
+            await crud.upsert_crawl_frontier_rows(
+                db,
+                crawl_run_id=crawl_run.id,
+                source_id=source_id,
+                rows=discovered_rows,
             )
             processed += 1
             await crud.update_crawl_run(
@@ -269,10 +323,16 @@ async def run_durable_crawl(
             )
 
     counts = await crud.get_crawl_frontier_counts(db, crawl_run.id)
+    robots_blocked = await crud.count_crawl_frontier_rows_by_error(
+        db,
+        crawl_run_id=crawl_run.id,
+        last_error="robots_blocked",
+    )
     return {
         "crawl_run_id": crawl_run.id,
         "pages_crawled": counts.get("fetched", 0),
         "failed": counts.get("error", 0),
+        "robots_blocked": robots_blocked,
         "queued": counts.get("queued", 0),
         "rate_limited": counts.get("rate_limited", 0),
     }
