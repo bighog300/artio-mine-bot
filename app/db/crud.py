@@ -2554,7 +2554,8 @@ async def list_crawl_runs(db: AsyncSession, source_id: str, limit: int = 20) -> 
 
 
 async def get_active_crawl_run_for_source(db: AsyncSession, source_id: str) -> CrawlRun | None:
-    stmt = (
+    """Return the latest non-cancelled crawl run, preferring active statuses."""
+    active_stmt = (
         select(CrawlRun)
         .where(
             CrawlRun.source_id == source_id,
@@ -2563,7 +2564,20 @@ async def get_active_crawl_run_for_source(db: AsyncSession, source_id: str) -> C
         .order_by(CrawlRun.created_at.desc())
         .limit(1)
     )
-    return (await db.execute(stmt)).scalar_one_or_none()
+    active = (await db.execute(active_stmt)).scalar_one_or_none()
+    if active is not None:
+        return active
+
+    latest_stmt = (
+        select(CrawlRun)
+        .where(
+            CrawlRun.source_id == source_id,
+            CrawlRun.status != "cancelled",
+        )
+        .order_by(CrawlRun.created_at.desc())
+        .limit(1)
+    )
+    return (await db.execute(latest_stmt)).scalar_one_or_none()
 
 
 async def update_crawl_run(

@@ -186,6 +186,15 @@ async def run_durable_crawl(
             break
 
         for row in batch:
+            if processed >= max_pages:
+                await crud.update_frontier_row(
+                    db,
+                    row.id,
+                    status="queued",
+                    lease_expires_at=None,
+                    leased_by_worker=None,
+                )
+                continue
             if row.depth > max_depth:
                 await crud.update_frontier_row(db, row.id, status="skipped", last_error="max_depth_exceeded")
                 continue
