@@ -1,0 +1,57 @@
+=================================================================
+CODEX EXECUTION PROMPT - PHASE 3: MOBILE RESPONSIVE
+=================================================================
+
+Codex,
+
+Execute Phase 3: Mobile Responsive - Complete Implementation
+
+READ AND EXECUTE IN ORDER:
+
+1. Read: CODEX_PHASE3_MASTER_PROMPT.md
+   - Understand the overall strategy
+   - Review success criteria
+   - Note the 3-week timeline
+
+2. Execute: CODEX_EXECUTE_PHASE3_WEEK2.md
+   - Optimize Dashboard, Sources, Records
+   - Add mobile card views
+   - Responsive headers and filters
+   - Test at 375px, 768px, 1024px
+   - Commit when complete
+
+3. Execute: CODEX_EXECUTE_PHASE3_WEEK3.md
+   - Optimize Jobs, Workers, Queues, JobDetail
+   - Optimize Logs, Backfill, SourceOps, SourceMapping
+   - Add mobile cards for all operational pages
+   - Test thoroughly
+   - Commit when complete
+
+4. Execute: CODEX_EXECUTE_PHASE3_WEEK4.md
+   - Optimize remaining pages
+   - Add performance optimizations
+   - Final polish and testing
+   - Ensure all 23 pages work on mobile
+   - Commit when complete
+
+REQUIREMENTS:
+- Use useIsMobile() hook for detection
+- Touch targets 44px minimum
+- No horizontal scroll on mobile
+- Full-width buttons on mobile where appropriate
+- Test each page at 375px, 768px, 1024px
+- Commit after each week
+
+EXPECTED TIME: 8-12 hours total
+
+EXPECTED OUTCOME:
+✅ All 23 pages mobile-responsive
+✅ Professional mobile experience
+✅ Touch-friendly interactions
+✅ Performance optimized
+✅ Production ready
+
+Execute sequentially and report progress after each week.
+
+Let's make this app mobile-friendly! 📱🚀
+
