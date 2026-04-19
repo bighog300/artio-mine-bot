@@ -29,7 +29,7 @@ export function MappingPreviewPanel({ preview }: Props) {
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.extractions.map((item) => (
+                  {(preview.extractions ?? []).map((item) => (
                     <tr key={item.mapping_row_id} className="border-t">
                       <td className="p-2">{item.normalized_value ?? item.raw_value ?? "—"}</td>
                       <td className="p-2">{item.destination_entity}.{item.destination_field}</td>
@@ -50,19 +50,19 @@ export function MappingPreviewPanel({ preview }: Props) {
             <div className="rounded border p-2">
               <p className="font-medium mb-1">Linked images</p>
               <ul className="space-y-1 max-h-24 overflow-auto">
-                {preview.linked_images.map((img) => <li key={img.url}>{img.role} · {img.reason}</li>)}
+                {(preview.linked_images ?? []).map((img) => <li key={img.url}>{img.role} · {img.reason}</li>)}
               </ul>
             </div>
             <div className="rounded border p-2">
               <p className="font-medium mb-1">Discarded images</p>
               <ul className="space-y-1 max-h-24 overflow-auto">
-                {preview.discarded_images.map((img) => <li key={img.url}>{img.role} · {img.reason}</li>)}
+                {(preview.discarded_images ?? []).map((img) => <li key={img.url}>{img.role} · {img.reason}</li>)}
               </ul>
             </div>
           </div>
-          {preview.warnings.length > 0 && (
+          {(preview.warnings ?? []).length > 0 && (
             <ul className="text-xs text-amber-700 list-disc pl-4">
-              {preview.warnings.map((warning, i) => <li key={`${warning}-${i}`}>{warning}</li>)}
+              {(preview.warnings ?? []).map((warning, i) => <li key={`${warning}-${i}`}>{warning}</li>)}
             </ul>
           )}
         </>

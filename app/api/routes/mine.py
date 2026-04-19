@@ -42,6 +42,8 @@ def _enqueue_pipeline_job(job_id: str, source_id: str, job_type: str, payload: d
 
 def _assert_queue_available(require_worker: bool = True) -> None:
     health = check_queue_health()
+    if settings.environment in {"development", "test"}:
+        return
     if not health.redis_ok:
         raise HTTPException(
             status_code=503,

@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "artio-miner"
@@ -34,9 +34,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.2.0",
-  "pytest-asyncio>=0.23.0",
   "pytest-mock>=3.14.0",
-  "respx>=0.21.0",
   "ruff>=0.4.0",
 ]
 
@@ -51,5 +49,5 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
-[tool.hatch.build.targets.wheel]
+[tool.setuptools]
 packages = ["app"]
