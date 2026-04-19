@@ -14,12 +14,16 @@ from bs4 import BeautifulSoup
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.crawler.fetcher import fetch
+from app.crawler import durable_frontier
 from app.crawler.site_structure_analyzer import _generate_urls_from_pattern
 from app.db import crud
 from app.pipeline.image_collector import collect_images
 
 logger = structlog.get_logger()
+
+async def fetch(url: str):
+    """Compatibility wrapper so tests can patch automated_crawler.fetch."""
+    return await durable_frontier.fetch(url)
 
 
 REVIEW_REASON_UNMAPPED = "unmapped_page_type"
@@ -484,7 +488,9 @@ class AutomatedCrawler:
 
     def _matches_pattern(self, value: str, pattern: str) -> bool:
         """Match URL/path against identifier pattern."""
-        regex = pattern
+        regex = pattern.strip()
+        if regex.lower().startswith("url matches "):
+            regex = regex[len("URL matches "):].strip()
         replacements = {
             "[letter]": "[a-z]",
             "[name]": "[a-z0-9-]+",
