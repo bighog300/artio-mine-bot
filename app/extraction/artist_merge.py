@@ -26,6 +26,14 @@ PROVENANCE_FIELD_MAP = {
     "avatar_url": "avatar_url",
     "birth_year": "birth_year",
     "image_urls": "image_urls",
+    "bio_about": "about",
+    "contact_phone": "phone",
+    "news_items": "news_items",
+    "linked_images": "linked_images",
+    "discarded_images": "discarded_images",
+    "child_pages": "child_pages",
+    "source_profile_url": "source_profile_url",
+    "art_classes": "art_classes",
 }
 
 
@@ -184,6 +192,11 @@ def merge_artist_payload(
     extracted_data = extracted_data or {}
     related_data = related_data or {}
 
+    payload.setdefault("news_items", [])
+    payload.setdefault("linked_images", [])
+    payload.setdefault("discarded_images", [])
+    payload.setdefault("child_pages", [])
+
     if extracted_data.get("name"):
         _update_field_with_provenance(
             payload,
@@ -199,12 +212,48 @@ def merge_artist_payload(
 
     if extracted_data.get("bio"):
         bio_field = "bio_full" if page_type == "artist_biography" else "bio_short"
+        if page_type == "artist_biography":
+            payload[bio_field] = extracted_data.get("bio")
+            _append_provenance(
+                provenance,
+                field=bio_field,
+                value=extracted_data.get("bio"),
+                source_url=source_url,
+                source_page_id=source_page_id,
+                extraction_type=page_type,
+                timestamp=timestamp,
+            )
+        else:
+            _update_field_with_provenance(
+                payload,
+                provenance,
+                conflicts,
+                field=bio_field,
+                candidate=extracted_data.get("bio"),
+                source_url=source_url,
+                source_page_id=source_page_id,
+                extraction_type=page_type,
+                timestamp=timestamp,
+            )
+    if extracted_data.get("about"):
         _update_field_with_provenance(
             payload,
             provenance,
             conflicts,
-            field=bio_field,
-            candidate=extracted_data.get("bio"),
+            field="bio_about",
+            candidate=extracted_data.get("about"),
+            source_url=source_url,
+            source_page_id=source_page_id,
+            extraction_type=page_type,
+            timestamp=timestamp,
+        )
+    if extracted_data.get("phone"):
+        _update_field_with_provenance(
+            payload,
+            provenance,
+            conflicts,
+            field="contact_phone",
+            candidate=extracted_data.get("phone"),
             source_url=source_url,
             source_page_id=source_page_id,
             extraction_type=page_type,
@@ -267,6 +316,42 @@ def merge_artist_payload(
                 extraction_type=page_type,
                 timestamp=timestamp,
             )
+    for list_field in ("news_items", "linked_images", "discarded_images", "child_pages", "art_classes"):
+        items = extracted_data.get(list_field) or []
+        if not isinstance(items, list) or not items:
+            continue
+        existing_items = payload.get(list_field) or []
+        deduped: list[Any] = []
+        seen = set()
+        for item in [*existing_items, *items]:
+            marker = json.dumps(item, sort_keys=True, ensure_ascii=False)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            deduped.append(item)
+        payload[list_field] = deduped
+        _append_provenance(
+            provenance,
+            field=list_field,
+            value=deduped,
+            source_url=source_url,
+            source_page_id=source_page_id,
+            extraction_type=page_type,
+            timestamp=timestamp,
+        )
+
+    if page_type == "artist_profile_hub":
+        _update_field_with_provenance(
+            payload,
+            provenance,
+            conflicts,
+            field="source_profile_url",
+            candidate=source_url,
+            source_url=source_url,
+            source_page_id=source_page_id,
+            extraction_type=page_type,
+            timestamp=timestamp,
+        )
 
     merged["artist_payload"] = payload
     merged["source_pages"] = sorted(source_pages)

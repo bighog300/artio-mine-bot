@@ -93,6 +93,9 @@ async def test_preview_generation_contract_and_persistence(test_client: AsyncCli
     assert payload["page_url"].startswith("https://")
     assert isinstance(payload["extractions"], list)
     assert isinstance(payload["record_preview"], dict)
+    assert "page_family" in payload
+    assert "linked_images" in payload
+    assert "discarded_images" in payload
 
     version = (await db_session.execute(select(SourceMappingVersion).where(SourceMappingVersion.id == draft_id))).scalar_one()
     assert version.scan_status == "completed"
@@ -231,6 +234,22 @@ async def test_scan_endpoint_and_sample_run_flow(test_client: AsyncClient):
         assert filtered_resp.status_code == 200
         filtered_items = filtered_resp.json()["items"]
         assert all(item["review_status"] == "approved" for item in filtered_items)
+
+
+@pytest.mark.asyncio
+async def test_scan_supports_discovery_roots_for_artists_index(test_client: AsyncClient):
+    source_resp = await test_client.post("/api/sources", json={"url": "https://www.art.co.za"})
+    source_id = source_resp.json()["id"]
+    draft_resp = await test_client.post(
+        f"/api/sources/{source_id}/mapping-drafts",
+        json={"discovery_roots": ["https://www.art.co.za/artists/"], "max_pages": 20},
+    )
+    assert draft_resp.status_code == 201
+    draft_id = draft_resp.json()["id"]
+    page_types = await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/page-types")
+    assert page_types.status_code == 200
+    keys = {item["key"] for item in page_types.json()["items"]}
+    assert "artist_directory_root" in keys or "artist_directory_letter" in keys or "artist_profile_hub" in keys
 
 
 @pytest.mark.asyncio

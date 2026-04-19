@@ -56,6 +56,19 @@ DETAIL_PAGE_TYPES = {
     "venue_profile": "venue",
     "artwork_detail": "artwork",
 }
+ART_CO_ZA_SECTION_SLUGS = {
+    "artists",
+    "galleries",
+    "events",
+    "exhibitions",
+    "training",
+    "auctions",
+    "watchlist",
+    "my",
+    "news",
+    "contact",
+    "about",
+}
 DISCOVERY_PAGE_TYPES = {
     "artist_directory_letter",
     "artist_profile_hub",
@@ -657,17 +670,21 @@ class PipelineRunner:
             await crud.update_page(self.db, page.id, status="skipped")
             return {}, None
 
+        inferred_page_type = self._infer_page_role(page.url)
         forced_page_type = self._get_page_role_override(page.url, source_hints)
+        selected_forced_type = forced_page_type or inferred_page_type
         expected_fields: list[str] | None = None
         deterministic_hit = False
-        if forced_page_type is not None:
+        if selected_forced_type is not None:
             classify_result = type(
                 "ForcedClassifyResult",
                 (),
                 {
-                    "page_type": forced_page_type,
+                    "page_type": selected_forced_type,
                     "confidence": 100,
-                    "reasoning": "crawl_hints.page_role_overrides",
+                    "reasoning": "crawl_hints.page_role_overrides"
+                    if forced_page_type
+                    else "deterministic_page_role_inference",
                 },
             )()
         else:
@@ -1059,11 +1076,7 @@ class PipelineRunner:
             parsed = urlparse(full_url)
             if parsed.netloc != base_netloc:
                 continue
-            segments = [segment for segment in parsed.path.split("/") if segment]
-            if len(segments) != 1:
-                continue
-            slug = segments[0]
-            if "." in slug:
+            if not self._is_artist_profile_candidate_url(full_url):
                 continue
             child_page, created = await crud.get_or_create_page(
                 self.db,
@@ -1084,7 +1097,7 @@ class PipelineRunner:
         self, page: Page, *, source_hints: dict[str, Any] | None = None
     ) -> None:
         base_url = page.url if page.url.endswith("/") else f"{page.url}/"
-        suffixes = self._get_same_slug_children(page.url, source_hints or {})
+        suffixes = self._get_same_slug_children(page.url, source_hints or {}, page.html or "")
         for suffix in suffixes:
             child_url = urljoin(base_url, suffix)
             if self._should_ignore_url(child_url, source_hints or {}):
@@ -1158,6 +1171,19 @@ class PipelineRunner:
         family_key = derive_artist_family_key(page.url)
         if family_key is None:
             raise ValueError(f"Unable to derive artist family key for URL {page.url}")
+        existing_page_artist = await crud.get_record_by_page_and_type(
+            self.db,
+            source_id=page.source_id,
+            page_id=page.id,
+            record_type="artist",
+        )
+        existing_artist = existing_page_artist
+        if existing_artist is None:
+            existing_artist = await crud.get_artist_record_by_family_key(
+                self.db,
+                source_id=page.source_id,
+                family_key=family_key,
+            )
 
         extracted_data: dict[str, Any] = {}
         if page_type in {"artist_profile", "artist_profile_hub", "artist_biography"}:
@@ -1194,22 +1220,12 @@ class PipelineRunner:
                     )
                 await crud.update_page(self.db, page.id, status="error", error_message=str(exc))
                 return None
+            extracted_data["child_pages"] = [page.url]
+            if page_type == "artist_related_page":
+                extracted_data["art_classes"] = extracted_data.get("art_classes", [])
 
         related_data = extract_artist_related_items(page_type, page.html or "", page.url)
 
-        existing_page_artist = await crud.get_record_by_page_and_type(
-            self.db,
-            source_id=page.source_id,
-            page_id=page.id,
-            record_type="artist",
-        )
-        existing_artist = existing_page_artist
-        if existing_artist is None:
-            existing_artist = await crud.get_artist_record_by_family_key(
-                self.db,
-                source_id=page.source_id,
-                family_key=family_key,
-            )
         existing_raw = existing_artist.raw_data if existing_artist else None
         merged_payload = merge_artist_payload(
             existing_raw_data=existing_raw,
@@ -1270,6 +1286,37 @@ class PipelineRunner:
             )
         else:
             artist_record = await crud.update_record(self.db, existing_artist.id, **artist_kwargs)
+
+        image_candidates = extracted_data.get("image_urls")
+        if not isinstance(image_candidates, list):
+            image_candidates = []
+        image_results = await collect_images(
+            record_id=artist_record.id,
+            page_url=page.url,
+            html=page.html or "",
+            image_urls=image_candidates,
+            db=self.db,
+            source_id=page.source_id,
+            page_id=page.id,
+        )
+        if image_results:
+            followup_payload = merge_artist_payload(
+                existing_raw_data=artist_record.raw_data,
+                page_type=page_type,
+                source_url=page.url,
+                source_page_id=page.id,
+                extracted_data={
+                    "linked_images": [item for item in image_results if item.get("keep")],
+                    "discarded_images": [item for item in image_results if not item.get("keep")],
+                    "child_pages": [page.url],
+                },
+                related_data={},
+            )
+            artist_record = await crud.update_record(
+                self.db,
+                artist_record.id,
+                raw_data=json.dumps(followup_payload),
+            )
 
         await self._create_artist_related_child_records(
             source_id=page.source_id,
@@ -1429,7 +1476,7 @@ class PipelineRunner:
             return False
         return url in force_urls
 
-    def _get_same_slug_children(self, url: str, hints: dict[str, Any]) -> list[str]:
+    def _get_same_slug_children(self, url: str, hints: dict[str, Any], page_html: str = "") -> list[str]:
         default_suffixes = [
             "about.php",
             "exhibitions.php",
@@ -1439,7 +1486,8 @@ class PipelineRunner:
         ]
         custom_suffixes = hints.get("same_slug_children")
         if isinstance(custom_suffixes, list) and custom_suffixes:
-            return [s for s in custom_suffixes if isinstance(s, str) and s.strip()]
+            configured = [s for s in custom_suffixes if isinstance(s, str) and s.strip()]
+            return self._merge_same_slug_suffixes(url, configured, page_html)
 
         parsed = urlparse(url)
         domain_rules = hints.get("domain_rules") or {}
@@ -1447,14 +1495,102 @@ class PipelineRunner:
             domain_hint = domain_rules.get(parsed.netloc) or {}
             domain_children = domain_hint.get("same_slug_children")
             if isinstance(domain_children, list) and domain_children:
-                return [s for s in domain_children if isinstance(s, str) and s.strip()]
-        return default_suffixes
+                configured = [s for s in domain_children if isinstance(s, str) and s.strip()]
+                return self._merge_same_slug_suffixes(url, configured, page_html)
+        return self._merge_same_slug_suffixes(url, default_suffixes, page_html)
+
+    def _merge_same_slug_suffixes(
+        self,
+        url: str,
+        configured_suffixes: list[str],
+        page_html: str = "",
+    ) -> list[str]:
+        normalized = [item.strip().lstrip("/") for item in configured_suffixes if item.strip()]
+        linked_suffixes = self._linked_same_slug_php_suffixes(url, page_html)
+        merged = list(dict.fromkeys([*normalized, *linked_suffixes]))
+        return merged
+
+    def _linked_same_slug_php_suffixes(self, url: str, page_html: str) -> list[str]:
+        if not page_html:
+            return []
+        parsed = urlparse(url)
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        if not segments:
+            return []
+        slug = segments[0].lower()
+        soup = BeautifulSoup(page_html, "lxml")
+        suffixes: list[str] = []
+        for link in soup.find_all("a", href=True):
+            href = str(link.get("href") or "").strip()
+            if not href:
+                continue
+            full = urljoin(url if url.endswith("/") else f"{url}/", href).split("#")[0]
+            full_parsed = urlparse(full)
+            full_segments = [segment for segment in full_parsed.path.split("/") if segment]
+            if len(full_segments) != 2:
+                continue
+            if full_parsed.netloc.lower() != parsed.netloc.lower():
+                continue
+            if full_segments[0].lower() != slug:
+                continue
+            child = full_segments[1]
+            if not child.lower().endswith(".php"):
+                continue
+            suffixes.append(child)
+        return list(dict.fromkeys(suffixes))
+
+    def _infer_page_role(self, url: str) -> str | None:
+        parsed = urlparse(url)
+        if parsed.netloc.lower() not in {"art.co.za", "www.art.co.za"}:
+            return None
+        path = parsed.path
+        if path.rstrip("/") == "/artists":
+            return "artist_directory_root"
+        if re.fullmatch(r"/artists/[A-Za-z]/?", path):
+            return "artist_directory_letter"
+        if re.fullmatch(r"/[^/]+/about\.php/?", path):
+            return "artist_biography"
+        if re.fullmatch(r"/[^/]+/art-classes\.php/?", path):
+            return "artist_related_page"
+        if re.fullmatch(r"/[^/]+/?", path):
+            slug = [segment for segment in path.split("/") if segment][0].lower()
+            if slug not in ART_CO_ZA_SECTION_SLUGS:
+                return "artist_profile_hub"
+        return None
+
+    def _is_artist_profile_candidate_url(self, url: str) -> bool:
+        parsed = urlparse(url)
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        if len(segments) != 1:
+            return False
+        slug = segments[0]
+        if "." in slug:
+            return False
+        if parsed.netloc.lower() in {"art.co.za", "www.art.co.za"}:
+            return slug.lower() not in ART_CO_ZA_SECTION_SLUGS
+        return True
 
     def _should_ignore_url(self, url: str, hints: dict[str, Any]) -> bool:
         patterns = hints.get("ignore_url_patterns") or []
         if not isinstance(patterns, list):
-            return False
-        return any(isinstance(pattern, str) and pattern in url for pattern in patterns)
+            patterns = []
+        if any(isinstance(pattern, str) and pattern in url for pattern in patterns):
+            return True
+        parsed = urlparse(url)
+        if parsed.netloc.lower() in {"art.co.za", "www.art.co.za"}:
+            path = parsed.path.lower()
+            non_artist_prefixes = (
+                "/watchlist",
+                "/my",
+                "/auctions",
+                "/training",
+                "/galleries",
+            )
+            if any(path.startswith(prefix) for prefix in non_artist_prefixes):
+                return True
+            if any(token in url.lower() for token in ("facebook", "instagram", "mailchimp")):
+                return True
+        return False
 
 
 async def _run_pipeline_job_async(

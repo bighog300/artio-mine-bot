@@ -41,6 +41,25 @@ export function MappingPreviewPanel({ preview }: Props) {
             </div>
           </div>
           <pre className="text-xs bg-muted/40 rounded p-2 overflow-auto">{JSON.stringify(preview.record_preview, null, 2)}</pre>
+          <div className="text-xs space-y-2">
+            <p className="font-medium text-muted-foreground">Family preview</p>
+            <p>Hub: {preview.page_family?.hub_url ?? "—"}</p>
+            <p>Child pages: {(preview.page_family?.child_pages ?? []).length}</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="rounded border p-2">
+              <p className="font-medium mb-1">Linked images</p>
+              <ul className="space-y-1 max-h-24 overflow-auto">
+                {preview.linked_images.map((img) => <li key={img.url}>{img.role} · {img.reason}</li>)}
+              </ul>
+            </div>
+            <div className="rounded border p-2">
+              <p className="font-medium mb-1">Discarded images</p>
+              <ul className="space-y-1 max-h-24 overflow-auto">
+                {preview.discarded_images.map((img) => <li key={img.url}>{img.role} · {img.reason}</li>)}
+              </ul>
+            </div>
+          </div>
           {preview.warnings.length > 0 && (
             <ul className="text-xs text-amber-700 list-disc pl-4">
               {preview.warnings.map((warning, i) => <li key={`${warning}-${i}`}>{warning}</li>)}

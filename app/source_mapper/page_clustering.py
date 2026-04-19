@@ -18,18 +18,28 @@ def cluster_pages(pages: list[DiscoveredPage]) -> list[PageCluster]:
     for page in pages:
         path = urlparse(page.url).path.lower()
         key = "generic_detail"
-        for token, cluster_label in KEYWORDS:
-            if token in path:
-                key = cluster_label.lower().replace(" ", "_")
-                break
+        if path.rstrip("/") == "/artists":
+            key = "artist_directory_root"
+        elif path.startswith("/artists/") and len([part for part in path.split("/") if part]) == 2:
+            key = "artist_directory_letter"
+        elif path.endswith("/about.php"):
+            key = "artist_biography"
+        elif path.endswith("/art-classes.php"):
+            key = "artist_related_page"
+        elif len([part for part in path.split("/") if part]) == 1 and "." not in path:
+            key = "artist_profile_hub"
+        if key == "generic_detail":
+            for token, cluster_label in KEYWORDS:
+                if token in path:
+                    key = cluster_label.lower().replace(" ", "_")
+                    break
         buckets[key].append(page)
 
     clusters: list[PageCluster] = []
     for key, bucket in buckets.items():
+        label = key.replace("_", " ").title()
         if key == "generic_detail":
             label = "Generic Detail"
-        else:
-            label = key.replace("_", " ").title()
         confidence = min(0.95, 0.5 + (len(bucket) / max(len(pages), 1)) * 0.5)
         clusters.append(
             PageCluster(

@@ -116,6 +116,7 @@ class MappingDraftCreateRequest(BaseModel):
     scan_mode: str = "standard"
     allowed_paths: list[str] = []
     blocked_paths: list[str] = []
+    discovery_roots: list[str] = []
     max_pages: int = 50
     max_depth: int = 3
     sample_pages_per_type: int = 5
@@ -255,6 +256,10 @@ class MappingPreviewResponse(BaseModel):
     source_snippet: str | None = None
     category_preview: dict[str, Any] = {}
     warnings: list[str] = []
+    page_family: dict[str, Any] = {}
+    field_sources: dict[str, list[str]] = {}
+    linked_images: list[dict[str, Any]] = []
+    discarded_images: list[dict[str, Any]] = []
 
 
 class MappingVersionDiffSummary(BaseModel):

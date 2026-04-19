@@ -14,6 +14,7 @@ export function PageTypeSidebar({ pageTypes }: Props) {
             <li key={item.id} className="rounded border p-2">
               <div className="font-medium">{item.label}</div>
               <div className="text-xs text-muted-foreground">{item.key}</div>
+              {item.key.startsWith("artist_") && <div className="text-[11px] text-blue-700">Artist family type</div>}
               <div className="text-xs">Samples: {item.sample_count} · Confidence: {Math.round(item.confidence_score * 100)}%</div>
             </li>
           ))}
