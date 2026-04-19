@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import { CheckCircle2, Loader2, OctagonX, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { generateId } from "@/lib/uuid";
 
 type ToastType = "success" | "error" | "loading";
 
@@ -29,7 +30,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const push = useCallback((type: ToastType, title: string, description?: string) => {
-    const id = crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    const id = generateId();
     setToasts((prev) => [...prev, { id, type, title, description }]);
     if (type !== "loading") {
       window.setTimeout(() => dismiss(id), 3500);
