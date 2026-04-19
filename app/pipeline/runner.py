@@ -43,6 +43,7 @@ from app.metrics import metrics
 from app.pipeline.image_collector import collect_images
 from app.pipeline.job_progress import report_job_progress
 from app.queue import QueueUnavailableError, get_default_queue
+from app.runtime_ai_policy import runtime_ai_policy
 
 worker_log_processor = configure_structlog_for_service("worker")
 logger = structlog.get_logger()
@@ -158,8 +159,14 @@ class PipelineRunner:
         crawl_exception: Exception | None = None
         try:
             await self._control_checkpoint()
+            source = await crud.get_source(self.db, source_id)
+            if source is None:
+                raise ValueError(f"Source {source_id} not found")
             runtime_map, runtime_map_source = await crud.get_active_runtime_map(self.db, source_id)
             has_runtime_map = crud.has_usable_runtime_map_payload(runtime_map)
+            if has_runtime_map and source.published_mapping_version_id:
+                await self.run_deterministic_mine(source_id)
+                return
             mode = "deterministic" if has_runtime_map or self.ai_client is None else "ai_assisted"
             await self._report(
                 stage="starting",
@@ -274,6 +281,8 @@ class PipelineRunner:
         runtime_map, runtime_map_source = await crud.get_active_runtime_map(self.db, source_id)
         if not crud.has_usable_runtime_map_payload(runtime_map):
             raise RuntimeError("Deterministic mining requires an active runtime map.")
+        source = await crud.get_source(self.db, source_id)
+        mapping_version_id = source.published_mapping_version_id if source is not None else None
 
         await self._report(
             stage="starting",
@@ -287,10 +296,13 @@ class PipelineRunner:
             },
         )
         await crud.update_source(self.db, source_id, status="crawling")
-        crawl_stats = await self.run_crawl(source_id)
+        with runtime_ai_policy(
+            ai_allowed=False,
+            mode="deterministic_runtime",
+            reason="published_source_runtime",
+        ):
+            crawl_stats = await self.run_crawl(source_id)
         await self.db.commit()
-        await crud.update_source(self.db, source_id, status="extracting")
-        extract_stats = await self.run_extract(source_id, allow_updates=True, include_existing=False)
         await crud.update_source(
             self.db,
             source_id,
@@ -300,14 +312,17 @@ class PipelineRunner:
         result = {
             "runtime_mode": "deterministic",
             "runtime_map_source": runtime_map_source,
-            "records_created": extract_stats.records_created,
-            "records_updated": extract_stats.records_updated,
-            "records_failed": extract_stats.records_failed,
-            "pages_processed": extract_stats.pages_processed,
-            "deterministic_hits": extract_stats.deterministic_hits + int(crawl_stats.get("extracted_deterministic", 0)),
-            "deterministic_misses": extract_stats.deterministic_misses + int(crawl_stats.get("failed", 0)),
-            "media_assets_captured": extract_stats.media_assets_captured,
-            "entity_links_created": extract_stats.entity_links_created,
+            "mapping_version_id": mapping_version_id,
+            "records_created": int(crawl_stats.get("extracted_deterministic", 0)),
+            "records_updated": 0,
+            "records_failed": int(crawl_stats.get("failed", 0)),
+            "pages_processed": int(crawl_stats.get("pages_crawled", 0)),
+            "deterministic_hits": int(crawl_stats.get("extracted_deterministic", 0)),
+            "deterministic_misses": int(crawl_stats.get("failed", 0)),
+            "media_assets_captured": int(crawl_stats.get("media_assets_captured", 0)),
+            "entity_links_created": 0,
+            "skipped_unchanged": int(crawl_stats.get("skipped_unchanged", 0)),
+            "queued_for_review": int(crawl_stats.get("queued_for_review", 0)),
         }
         await self._report(
             stage="finalizing",
@@ -419,9 +434,19 @@ class PipelineRunner:
         runtime_map, runtime_map_source = await crud.get_active_runtime_map(self.db, source_id)
         if runtime_map is not None:
             structure_map = runtime_map
+            ai_allowed = not (
+                source.runtime_mode == "deterministic_runtime"
+                or bool(source.published_mapping_version_id)
+            )
 
             try:
-                crawler = AutomatedCrawler(structure_map, self.db, self.ai_client)
+                crawler = AutomatedCrawler(
+                    structure_map,
+                    self.db,
+                    self.ai_client,
+                    ai_allowed=ai_allowed,
+                    mapping_version_id=source.published_mapping_version_id,
+                )
                 stats = await crawler.execute_crawl_plan(source_id)
                 pages_crawled = max(int(stats.get("pages_crawled", 0)), 1)
                 deterministic_rate = stats.get("extracted_deterministic", 0) / pages_crawled
@@ -438,13 +463,26 @@ class PipelineRunner:
                     tokens_used=stats.get("tokens_used", 0),
                     cost=stats.get("cost", 0.0),
                 )
+                pages_crawled_raw = int(stats.get("pages_crawled", 0))
+                review_count = int(stats.get("queued_for_review", 0))
+                if pages_crawled_raw > 0 and review_count / pages_crawled_raw >= 0.5:
+                    await crud.update_source(
+                        self.db,
+                        source_id,
+                        mapping_stale=True,
+                        mapping_status="stale",
+                    )
+                    logger.warning(
+                        "runtime_mapping_marked_stale",
+                        source_id=source_id,
+                        pages_crawled=pages_crawled_raw,
+                        queued_for_review=review_count,
+                    )
                 return stats
             except Exception as exc:
-                logger.warning(
-                    "automated_crawler_failed_falling_back",
-                    source_id=source_id,
-                    error=str(exc),
-                )
+                if not ai_allowed:
+                    raise
+                logger.warning("automated_crawler_failed_falling_back", source_id=source_id, error=str(exc))
         else:
             logger.info(
                 "crawl_structure_map_missing_falling_back",

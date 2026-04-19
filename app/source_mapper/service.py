@@ -91,6 +91,7 @@ class SourceMapperService:
                 }
             )
             source.last_mapping_scan_at = datetime.now(UTC)
+            source.last_discovery_run_at = datetime.now(UTC)
             source.last_mapping_error = None
             await self.db.commit()
             return {"scan_status": draft.scan_status, "page_type_count": len(clusters)}

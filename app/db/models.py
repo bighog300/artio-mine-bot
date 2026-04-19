@@ -61,11 +61,21 @@ class Source(Base):
         ForeignKey("source_mapping_versions.id"),
         nullable=True,
     )
+    published_mapping_version_id: Mapped[str | None] = mapped_column(
+        String,
+        ForeignKey("source_mapping_versions.id"),
+        nullable=True,
+    )
     active_mapping_preset_id: Mapped[str | None] = mapped_column(
         String,
         ForeignKey("source_mapping_presets.id"),
         nullable=True,
     )
+    runtime_mode: Mapped[str] = mapped_column(String, default="draft_only", nullable=False)
+    runtime_ai_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    mapping_stale: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_discovery_run_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    last_mapping_published_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
     runtime_mapping_updated_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
     mapping_status: Mapped[str] = mapped_column(String, default="none", nullable=False)
     last_mapping_scan_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
@@ -99,6 +109,11 @@ class Source(Base):
         foreign_keys=[active_mapping_version_id],
         post_update=True,
     )
+    published_mapping_version: Mapped["SourceMappingVersion | None"] = relationship(
+        "SourceMappingVersion",
+        foreign_keys=[published_mapping_version_id],
+        post_update=True,
+    )
     active_mapping_preset: Mapped["SourceMappingPreset | None"] = relationship(
         "SourceMappingPreset",
         primaryjoin="Source.active_mapping_preset_id == SourceMappingPreset.id",
@@ -126,6 +141,17 @@ class Page(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     crawled_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
     extracted_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    template_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    classification_method: Mapped[str | None] = mapped_column(String, nullable=True)
+    extraction_method: Mapped[str | None] = mapped_column(String, nullable=True)
+    review_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    review_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    mapping_version_id_used: Mapped[str | None] = mapped_column(
+        String,
+        ForeignKey("source_mapping_versions.id"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
 
     source: Mapped["Source"] = relationship("Source", back_populates="pages")

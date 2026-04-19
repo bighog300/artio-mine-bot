@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from datetime import UTC, datetime
@@ -21,10 +22,23 @@ from app.pipeline.image_collector import collect_images
 logger = structlog.get_logger()
 
 
+REVIEW_REASON_UNMAPPED = "unmapped_page_type"
+REVIEW_REASON_LOW_CONFIDENCE = "low_confidence_extraction"
+REVIEW_REASON_SELECTOR_MISS = "selector_miss"
+
+
 class AutomatedCrawler:
     """Execute AI-generated crawl plans using deterministic extraction."""
 
-    def __init__(self, structure_map: dict[str, Any], db: AsyncSession, ai_client=None):
+    def __init__(
+        self,
+        structure_map: dict[str, Any],
+        db: AsyncSession,
+        ai_client=None,
+        *,
+        ai_allowed: bool = True,
+        mapping_version_id: str | None = None,
+    ):
         self.structure_map = structure_map
         self.crawl_plan = structure_map.get("crawl_plan", {}) or {}
         self.extraction_rules = structure_map.get("extraction_rules", {}) or {}
@@ -32,11 +46,15 @@ class AutomatedCrawler:
         self.asset_rules = structure_map.get("asset_rules", {}) or {}
         self.db = db
         self.ai_client = ai_client
+        self.ai_allowed = ai_allowed
+        self.mapping_version_id = mapping_version_id
         self.stats: dict[str, Any] = {
             "pages_crawled": 0,
             "extracted_deterministic": 0,
             "extracted_ai_fallback": 0,
             "failed": 0,
+            "skipped_unchanged": 0,
+            "queued_for_review": 0,
             "tokens_used": 0,
             "cost": 0.0,
             "media_assets_captured": 0,
@@ -111,6 +129,7 @@ class AutomatedCrawler:
                 return
 
             html = result.html
+            content_hash = hashlib.sha256((html or "").encode("utf-8")).hexdigest()
             self.stats["pages_crawled"] += 1
 
             page_type = self._classify_by_url(url)
@@ -134,7 +153,40 @@ class AutomatedCrawler:
             if created:
                 await crud.update_page(self.db, page.id, **updates)
             else:
+                if (
+                    page.content_hash == content_hash
+                    and page.mapping_version_id_used == self.mapping_version_id
+                ):
+                    self.stats["skipped_unchanged"] += 1
+                    await crud.update_page(
+                        self.db,
+                        page.id,
+                        status="skipped",
+                        review_reason=None,
+                        review_status=None,
+                    )
+                    return
                 await crud.update_page(self.db, page.id, **updates)
+            await crud.update_page(
+                self.db,
+                page.id,
+                content_hash=content_hash,
+                classification_method="deterministic_url_rules",
+                extraction_method="deterministic_selectors_regex",
+                mapping_version_id_used=self.mapping_version_id,
+            )
+
+            if page_type == "unknown":
+                self.stats["failed"] += 1
+                self.stats["queued_for_review"] += 1
+                await crud.update_page(
+                    self.db,
+                    page.id,
+                    status="needs_review",
+                    review_reason=REVIEW_REASON_UNMAPPED,
+                    review_status="queued",
+                )
+                return
 
             if confidence >= settings.deterministic_confidence_threshold:
                 self.stats["extracted_deterministic"] += 1
@@ -170,6 +222,14 @@ class AutomatedCrawler:
 
             logger.warning("skipping_low_confidence", url=url, confidence=confidence)
             self.stats["failed"] += 1
+            self.stats["queued_for_review"] += 1
+            await crud.update_page(
+                self.db,
+                page.id,
+                status="needs_review",
+                review_reason=REVIEW_REASON_LOW_CONFIDENCE if confidence > 0 else REVIEW_REASON_SELECTOR_MISS,
+                review_status="queued",
+            )
         except Exception as exc:
             logger.error("crawl_extract_failed", url=url, error=str(exc))
             self.stats["failed"] += 1
@@ -466,6 +526,8 @@ class AutomatedCrawler:
 
     def _should_use_ai_fallback(self) -> bool:
         return (
+            self.ai_allowed
+            and
             self.ai_client is not None
             and settings.crawler_allow_ai
             and settings.crawler_use_ai_fallback

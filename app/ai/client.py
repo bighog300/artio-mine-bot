@@ -6,6 +6,7 @@ from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.config import settings
+from app.runtime_ai_policy import assert_ai_allowed
 
 logger = structlog.get_logger()
 
@@ -163,6 +164,7 @@ class OpenAIClient:
         user_content: str,
         response_format: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        assert_ai_allowed("openai.complete")
         start = time.time()
         kwargs: dict[str, Any] = {
             "model": settings.openai_model,
