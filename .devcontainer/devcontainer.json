@@ -4,7 +4,7 @@
   "features": {
     "ghcr.io/devcontainers/features/node:1": { "version": "20" }
   },
-  "postCreateCommand": "pip install hatch && cd frontend && npm install 2>/dev/null || true",
+  "postCreateCommand": "python -m pip install -e \".[dev]\" && cd frontend && npm install 2>/dev/null || true",
   "forwardPorts": [8000, 5173],
   "portsAttributes": {
     "8000": { "label": "API", "onAutoForward": "notify" },

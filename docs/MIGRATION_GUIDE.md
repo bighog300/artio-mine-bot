@@ -66,6 +66,14 @@ Before committing a migration, verify:
 
 ## 🧪 Testing Migrations Locally
 
+Install project + dev dependencies first:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+Then run migration checks:
+
 ```bash
 # Test from scratch
 docker-compose down -v

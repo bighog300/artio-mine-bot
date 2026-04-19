@@ -86,7 +86,7 @@ Install backend dependencies:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install -e ".[dev]"
 ```
 
 Run the API locally:
