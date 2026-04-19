@@ -1,0 +1,41 @@
+{
+  "source": "https://www.art.co.za",
+  "discovery_roots": [
+    "https://www.art.co.za/artists/"
+  ],
+  "page_role_overrides": {
+    "https://www.art.co.za/artists/": "artist_directory_root"
+  },
+  "patterns": {
+    "directory_letter": "^/artists/[A-Z]$",
+    "artist_profile": "^/[^/]+/?$",
+    "artist_biography": "^/[^/]+/about\\.php$",
+    "artist_related": "^/[^/]+/art-classes\\.php$"
+  },
+  "same_slug_children": [
+    "about.php",
+    "art-classes.php"
+  ],
+  "ignore_url_patterns": [
+    "/watchlist",
+    "/my",
+    "/auctions",
+    "/training",
+    "/galleries",
+    "facebook",
+    "instagram",
+    "mailchimp"
+  ],
+  "image_roles": {
+    "keep": [
+      "profile",
+      "artist_photo",
+      "artwork"
+    ],
+    "discard": [
+      "decorative",
+      "template_shared",
+      "unknown"
+    ]
+  }
+}
