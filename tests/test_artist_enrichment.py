@@ -33,6 +33,30 @@ def test_merge_prefers_biography_for_long_bio():
         "https://art.co.za/aliceelahi/",
         "https://art.co.za/aliceelahi/about.php",
     ]
+    assert merged["provenance"]["bio_full"]["sources"][0]["source_url"].endswith("/about.php")
+
+
+def test_merge_groups_images_and_child_pages():
+    merged = merge_artist_payload(
+        existing_raw_data=None,
+        page_type="artist_profile_hub",
+        source_url="https://art.co.za/aliceelahi/",
+        extracted_data={
+            "name": "Alice Elahi",
+            "linked_images": [{"url": "https://img/alice.jpg", "role": "profile", "keep": True}],
+            "discarded_images": [{"url": "https://img/logo.png", "role": "template_shared", "keep": False}],
+            "child_pages": ["https://art.co.za/aliceelahi/about.php"],
+            "art_classes": [{"title": "Weekend classes"}],
+            "news_items": [{"title": "Interview"}],
+        },
+        related_data={},
+    )
+    payload = merged["artist_payload"]
+    assert payload["linked_images"][0]["role"] == "profile"
+    assert payload["discarded_images"][0]["keep"] is False
+    assert payload["child_pages"] == ["https://art.co.za/aliceelahi/about.php"]
+    assert payload["art_classes"][0]["title"] == "Weekend classes"
+    assert payload["news_items"][0]["title"] == "Interview"
 
 
 def test_extract_structured_repeated_exhibitions_articles_press():

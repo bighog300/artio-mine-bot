@@ -45,7 +45,13 @@ export function SourceMapping() {
   const [message, setMessage] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
-  const [settings, setSettings] = useState({ max_pages: 50, max_depth: 3, sample_pages_per_type: 5 });
+  const [settings, setSettings] = useState({
+    max_pages: 50,
+    max_depth: 3,
+    sample_pages_per_type: 5,
+    discovery_roots: [] as string[],
+    blocked_paths: [] as string[],
+  });
   const [createPresetOpen, setCreatePresetOpen] = useState(false);
   const [deletingPresetId, setDeletingPresetId] = useState<string | null>(null);
   const [applyingPresetId, setApplyingPresetId] = useState<string | null>(null);
@@ -241,7 +247,7 @@ export function SourceMapping() {
     <div className="space-y-4 lg:space-y-6">
       <div>
         <Button variant="ghost" size="sm" onClick={() => navigate(`/sources/${id}`)}>← Back to source</Button>
-        <h1 className="text-2xl lg:text-3xl font-bold">AI Source Mapper</h1>
+        <h1 className="text-2xl lg:text-3xl font-bold">Source Mapping Workflow</h1>
         <p className="text-sm text-muted-foreground">{source?.url ?? "Loading source..."}</p>
       </div>
 

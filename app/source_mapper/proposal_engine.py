@@ -29,6 +29,28 @@ BASE_DESTINATIONS: dict[str, list[tuple[str, str, str]]] = {
         ("title", "event", "title"),
         ("meta[name='description']", "event", "description"),
     ],
+    "artist_directory_root": [
+        ("a[href*='/artists/']", "artist", "directory_link"),
+    ],
+    "artist_directory_letter": [
+        ("a[href^='/']", "artist", "profile_url"),
+    ],
+    "artist_profile_hub": [
+        ("h1", "artist", "name"),
+        (".bio, .about", "artist", "bio_about"),
+        ("a[href^='tel:']", "artist", "contact_phone"),
+        ("img", "artist", "avatar_profile_image"),
+        ("img.artwork, .gallery img", "artist", "artwork_image_groups"),
+    ],
+    "artist_biography": [
+        ("h1", "artist", "name"),
+        (".bio, .content p", "artist", "bio_full"),
+        ("a[href*='exhibition'], .exhibitions a", "artist", "exhibition_links"),
+    ],
+    "artist_related_page": [
+        ("h1", "artist", "name"),
+        (".classes, .workshop, .content", "artist", "art_classes"),
+    ],
 }
 
 

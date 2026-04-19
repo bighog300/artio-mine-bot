@@ -608,8 +608,9 @@ async def test_image_collection(db_session: AsyncSession):
     )
 
     assert len(images) >= 1
-    types = {img.image_type for img in images}
+    types = {img["role"] for img in images}
     assert "profile" in types or "artwork" in types or "unknown" in types
+    assert all("keep" in img for img in images)
 
 
 @pytest.mark.asyncio
@@ -700,3 +701,55 @@ async def test_matches_pattern_url_tokens(db_session: AsyncSession, mock_ai_clie
     assert runner._matches_pattern_url("https://example.com/artists/b/jane", "/artists/[letter]/[name]")
     assert runner._matches_pattern_url("https://example.com/artworks/123", "/artworks/[id]")
     assert not runner._matches_pattern_url("https://example.com/artists/jane", "/artists/[letter]/[name]")
+
+
+@pytest.mark.asyncio
+async def test_art_co_za_role_inference_and_ignore_rules(db_session: AsyncSession, mock_ai_client):
+    from app.pipeline.runner import PipelineRunner
+
+    runner = PipelineRunner(db=db_session, ai_client=mock_ai_client)
+    assert runner._infer_page_role("https://www.art.co.za/artists/") == "artist_directory_root"
+    assert runner._infer_page_role("https://www.art.co.za/artists/C") == "artist_directory_letter"
+    assert runner._infer_page_role("https://www.art.co.za/cornevaneck/") == "artist_profile_hub"
+    assert runner._infer_page_role("https://www.art.co.za/cornevaneck/about.php") == "artist_biography"
+    assert runner._infer_page_role("https://www.art.co.za/cornevaneck/art-classes.php") == "artist_related_page"
+    assert runner._should_ignore_url("https://www.art.co.za/watchlist", {})
+    assert runner._should_ignore_url("https://www.art.co.za/cornevaneck/?ref=instagram", {})
+
+
+@pytest.mark.asyncio
+async def test_same_slug_children_include_linked_php_and_fixed_suffixes(db_session: AsyncSession, mock_ai_client):
+    from app.pipeline.runner import PipelineRunner
+
+    runner = PipelineRunner(db=db_session, ai_client=mock_ai_client)
+    html = """
+    <a href="/cornevaneck/about.php">About</a>
+    <a href="/cornevaneck/art-classes.php">Classes</a>
+    """
+    suffixes = runner._get_same_slug_children("https://www.art.co.za/cornevaneck/", {}, html)
+    assert "about.php" in suffixes
+    assert "art-classes.php" in suffixes
+
+
+@pytest.mark.asyncio
+async def test_expand_artist_directory_letter_filters_section_links(db_session: AsyncSession, mock_ai_client):
+    from app.pipeline.runner import PipelineRunner
+
+    source = await crud.create_source(db_session, url="https://www.art.co.za")
+    page = await crud.create_page(
+        db_session,
+        source_id=source.id,
+        url="https://www.art.co.za/artists/C",
+        original_url="https://www.art.co.za/artists/C",
+        status="fetched",
+        html="""
+        <a href="/cornevaneck/">Corne van Eeck</a>
+        <a href="/galleries/">Galleries</a>
+        """,
+    )
+    runner = PipelineRunner(db=db_session, ai_client=mock_ai_client)
+    await runner.expand_artist_directory_letter(page)
+    pages = await crud.list_pages(db_session, source_id=source.id, limit=20)
+    urls = {p.url for p in pages}
+    assert "https://www.art.co.za/cornevaneck/" in urls
+    assert "https://www.art.co.za/galleries/" not in urls

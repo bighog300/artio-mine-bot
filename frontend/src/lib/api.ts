@@ -75,9 +75,23 @@ export interface CreateMappingDraftInput {
   scan_mode?: string;
   allowed_paths?: string[];
   blocked_paths?: string[];
+  discovery_roots?: string[];
   max_pages?: number;
   max_depth?: number;
   sample_pages_per_type?: number;
+}
+
+export interface FieldProvenance {
+  field: string;
+  selectors: string[];
+}
+
+export interface ImagePreviewItem {
+  url: string;
+  role: string;
+  confidence: number;
+  keep: boolean;
+  reason: string;
 }
 
 export interface MappingDraftSummary {
@@ -145,6 +159,10 @@ export interface MappingPreviewResponse {
   source_snippet: string | null;
   category_preview: Record<string, string[]>;
   warnings: string[];
+  page_family: { hub_url?: string; child_pages?: string[] };
+  field_sources: Record<string, string[]>;
+  linked_images: ImagePreviewItem[];
+  discarded_images: ImagePreviewItem[];
 }
 
 export interface MappingVersion {

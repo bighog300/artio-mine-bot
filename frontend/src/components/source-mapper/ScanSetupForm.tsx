@@ -2,6 +2,8 @@ interface ScanSettings {
   max_pages: number;
   max_depth: number;
   sample_pages_per_type: number;
+  discovery_roots?: string[];
+  blocked_paths?: string[];
 }
 
 interface Props {
@@ -15,6 +17,8 @@ interface Props {
 }
 
 export function ScanSetupForm({ sourceUrl, settings, onSettingsChange, onCreateDraft, onRunScan, loading, scanLoading }: Props) {
+  const discoveryRoot = settings.discovery_roots?.[0] ?? "";
+  const blockedPaths = (settings.blocked_paths ?? []).join(", ");
   return (
     <section className="rounded border bg-card p-4 space-y-3">
       <h2 className="font-semibold">URL Input & Scan Settings</h2>
@@ -28,6 +32,32 @@ export function ScanSetupForm({ sourceUrl, settings, onSettingsChange, onCreateD
         </label>
         <label className="space-y-1">Samples/type
           <input type="number" className="w-full border rounded px-2 py-1" value={settings.sample_pages_per_type} onChange={(e) => onSettingsChange({ ...settings, sample_pages_per_type: Number(e.target.value || 0) })} />
+        </label>
+      </div>
+      <div className="grid grid-cols-1 gap-2 text-sm">
+        <label className="space-y-1">Discovery root
+          <input
+            className="w-full border rounded px-2 py-1"
+            value={discoveryRoot}
+            placeholder="https://www.art.co.za/artists/"
+            onChange={(e) => onSettingsChange({ ...settings, discovery_roots: e.target.value ? [e.target.value] : [] })}
+          />
+        </label>
+        <label className="space-y-1">Ignore path patterns (comma separated)
+          <input
+            className="w-full border rounded px-2 py-1"
+            value={blockedPaths}
+            placeholder="/watchlist, /my, /auctions"
+            onChange={(e) =>
+              onSettingsChange({
+                ...settings,
+                blocked_paths: e.target.value
+                  .split(",")
+                  .map((item) => item.trim())
+                  .filter(Boolean),
+              })
+            }
+          />
         </label>
       </div>
       <div className="flex gap-2">

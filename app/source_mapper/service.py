@@ -115,7 +115,7 @@ class SourceMapperService:
             raise ValueError("Sample page not found")
 
         rows = await crud.list_source_mapping_rows(self.db, source_id, draft_id, skip=0, limit=1_000)
-        extractions, record_preview, category_preview, warnings, source_snippet = build_preview(
+        extractions, record_preview, category_preview, warnings, source_snippet, extended = build_preview(
             rows,
             sample,
             low_confidence_threshold=0.65,
@@ -144,6 +144,10 @@ class SourceMapperService:
             "source_snippet": source_snippet,
             "category_preview": category_preview,
             "warnings": warnings,
+            "page_family": extended.get("page_family", {}),
+            "field_sources": extended.get("field_sources", {}),
+            "linked_images": extended.get("linked_images", []),
+            "discarded_images": extended.get("discarded_images", []),
         }
 
     async def run_sample_review(
@@ -173,7 +177,9 @@ class SourceMapperService:
             summary={"page_type_keys": page_type_keys or [], "requested": sample_count},
         )
         for sample in selected:
-            extractions, record_preview, _, warnings, _ = build_preview(rows, sample, low_confidence_threshold=0.65)
+            extractions, record_preview, _, warnings, _, extended = build_preview(
+                rows, sample, low_confidence_threshold=0.65
+            )
             await crud.create_source_mapping_sample_result(
                 self.db,
                 run.id,
@@ -183,6 +189,10 @@ class SourceMapperService:
                     "record_preview": record_preview,
                     "extractions": extractions,
                     "warnings": warnings,
+                    "page_family": extended.get("page_family", {}),
+                    "field_sources": extended.get("field_sources", {}),
+                    "linked_images": extended.get("linked_images", []),
+                    "discarded_images": extended.get("discarded_images", []),
                 },
                 review_status="pending",
             )
@@ -200,8 +210,10 @@ class SourceMapperService:
         max_pages = int(options.get("max_pages", 50))
         allowed_paths = [p for p in options.get("allowed_paths", []) if isinstance(p, str)]
         blocked_paths = [p for p in options.get("blocked_paths", []) if isinstance(p, str)]
+        discovery_roots = [p for p in options.get("discovery_roots", []) if isinstance(p, str)]
 
-        homepage = await fetch(source.url)
+        root_url = discovery_roots[0] if discovery_roots else source.url
+        homepage = await fetch(root_url)
         if not homepage.html:
             return self._build_discovery_seed(source)
 
@@ -218,6 +230,7 @@ class SourceMapperService:
         seen.add(homepage.final_url)
 
         soup = BeautifulSoup(homepage.html, "lxml")
+        first_hop_urls: list[str] = []
         for anchor in soup.find_all("a", href=True):
             href = str(anchor.get("href") or "").strip()
             if not href or href.startswith("#") or href.startswith("javascript:") or href.startswith("mailto:"):
@@ -231,6 +244,7 @@ class SourceMapperService:
                 continue
             seen.add(absolute)
             fetched = await fetch(absolute)
+            first_hop_urls.append(fetched.final_url)
             discovered.append(
                 DiscoveredPage(
                     url=fetched.final_url,
@@ -240,6 +254,40 @@ class SourceMapperService:
             )
             if len(discovered) >= max_pages:
                 break
+        for hop_url in first_hop_urls:
+            if len(discovered) >= max_pages:
+                break
+            hop_page = await fetch(hop_url)
+            if not hop_page.html:
+                continue
+            hop_soup = BeautifulSoup(hop_page.html, "lxml")
+            for anchor in hop_soup.find_all("a", href=True):
+                href = str(anchor.get("href") or "").strip()
+                if not href:
+                    continue
+                absolute = urljoin(hop_page.final_url, href).split("#")[0]
+                if absolute in seen or not self._is_internal(source.url, absolute):
+                    continue
+                if not self._passes_path_rules(absolute, allowed_paths, blocked_paths):
+                    continue
+                lower_path = urlparse(absolute).path.lower()
+                if not (
+                    lower_path.startswith("/artists/")
+                    or lower_path.endswith("/about.php")
+                    or lower_path.count("/") <= 2
+                ):
+                    continue
+                seen.add(absolute)
+                child_fetched = await fetch(absolute)
+                discovered.append(
+                    DiscoveredPage(
+                        url=child_fetched.final_url,
+                        title=self._extract_title(child_fetched.html) or anchor.get_text(strip=True) or None,
+                        html_snippet=(child_fetched.html[:400] if child_fetched.html else None),
+                    )
+                )
+                if len(discovered) >= max_pages:
+                    break
 
         return discovered if len(discovered) > 1 else self._build_discovery_seed(source)
 

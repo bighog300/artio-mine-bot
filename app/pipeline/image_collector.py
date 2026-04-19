@@ -8,14 +8,12 @@ from bs4 import BeautifulSoup
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud
-from app.db.models import Image
-
 logger = structlog.get_logger()
 
 PROFILE_KEYWORDS = {"portrait", "headshot", "avatar", "profile", "author", "artist-photo"}
 ARTWORK_KEYWORDS = {"artwork", "painting", "sculpture", "drawing", "artwork", "canvas"}
-POSTER_KEYWORDS = {"poster", "exhibition", "event", "banner", "flyer"}
-VENUE_KEYWORDS = {"venue", "gallery", "exterior", "interior", "building", "museum"}
+DECORATIVE_KEYWORDS = {"poster", "exhibition", "event", "banner", "flyer", "icon", "logo", "sprite"}
+TEMPLATE_KEYWORDS = {"header", "footer", "nav", "menu", "background"}
 
 TRACKING_DOMAINS = {
     "google-analytics.com",
@@ -27,8 +25,8 @@ TRACKING_DOMAINS = {
 }
 
 
-def _classify_image(url: str, alt: str, context_text: str, img_tag) -> tuple[str, int]:
-    """Classify image type and return (type, confidence)."""
+def _classify_image(url: str, alt: str, context_text: str, img_tag, *, occurrence_count: int) -> tuple[str, int, str]:
+    """Classify image role and return (role, confidence, reason)."""
     url_lower = url.lower()
     alt_lower = (alt or "").lower()
     ctx_lower = (context_text or "").lower()
@@ -38,18 +36,28 @@ def _classify_image(url: str, alt: str, context_text: str, img_tag) -> tuple[str
     combined = f"{alt_lower} {classes} {url_lower}"
 
     if any(kw in combined for kw in PROFILE_KEYWORDS):
-        return "profile", 85
+        return "profile", 88, "keyword_profile"
 
     if any(kw in combined for kw in ARTWORK_KEYWORDS):
-        return "artwork", 80
+        return "artwork", 82, "keyword_artwork"
 
-    if any(kw in ctx_lower for kw in POSTER_KEYWORDS):
-        return "poster", 70
+    if "artist" in ctx_lower and "photo" in ctx_lower:
+        return "artist_photo", 78, "context_artist_photo"
 
-    if any(kw in combined for kw in VENUE_KEYWORDS):
-        return "venue", 75
+    classes = " ".join(img_tag.get("class", []) if img_tag else []).lower()
+    if any(zone in classes for zone in ("header", "footer", "nav", "menu", "sidebar")):
+        return "template_shared", 74, "dom_zone_template"
 
-    return "unknown", 50
+    if any(kw in combined for kw in TEMPLATE_KEYWORDS):
+        return "template_shared", 72, "keyword_template"
+
+    if any(kw in (combined + " " + ctx_lower) for kw in DECORATIVE_KEYWORDS):
+        return "decorative", 70, "decorative_context"
+
+    if occurrence_count > 1:
+        return "template_shared", 68, "repeated_across_page"
+
+    return "unknown", 50, "fallback_unknown"
 
 
 def _extract_images_from_html(html: str, base_url: str) -> list[dict]:
@@ -124,7 +132,7 @@ async def collect_images(
     db: AsyncSession,
     source_id: str,
     page_id: str | None = None,
-) -> list[Image]:
+) -> list[dict]:
     """Collect and validate images for a record, creating Image records in DB."""
     raw_images = _extract_images_from_html(html, page_url)
 
@@ -137,7 +145,10 @@ async def collect_images(
                 {"url": url, "alt": "", "width": None, "height": None, "context": "", "img_tag": None}
             )
 
-    results: list[Image] = []
+    results: list[dict] = []
+    url_counts: dict[str, int] = {}
+    for item in raw_images:
+        url_counts[item["url"]] = url_counts.get(item["url"], 0) + 1
 
     async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
         for img_data in raw_images:
@@ -159,7 +170,10 @@ async def collect_images(
             ctx = img_data["context"]
             img_tag = img_data["img_tag"]
 
-            image_type, confidence = _classify_image(url, alt, ctx, img_tag)
+            image_type, confidence, reason = _classify_image(
+                url, alt, ctx, img_tag, occurrence_count=url_counts.get(url, 1)
+            )
+            keep = image_type in {"profile", "artist_photo", "artwork"}
 
             try:
                 image = await crud.create_image(
@@ -176,7 +190,16 @@ async def collect_images(
                     is_valid=True,
                     confidence=confidence,
                 )
-                results.append(image)
+                results.append(
+                    {
+                        "url": url,
+                        "role": image_type,
+                        "confidence": confidence,
+                        "keep": keep,
+                        "reason": reason,
+                        "image_id": image.id,
+                    }
+                )
             except Exception as exc:
                 logger.debug("image_create_failed", url=url, error=str(exc))
 
