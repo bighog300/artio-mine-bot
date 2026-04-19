@@ -1,0 +1,16 @@
+repos:
+  - repo: local
+    hooks:
+      - id: check-migrations
+        name: Check Migration Files
+        entry: python scripts/check_migrations.py
+        language: system
+        files: ^app/db/migrations/versions/.*\.py$
+        pass_filenames: false
+
+      - id: no-boolean-integers
+        name: No Boolean Integer Defaults
+        entry: bash -c 'if grep -r "server_default=sa.text(\"[01]\")" app/db/migrations/versions/; then echo "❌ Boolean columns must use TRUE/FALSE, not 1/0"; exit 1; fi'
+        language: system
+        files: ^app/db/migrations/versions/.*\.py$
+        pass_filenames: false

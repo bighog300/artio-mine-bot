@@ -106,3 +106,53 @@ npm test
   - Start with `docs/root/SPEC.md`, `docs/root/API.md`, `docs/root/UI.md`, `docs/root/STACK.md`
 - Backfill documentation: `docs/backfill/`
   - Start with `docs/backfill/README.md`
+
+## 🗄️ Database Migrations
+
+This project uses Alembic for database migrations.
+
+### Running Migrations
+
+```bash
+# Fresh deployment
+docker-compose up -d
+docker-compose exec api alembic upgrade head
+
+# Create new migration
+docker-compose exec api alembic revision --autogenerate -m "description"
+
+# Rollback one migration
+docker-compose exec api alembic downgrade -1
+```
+
+### Testing Migrations
+
+Before pushing migration changes:
+
+```bash
+# Run migration linter
+python scripts/check_migrations.py
+
+# Run migration tests
+pytest tests/test_migrations.py -v
+
+# Test from scratch
+docker-compose down -v
+docker-compose up -d
+docker-compose exec api alembic upgrade head
+```
+
+See [Migration Guide](docs/MIGRATION_GUIDE.md) for best practices.
+
+### Setting Up Pre-commit Hooks
+
+```bash
+# Install pre-commit
+pip install pre-commit
+
+# Install hooks
+pre-commit install
+
+# Run manually on all files
+pre-commit run --all-files
+```
