@@ -2,8 +2,8 @@ interface ScanSettings {
   max_pages: number;
   max_depth: number;
   sample_pages_per_type: number;
-  discovery_roots?: string[];
-  blocked_paths?: string[];
+  discovery_roots: string[];
+  blocked_paths: string[];
 }
 
 interface Props {
@@ -17,8 +17,8 @@ interface Props {
 }
 
 export function ScanSetupForm({ sourceUrl, settings, onSettingsChange, onCreateDraft, onRunScan, loading, scanLoading }: Props) {
-  const discoveryRoot = settings.discovery_roots?.[0] ?? "";
-  const blockedPaths = (settings.blocked_paths ?? []).join(", ");
+  const discoveryRoot = settings.discovery_roots[0] ?? "";
+  const blockedPaths = settings.blocked_paths.join(", ");
   return (
     <section className="rounded border bg-card p-4 space-y-3">
       <h2 className="font-semibold">URL Input & Scan Settings</h2>
