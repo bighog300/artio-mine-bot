@@ -85,6 +85,10 @@ describe("Source mapper critical flows", () => {
       record_preview: { title: "Open Studio" },
       category_preview: { themes: ["studio"] },
       warnings: ["Missing timezone"],
+      page_family: {},
+      field_sources: {},
+      linked_images: [],
+      discarded_images: [],
     };
 
     render(<MappingPreviewPanel preview={preview} />);
