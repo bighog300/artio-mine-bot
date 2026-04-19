@@ -570,7 +570,12 @@ async def publish_source_mapping_version(
     draft.published_by = published_by
     draft.updated_at = now
     source.active_mapping_version_id = draft.id
+    source.published_mapping_version_id = draft.id
     source.mapping_status = "published"
+    source.runtime_mode = "deterministic_runtime"
+    source.runtime_ai_enabled = False
+    source.mapping_stale = False
+    source.last_mapping_published_at = now
     source.updated_at = now
     await db.commit()
     await db.refresh(draft)
