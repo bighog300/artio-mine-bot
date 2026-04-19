@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Eye, Pause, Play, RotateCcw, Square, Trash2 } from "lucide-react";
+import { Eye, Pause, Play, RotateCcw, Sparkles, Square, Trash2 } from "lucide-react";
 import {
   createSource,
   createSourceMappingDraft,
@@ -18,7 +18,7 @@ import {
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { MobileCard, MobileCardRow } from "@/components/ui/MobileCard";
 import { formatRelative } from "@/lib/utils";
-import { Button, Input, Select } from "@/components/ui";
+import { Button, EmptyState, Input, Select, Skeleton, SkeletonTableRows, useToast } from "@/components/ui";
 import { useIsMobile } from "@/lib/mobile-utils";
 import type { Source } from "@/lib/api";
 
@@ -44,18 +44,23 @@ export function Sources() {
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const toast = useToast();
 
   const { data, isLoading } = useQuery({ queryKey: ["sources"], queryFn: getSources });
 
   const createMutation = useMutation({
     mutationFn: createSource,
     onSuccess: () => {
+      toast.success("Source created", "The source has been added successfully.");
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       setShowDialog(false);
       setError(null);
       setForm({ url: "", name: "", crawl_intent: "site_root", enabled: true });
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => {
+      setError(e.message);
+      toast.error("Failed to create source", e.message);
+    },
   });
 
   const createAndRunMutation = useMutation({
@@ -69,13 +74,17 @@ export function Sources() {
       return source;
     },
     onSuccess: () => {
+      toast.success("Mining started", "Source saved and job started.");
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       setShowDialog(false);
       setError(null);
       setActionFeedback("Source saved and job started.");
       setForm({ url: "", name: "", crawl_intent: "site_root", enabled: true });
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => {
+      setError(e.message);
+      toast.error("Unable to start mining", e.message);
+    },
   });
 
   const createAndOpenMappingMutation = useMutation({
@@ -89,6 +98,7 @@ export function Sources() {
       return { sourceId: source.id, draftId: draft.id };
     },
     onSuccess: ({ sourceId, draftId }) => {
+      toast.success("Mapping scan started", "Source saved and mapping scan started.");
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       setShowDialog(false);
       setError(null);
@@ -96,15 +106,24 @@ export function Sources() {
       setForm({ url: "", name: "", crawl_intent: "site_root", enabled: true });
       navigate(`/sources/${sourceId}/mapping?draft=${draftId}`);
     },
-    onError: (e: Error) => setError(e.message),
+    onError: (e: Error) => {
+      setError(e.message);
+      toast.error("Unable to open mapping", e.message);
+    },
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteSource,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sources"] }),
+    onMutate: () => toast.loading("Deleting source..."),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sources"] });
+      toast.success("Source deleted");
+    },
+    onError: (e: Error) => toast.error("Delete failed", e.message),
   });
 
   const actionMutation = useMutation({
+    onMutate: ({ action }) => toast.loading(`Running ${action.replace("-", " ")}...`),
     mutationFn: async ({ sourceId, action }: { sourceId: string; action: SourceAction }) => {
       switch (action) {
         case "start-discovery":
@@ -124,8 +143,12 @@ export function Sources() {
     onSuccess: () => {
       setActionFeedback("Source action accepted.");
       queryClient.invalidateQueries({ queryKey: ["sources"] });
+      toast.success("Source action accepted");
     },
-    onError: (e: Error) => setActionFeedback(e.message),
+    onError: (e: Error) => {
+      setActionFeedback(e.message);
+      toast.error("Source action failed", e.message);
+    },
   });
 
   const isCreateBusy = createMutation.isPending || createAndRunMutation.isPending || createAndOpenMappingMutation.isPending;
@@ -142,7 +165,20 @@ export function Sources() {
 
       {isMobile ? (
         <div className="space-y-3">
-          {isLoading && <div className="rounded border border-border bg-card p-6 text-center text-sm text-muted-foreground/80">Loading...</div>}
+          {isLoading && (
+            <div className="space-y-3" role="status" aria-label="Loading sources">
+              {Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-28 rounded-lg border" />)}
+            </div>
+          )}
+          {!isLoading && (data?.items.length ?? 0) === 0 && (
+            <EmptyState
+              icon={Sparkles}
+              title="No sources yet"
+              description="Add your first art website source to start crawling, classifying, and extracting records."
+              actionLabel="Add Source"
+              onAction={() => setShowDialog(true)}
+            />
+          )}
           {data?.items.map((source) => (
             <SourceMobileCard key={source.id} source={source} onView={() => navigate(`/sources/${source.id}`)} />
           ))}
@@ -161,8 +197,19 @@ export function Sources() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && (
-              <tr><td colSpan={6} className="p-6 text-center text-muted-foreground/80">Loading...</td></tr>
+            {isLoading && <SkeletonTableRows columns={6} rows={4} />}
+            {!isLoading && (data?.items.length ?? 0) === 0 && (
+              <tr>
+                <td colSpan={6} className="p-4">
+                  <EmptyState
+                    icon={Sparkles}
+                    title="No sources connected"
+                    description="Create a source and kick off discovery mining to populate this table with crawl progress and results."
+                    actionLabel="Add Source"
+                    onAction={() => setShowDialog(true)}
+                  />
+                </td>
+              </tr>
             )}
             {data?.items.map((source) => (
               <tr key={source.id} className="border-t hover:bg-muted/40">

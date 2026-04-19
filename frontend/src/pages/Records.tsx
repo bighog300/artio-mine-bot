@@ -5,8 +5,9 @@ import { RecordTableRow } from "@/components/records/RecordTableRow";
 import { MobileCard, MobileCardRow } from "@/components/ui/MobileCard";
 import { RecordTypeBadge } from "@/components/shared/RecordTypeBadge";
 import { ConfidenceBadge } from "@/components/shared/ConfidenceBadge";
-import { Button, Input, Select } from "@/components/ui";
+import { Button, EmptyState, Input, Select, Skeleton, SkeletonTableRows } from "@/components/ui";
 import { useIsMobile } from "@/lib/mobile-utils";
+import { Database } from "lucide-react";
 
 const PAGE_SIZE = 25;
 
@@ -179,11 +180,20 @@ export function Records() {
 
       {isMobile ? (
         <div className="space-y-3">
+          {isLoading && (
+            <div className="space-y-3" role="status" aria-label="Loading records">
+              {Array.from({ length: 3 }).map((_, index) => <Skeleton key={index} className="h-32 rounded-lg border" />)}
+            </div>
+          )}
           {data?.items.map((record) => (
             <RecordMobileCard key={record.id} record={record} onToggleSelected={toggleSelected} onApprove={approveMutation.mutate} onReject={rejectMutation.mutate} selected={selectedIds.has(record.id)} />
           ))}
           {!isLoading && data?.items.length === 0 && (
-            <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground/80">No records found.</div>
+            <EmptyState
+              icon={Database}
+              title="No records match these filters"
+              description="Try adjusting your filters or run mining on a source to generate records for review."
+            />
           )}
         </div>
       ) : (
@@ -206,10 +216,8 @@ export function Records() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && (
-              <tr><td colSpan={6} className="text-center p-8 text-muted-foreground/80">Loading...</td></tr>
-            )}
-            {data?.items.map((record) => (
+            {isLoading && <SkeletonTableRows columns={6} rows={6} />}
+          {data?.items.map((record) => (
               <RecordTableRow
                 key={record.id}
                 record={record}
@@ -220,7 +228,15 @@ export function Records() {
               />
             ))}
             {!isLoading && data?.items.length === 0 && (
-              <tr><td colSpan={6} className="text-center p-8 text-muted-foreground/80">No records found.</td></tr>
+              <tr>
+                <td colSpan={6} className="p-4">
+                  <EmptyState
+                    icon={Database}
+                    title="No records found"
+                    description="No records currently match this status and filter set. Clear filters or mine more sources."
+                  />
+                </td>
+              </tr>
             )}
           </tbody>
         </table>

@@ -23,10 +23,12 @@ import { Backfill } from "@/pages/Backfill";
 import { JobDetail } from "@/pages/JobDetail";
 import { Workers } from "@/pages/Workers";
 import { MobileTest } from "@/pages/MobileTest";
+import { ToastProvider } from "@/components/ui";
 
 export default function App() {
   return (
     <BrowserRouter>
+      <ToastProvider>
       <Layout>
         <Routes>
           <Route path="/" element={<Dashboard />} />
@@ -54,6 +56,7 @@ export default function App() {
           <Route path="/mobile-test" element={<MobileTest />} />
         </Routes>
       </Layout>
+      </ToastProvider>
     </BrowserRouter>
   );
 }

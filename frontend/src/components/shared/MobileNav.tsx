@@ -2,33 +2,8 @@ import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 import { ThemeToggle } from "@/components/shared/ThemeToggle";
+import { navSections } from "@/components/shared/navigation";
 import { cn } from "@/lib/utils";
-
-interface NavItem {
-  path: string;
-  label: string;
-}
-
-const navItems: NavItem[] = [
-  { path: "/", label: "Dashboard" },
-  { path: "/sources", label: "Sources" },
-  { path: "/pages", label: "Pages" },
-  { path: "/jobs", label: "Jobs" },
-  { path: "/queues", label: "Queues" },
-  { path: "/workers", label: "Workers" },
-  { path: "/backfill", label: "Backfill" },
-  { path: "/records", label: "Records" },
-  { path: "/admin-review", label: "Admin Review" },
-  { path: "/duplicates", label: "Duplicates" },
-  { path: "/semantic", label: "Semantic" },
-  { path: "/audit", label: "Audit Trail" },
-  { path: "/images", label: "Images" },
-  { path: "/export", label: "Export" },
-  { path: "/logs", label: "Logs" },
-  { path: "/settings", label: "Settings" },
-  { path: "/api-access", label: "API Access" },
-  { path: "/mobile-test", label: "Mobile Test" },
-];
 
 export function MobileNav() {
   const [isOpen, setIsOpen] = useState(false);
@@ -65,23 +40,28 @@ export function MobileNav() {
           isOpen ? "translate-x-0" : "translate-x-full",
         )}
       >
-        <div className="flex flex-col gap-2 overflow-y-auto p-4">
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path));
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={() => setIsOpen(false)}
-                className={cn(
-                  "flex min-h-[48px] items-center rounded-lg px-4 py-3 text-sm font-medium transition-colors",
-                  isActive ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                )}
-              >
-                {item.label}
-              </Link>
-            );
-          })}
+        <div className="flex flex-col gap-4 overflow-y-auto p-4">
+          {navSections.map((section) => (
+            <div key={section.heading} className="space-y-1">
+              <h2 className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground/80">{section.heading}</h2>
+              {section.items.map((item) => {
+                const isActive = location.pathname === item.to || (item.to !== "/" && location.pathname.startsWith(item.to));
+                return (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    onClick={() => setIsOpen(false)}
+                    className={cn(
+                      "flex min-h-[48px] items-center rounded-lg px-4 py-3 text-sm font-medium transition-colors",
+                      isActive ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                    )}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </div>
       </nav>
     </>

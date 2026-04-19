@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getSettings, saveSettings, testArtioConnection } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { Alert, Button, Input } from "@/components/ui";
+import { Alert, Button, Input, useToast } from "@/components/ui";
 
 // ── Connection status union ───────────────────────────────────────────────────
 
@@ -16,6 +16,7 @@ type ConnectionStatus =
 
 export function Settings() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const { data, isLoading } = useQuery({ queryKey: ["settings"], queryFn: getSettings });
 
   // Artio API section
@@ -55,7 +56,9 @@ export function Settings() {
         max_pages_per_source: maxPages,
         crawl_delay_ms: crawlDelay,
       }),
+    onMutate: () => toast.loading("Saving settings..."),
     onSuccess: (updated) => {
+      toast.success("Settings saved");
       queryClient.setQueryData(["settings"], updated);
       setArtioKeyDirty(false);
       setOpenaiKeyDirty(false);
@@ -63,18 +66,31 @@ export function Settings() {
       setOpenaiKey(updated.openai_api_key_masked ?? "");
       setSavedAt(Date.now());
     },
+    onError: (error: Error) => toast.error("Failed to save settings", error.message),
   });
 
   const testMutation = useMutation({
+    onMutate: () => {
+      toast.loading("Testing Artio connection...");
+      setConnStatus({ state: "testing" });
+    },
     mutationFn: testArtioConnection,
-    onMutate: () => setConnStatus({ state: "testing" }),
-    onSuccess: (result) =>
+    onSuccess: (result) => {
+      if (result.success) {
+        toast.success("Connection successful", result.message);
+      } else {
+        toast.error("Connection failed", result.message);
+      }
       setConnStatus(
         result.success
           ? { state: "success", message: result.message }
           : { state: "error", message: result.message }
-      ),
-    onError: (e: Error) => setConnStatus({ state: "error", message: e.message }),
+      );
+    },
+    onError: (e: Error) => {
+      setConnStatus({ state: "error", message: e.message });
+      toast.error("Connection test failed", e.message);
+    },
   });
 
   if (isLoading) {
