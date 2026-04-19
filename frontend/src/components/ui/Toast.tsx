@@ -29,7 +29,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const push = useCallback((type: ToastType, title: string, description?: string) => {
-    const id = crypto.randomUUID();
+    const id = crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     setToasts((prev) => [...prev, { id, type, title, description }]);
     if (type !== "loading") {
       window.setTimeout(() => dismiss(id), 3500);
