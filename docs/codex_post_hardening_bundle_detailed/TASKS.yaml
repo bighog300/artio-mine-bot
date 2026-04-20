@@ -1,0 +1,37 @@
+
+phases:
+  - name: benchmark
+    tasks:
+      - create_gold_dataset
+      - build_evaluation_runner
+      - define_metrics
+      - generate_baseline_report
+
+  - name: extraction
+    tasks:
+      - build_page_classifier
+      - implement_art_extractors
+      - add_llm_fallback
+      - normalize_entities
+      - add_validation_layer
+
+  - name: crawling
+    tasks:
+      - improve_frontier
+      - implement_incremental_crawls
+      - add_domain_rate_limits
+      - improve_js_handling
+
+  - name: operator_tools
+    tasks:
+      - build_review_ui
+      - add_correction_feedback_loop
+      - implement_rerun_diff_tools
+      - add_source_presets
+
+  - name: data_intelligence
+    tasks:
+      - implement_entity_linking
+      - add_deduplication
+      - track_changes_over_time
+      - build_knowledge_graph
