@@ -1,6 +1,0 @@
-phases:
-  - benchmark
-  - extraction
-  - crawling
-  - operator_tools
-  - data_intelligence
