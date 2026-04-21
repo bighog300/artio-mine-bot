@@ -1,12 +1,13 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
+import structlog
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import parse_permissions
 from app.api.deps import get_db
-from app.config import settings
+from app.config import is_dev_auto_admin_enabled, settings
 from app.db import crud
 
 Role = str
@@ -24,6 +25,7 @@ ROLE_PERMISSIONS: dict[Role, set[str]] = {
     "reviewer": {"read", "merge", "rerun", "manage_jobs"},
     "viewer": {"read"},
 }
+logger = structlog.get_logger()
 
 
 @dataclass
@@ -63,6 +65,19 @@ async def get_current_principal(
             subject=api_key.id,
             role=_role_from_api_permissions(permissions),
             authenticated_via="api_key",
+        )
+
+    if is_dev_auto_admin_enabled():
+        logger.info(
+            "rbac.dev_auto_admin_authenticated",
+            environment=settings.environment,
+            subject="dev-auto-admin",
+            auth_type="development_auto_admin",
+        )
+        return Principal(
+            subject="dev-auto-admin",
+            role="admin",
+            authenticated_via="development_auto_admin",
         )
 
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")

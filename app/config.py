@@ -6,6 +6,7 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 STRICT_ENVIRONMENTS = {"production", "vercel"}
+DEVELOPMENT_ENVIRONMENTS = {"development", "dev", "local"}
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
 
 
@@ -14,8 +15,29 @@ def is_serverless_environment(environment: str | None = None) -> bool:
     return current in STRICT_ENVIRONMENTS
 
 
+def is_development_environment(environment: str | None = None) -> bool:
+    current = (environment or settings.environment).strip().lower() if (environment or settings.environment) else ""
+    return current in DEVELOPMENT_ENVIRONMENTS
+
+
 def is_readonly_environment(environment: str | None = None) -> bool:
     return is_serverless_environment(environment)
+
+
+def is_dev_auto_admin_enabled(
+    environment: str | None = None,
+    dev_auto_admin: bool | None = None,
+) -> bool:
+    current_environment = environment or settings.environment
+    if not is_development_environment(current_environment):
+        return False
+    if is_serverless_environment(current_environment) or is_readonly_environment(current_environment):
+        return False
+
+    configured = settings.dev_auto_admin if dev_auto_admin is None else dev_auto_admin
+    if configured is None:
+        return True
+    return configured
 
 
 def get_database_url() -> str:
@@ -80,6 +102,8 @@ class Settings(BaseSettings):
     )
 
     environment: str = "development"
+    # None means "use environment-based default": True in local development, False otherwise.
+    dev_auto_admin: bool | None = None
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
     openai_required: bool = False

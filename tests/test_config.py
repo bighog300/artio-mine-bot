@@ -1,6 +1,13 @@
 import pytest
 
-from app.config import is_readonly_environment, is_serverless_environment, normalize_database_url, validate_async_driver
+from app.config import (
+    is_dev_auto_admin_enabled,
+    is_development_environment,
+    is_readonly_environment,
+    is_serverless_environment,
+    normalize_database_url,
+    validate_async_driver,
+)
 
 
 def test_normalize_postgres_sync_urls() -> None:
@@ -23,3 +30,18 @@ def test_serverless_environment_helpers_treat_production_and_vercel_equally() ->
     assert is_serverless_environment("development") is False
     assert is_readonly_environment("production") is True
     assert is_readonly_environment("vercel") is True
+
+
+def test_is_development_environment_helper() -> None:
+    assert is_development_environment("development") is True
+    assert is_development_environment("local") is True
+    assert is_development_environment("dev") is True
+    assert is_development_environment("production") is False
+
+
+def test_dev_auto_admin_enabled_only_in_local_development() -> None:
+    assert is_dev_auto_admin_enabled(environment="development", dev_auto_admin=None) is True
+    assert is_dev_auto_admin_enabled(environment="development", dev_auto_admin=True) is True
+    assert is_dev_auto_admin_enabled(environment="development", dev_auto_admin=False) is False
+    assert is_dev_auto_admin_enabled(environment="production", dev_auto_admin=True) is False
+    assert is_dev_auto_admin_enabled(environment="vercel", dev_auto_admin=True) is False
