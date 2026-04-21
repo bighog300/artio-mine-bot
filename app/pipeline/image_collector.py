@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 import httpx
 import structlog
 from bs4 import BeautifulSoup
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud
@@ -158,7 +159,7 @@ async def collect_images(
                 content_type = resp.headers.get("content-type", "")
                 is_valid = resp.status_code < 400 and content_type.startswith("image/")
                 mime_type = content_type.split(";")[0].strip() if is_valid else None
-            except Exception as exc:
+            except httpx.HTTPError as exc:
                 logger.debug("image_head_failed", url=url, error=str(exc))
                 is_valid = False
                 mime_type = None
@@ -200,7 +201,7 @@ async def collect_images(
                         "image_id": image.id,
                     }
                 )
-            except Exception as exc:
+            except SQLAlchemyError as exc:
                 logger.debug("image_create_failed", url=url, error=str(exc))
 
     return results

@@ -1,11 +1,9 @@
-import os
-
 import httpx
 import structlog
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.config import settings
+from app.config import is_readonly_environment, settings
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 logger = structlog.get_logger(__name__)
@@ -48,19 +46,8 @@ def _mask_key(key: str | None) -> str | None:
 
 
 def _is_readonly() -> bool:
-    """Vercel filesystem is read-only — detect via ENVIRONMENT=production."""
-    return settings.environment == "production"
-
-
-def _validate_env_target(env_file: str) -> None:
-    env_dir = os.path.dirname(env_file) or "."
-    if not os.path.isdir(env_dir):
-        raise RuntimeError(f"Settings directory does not exist: {env_dir}")
-    if os.path.exists(env_file):
-        if not os.access(env_file, os.W_OK):
-            raise RuntimeError(f"Settings file is not writable: {env_file}")
-    elif not os.access(env_dir, os.W_OK):
-        raise RuntimeError(f"Settings directory is not writable: {env_dir}")
+    """Serverless environments are deployment-managed and read-only."""
+    return is_readonly_environment()
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -88,70 +75,30 @@ async def save_settings(body: SaveSettingsRequest) -> SettingsResponse:
     Configure permanent values via Vercel Environment Variables dashboard.
     """
     sent = body.model_fields_set
-    readonly = _is_readonly()
 
-    if not readonly:
-        # Only write to .env file when running locally / on Docker
-        from app.config import BASE_DIR
-        from dotenv import set_key, unset_key
+    if "artio_api_key" in sent or "openai_api_key" in sent:
+        raise HTTPException(
+            status_code=400,
+            detail="Secret settings are deployment-managed and cannot be updated via this endpoint.",
+        )
 
-        env_file = str(BASE_DIR / ".env")
-        try:
-            _validate_env_target(env_file)
-
-            if "artio_api_url" in sent:
-                url = (body.artio_api_url or "").strip()
-                if url:
-                    set_key(env_file, "ARTIO_API_URL", url)
-                else:
-                    unset_key(env_file, "ARTIO_API_URL")
-
-            if "artio_api_key" in sent and body.artio_api_key:
-                key = body.artio_api_key.strip()
-                if not key.startswith("***") and key:
-                    set_key(env_file, "ARTIO_API_KEY", key)
-
-            if "openai_api_key" in sent and body.openai_api_key:
-                key = body.openai_api_key.strip()
-                if not key.startswith("***") and key:
-                    set_key(env_file, "OPENAI_API_KEY", key)
-
-            if "max_crawl_depth" in sent and body.max_crawl_depth is not None:
-                set_key(env_file, "MAX_CRAWL_DEPTH", str(body.max_crawl_depth))
-
-            if "max_pages_per_source" in sent and body.max_pages_per_source is not None:
-                set_key(env_file, "MAX_PAGES_PER_SOURCE", str(body.max_pages_per_source))
-
-            if "crawl_delay_ms" in sent and body.crawl_delay_ms is not None:
-                set_key(env_file, "CRAWL_DELAY_MS", str(body.crawl_delay_ms))
-        except (OSError, PermissionError, ValueError, RuntimeError) as exc:
-            logger.exception("settings_persist_failed", env_file=env_file, error=str(exc))
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to persist settings to .env. Check file path and permissions.",
-            ) from exc
-
-    # Always update in-memory settings
+    # Runtime-editable non-secret settings only.
     if "artio_api_url" in sent:
         settings.artio_api_url = (body.artio_api_url or "").strip() or None
 
-    if "artio_api_key" in sent and body.artio_api_key:
-        key = body.artio_api_key.strip()
-        if not key.startswith("***"):
-            settings.artio_api_key = key or None
-
-    if "openai_api_key" in sent and body.openai_api_key:
-        key = body.openai_api_key.strip()
-        if not key.startswith("***"):
-            settings.openai_api_key = key
-
     if "max_crawl_depth" in sent and body.max_crawl_depth is not None:
+        if not 1 <= body.max_crawl_depth <= 10:
+            raise HTTPException(status_code=400, detail="max_crawl_depth must be between 1 and 10")
         settings.max_crawl_depth = body.max_crawl_depth
 
     if "max_pages_per_source" in sent and body.max_pages_per_source is not None:
+        if not 1 <= body.max_pages_per_source <= 5000:
+            raise HTTPException(status_code=400, detail="max_pages_per_source must be between 1 and 5000")
         settings.max_pages_per_source = body.max_pages_per_source
 
     if "crawl_delay_ms" in sent and body.crawl_delay_ms is not None:
+        if not 0 <= body.crawl_delay_ms <= 60000:
+            raise HTTPException(status_code=400, detail="crawl_delay_ms must be between 0 and 60000")
         settings.crawl_delay_ms = body.crawl_delay_ms
 
     return await get_settings()
@@ -182,5 +129,6 @@ async def test_artio_connection() -> TestConnectionResponse:
         return TestConnectionResponse(success=False, message="Connection refused — check the URL")
     except httpx.TimeoutException:
         return TestConnectionResponse(success=False, message="Request timed out")
-    except Exception as exc:
-        return TestConnectionResponse(success=False, message=str(exc))
+    except httpx.HTTPError:
+        logger.exception("settings_test_artio_request_failed")
+        return TestConnectionResponse(success=False, message="Request failed")

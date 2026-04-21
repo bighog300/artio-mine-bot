@@ -9,6 +9,15 @@ STRICT_ENVIRONMENTS = {"production", "vercel"}
 BASE_DIR: Path = Path(__file__).resolve().parent.parent
 
 
+def is_serverless_environment(environment: str | None = None) -> bool:
+    current = (environment or settings.environment).strip().lower() if (environment or settings.environment) else ""
+    return current in STRICT_ENVIRONMENTS
+
+
+def is_readonly_environment(environment: str | None = None) -> bool:
+    return is_serverless_environment(environment)
+
+
 def get_database_url() -> str:
     """Return DATABASE_URL from env or a Docker-friendly asyncpg default."""
     return os.environ.get(
@@ -78,6 +87,7 @@ class Settings(BaseSettings):
     redis_url: str = os.environ.get("REDIS_URL", "redis://redis:6379/0")
     artio_api_url: str | None = None
     artio_api_key: str | None = None
+    admin_api_token: str = "dev-admin-token"
     max_crawl_depth: int = 3
     max_pages_per_source: int = 500
     crawl_delay_ms: int = 1000
@@ -98,7 +108,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _set_playwright_default(self) -> "Settings":
         if self.playwright_enabled is None:
-            self.playwright_enabled = self.environment not in STRICT_ENVIRONMENTS
+            self.playwright_enabled = not is_serverless_environment(self.environment)
         return self
 
     @model_validator(mode="after")
@@ -121,5 +131,5 @@ def validate_env() -> None:
 
 
 def require_worker_environment() -> None:
-    if settings.environment in STRICT_ENVIRONMENTS:
+    if is_serverless_environment():
         raise RuntimeError("This task must run in a worker environment, not Vercel.")

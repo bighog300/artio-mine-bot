@@ -1,19 +1,32 @@
 from fastapi import APIRouter, Depends, HTTPException
+from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
-from app.config import settings
+from app.config import require_worker_environment
 from app.db import crud
+from app.queue import QueueUnavailableError, get_default_queue
 
 router = APIRouter(prefix="/pages", tags=["pages"])
 
 
 def _ensure_worker_runtime() -> None:
-    if settings.environment == "production":
-        raise HTTPException(
-            status_code=503,
-            detail="This task must run in a worker environment, not Vercel.",
-        )
+    try:
+        require_worker_environment()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _enqueue_page_job(job_id: str, source_id: str, job_type: str, payload: dict) -> str:
+    rq_job = get_default_queue().enqueue(
+        "app.pipeline.runner.process_pipeline_job",
+        job_id,
+        source_id,
+        job_type,
+        payload,
+        job_timeout=900,
+    )
+    return rq_job.id
 
 
 def _page_to_dict(page, record_count: int = 0) -> dict:
@@ -78,7 +91,18 @@ async def reclassify_page(page_id: str, db: AsyncSession = Depends(get_db)):
         job_type="reclassify_page",
         payload={"page_id": page_id},
     )
-    return {"job_id": job.id, "status": "pending", "page_id": page_id}
+    try:
+        await crud.update_job_status(db, job.id, "queued")
+        rq_job_id = _enqueue_page_job(job.id, page.source_id, "reclassify_page", {"page_id": page_id})
+    except (QueueUnavailableError, RedisError, OSError, RuntimeError) as exc:
+        await crud.update_job_status(
+            db,
+            job.id,
+            "failed",
+            error_message=f"Queue enqueue failed: {exc}",
+        )
+        raise HTTPException(status_code=503, detail="Failed to enqueue page reclassification job.") from exc
+    return {"job_id": job.id, "rq_job_id": rq_job_id, "status": "queued", "page_id": page_id}
 
 
 @router.post("/{page_id}/reextract", status_code=202)
@@ -97,4 +121,15 @@ async def reextract_page(page_id: str, db: AsyncSession = Depends(get_db)):
         job_type="reextract_page",
         payload={"page_id": page_id},
     )
-    return {"job_id": job.id, "status": "pending", "page_id": page_id}
+    try:
+        await crud.update_job_status(db, job.id, "queued")
+        rq_job_id = _enqueue_page_job(job.id, page.source_id, "reextract_page", {"page_id": page_id})
+    except (QueueUnavailableError, RedisError, OSError, RuntimeError) as exc:
+        await crud.update_job_status(
+            db,
+            job.id,
+            "failed",
+            error_message=f"Queue enqueue failed: {exc}",
+        )
+        raise HTTPException(status_code=503, detail="Failed to enqueue page re-extraction job.") from exc
+    return {"job_id": job.id, "rq_job_id": rq_job_id, "status": "queued", "page_id": page_id}

@@ -95,7 +95,7 @@ class SourceMapperService:
             source.last_mapping_error = None
             await self.db.commit()
             return {"scan_status": draft.scan_status, "page_type_count": len(clusters)}
-        except Exception as exc:
+        except (ValueError, RuntimeError, TypeError, json.JSONDecodeError) as exc:
             logger.exception(
                 "source_mapper_scan_failed",
                 source_id=source.id,

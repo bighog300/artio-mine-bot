@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import generate_api_key, mask_api_key
 from app.api.deps import get_db
+from app.api.rbac import require_permission
 from app.db import crud
 
 router = APIRouter(prefix="/keys", tags=["api-keys"])
@@ -21,6 +22,7 @@ class APIKeyCreateRequest(BaseModel):
 async def create_api_key(
     body: APIKeyCreateRequest,
     db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("manage_jobs")),
 ):
     await crud.ensure_tenant(db, body.tenant_id, name=body.tenant_id)
     raw_key, key_hash = generate_api_key()
@@ -48,6 +50,7 @@ async def create_api_key(
 async def list_api_keys(
     tenant_id: str | None = None,
     db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("manage_jobs")),
 ):
     rows = await crud.list_api_keys(db, tenant_id=tenant_id)
     return {
@@ -73,6 +76,7 @@ async def delete_api_key(
     key_id: str,
     tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
     db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("manage_jobs")),
 ):
     deleted = await crud.disable_api_key(db, key_id=key_id, tenant_id=tenant_id)
     if not deleted:

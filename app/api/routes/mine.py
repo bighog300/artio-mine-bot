@@ -11,7 +11,7 @@ from app.api.schemas import (
     MineStatusProgress,
     MineStatusResponse,
 )
-from app.config import settings
+from app.config import is_serverless_environment, require_worker_environment, settings
 from app.db import crud
 from app.queue import QueueUnavailableError, check_queue_health, get_default_queue
 
@@ -21,11 +21,10 @@ PIPELINE_JOB_TIMEOUT_SECONDS = 900
 
 
 def _ensure_worker_runtime() -> None:
-    if settings.environment in {"production", "vercel"}:
-        raise HTTPException(
-            status_code=503,
-            detail="This task must run in a worker environment, not Vercel.",
-        )
+    try:
+        require_worker_environment()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 def _enqueue_pipeline_job(job_id: str, source_id: str, job_type: str, payload: dict) -> str:
@@ -42,7 +41,7 @@ def _enqueue_pipeline_job(job_id: str, source_id: str, job_type: str, payload: d
 
 def _assert_queue_available(require_worker: bool = True) -> None:
     health = check_queue_health()
-    if settings.environment in {"development", "test"}:
+    if not is_serverless_environment() and settings.environment in {"development", "test", "docker"}:
         return
     if not health.redis_ok:
         raise HTTPException(

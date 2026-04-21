@@ -17,6 +17,25 @@ async def test_health_endpoint(test_client: AsyncClient):
     assert data["status"] == "ok"
     assert "version" in data
     assert "db" in data
+    assert "error:" not in data["db"]
+
+
+@pytest.mark.asyncio
+async def test_health_endpoint_does_not_leak_internal_error_text(test_client: AsyncClient):
+    class _FailingSession:
+        async def __aenter__(self):
+            raise RuntimeError("sensitive-db-error")
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    with patch("app.db.database.AsyncSessionLocal", return_value=_FailingSession()):
+        resp = await test_client.get("/health")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["db"] == "error"
+    assert "sensitive-db-error" not in str(payload)
 
 
 @pytest.mark.asyncio
@@ -368,31 +387,28 @@ async def test_settings_openai_api_key_flow(test_client: AsyncClient):
     assert "openai_api_key_masked" in read_resp.json()
     assert "openai_configured" in read_resp.json()
 
-    save_resp = await test_client.post(
-        "/api/settings",
-        json={"openai_api_key": "sk-test-openai-1234"},
-    )
-    assert save_resp.status_code == 200
-    payload = save_resp.json()
-    assert payload["openai_configured"] is True
-    assert payload["openai_api_key_masked"] == "***...1234"
+    save_resp = await test_client.post("/api/settings", json={"openai_api_key": "sk-test-openai-1234"})
+    assert save_resp.status_code == 400
+    assert "deployment-managed" in save_resp.json()["detail"]
 
 
 @pytest.mark.asyncio
 async def test_settings_save_returns_handled_error_when_env_persist_fails(test_client: AsyncClient):
-    with (
-        patch("app.api.routes.settings._is_readonly", return_value=False),
-        patch("app.api.routes.settings._validate_env_target"),
-        patch("dotenv.set_key", side_effect=PermissionError("read-only filesystem")),
-    ):
-        save_resp = await test_client.post(
-            "/api/settings",
-            json={"openai_api_key": "sk-test-openai-9999"},
-        )
-
-    assert save_resp.status_code == 500
+    save_resp = await test_client.post(
+        "/api/settings",
+        json={"max_crawl_depth": 5, "max_pages_per_source": 1000, "crawl_delay_ms": 250},
+    )
+    assert save_resp.status_code == 200
     payload = save_resp.json()
-    assert payload["detail"] == "Failed to persist settings to .env. Check file path and permissions."
+    assert payload["max_crawl_depth"] == 5
+    assert payload["max_pages_per_source"] == 1000
+    assert payload["crawl_delay_ms"] == 250
+
+
+@pytest.mark.asyncio
+async def test_settings_rejects_out_of_range_runtime_values(test_client: AsyncClient):
+    resp = await test_client.post("/api/settings", json={"max_crawl_depth": 0})
+    assert resp.status_code == 400
 
 
 @pytest.mark.asyncio

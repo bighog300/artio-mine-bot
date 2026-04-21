@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
-from app.config import settings, validate_async_driver
+from app.config import is_serverless_environment, settings, validate_async_driver
 
 logger = structlog.get_logger()
 
@@ -22,7 +22,7 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 def _build_engine() -> AsyncEngine:
     validate_async_driver(settings.database_url)
 
-    is_serverless = settings.environment in {"production", "vercel"}
+    is_serverless = is_serverless_environment()
     is_sqlite = settings.database_url.startswith("sqlite+aiosqlite:") or settings.database_url.startswith("sqlite:")
 
     engine_kwargs: dict[str, object] = {"echo": False}
