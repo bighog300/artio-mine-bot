@@ -104,6 +104,11 @@ class Source(Base):
         primaryjoin="Source.id == SourceMappingPreset.source_id",
         foreign_keys="SourceMappingPreset.source_id",
     )
+    source_profiles: Mapped[list["SourceProfile"]] = relationship(
+        "SourceProfile",
+        back_populates="source",
+        cascade="all, delete-orphan",
+    )
     active_mapping_version: Mapped["SourceMappingVersion | None"] = relationship(
         "SourceMappingVersion",
         foreign_keys=[active_mapping_version_id],
@@ -119,6 +124,59 @@ class Source(Base):
         primaryjoin="Source.active_mapping_preset_id == SourceMappingPreset.id",
         foreign_keys=[active_mapping_preset_id],
         post_update=True,
+    )
+
+
+class SourceProfile(Base):
+    __tablename__ = "source_profiles"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
+    seed_url: Mapped[str] = mapped_column(String, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="running", nullable=False)
+    site_fingerprint: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    sitemap_urls: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    nav_discovery_summary: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    profile_metrics_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+
+    source: Mapped["Source"] = relationship("Source", back_populates="source_profiles")
+    url_families: Mapped[list["UrlFamily"]] = relationship(
+        "UrlFamily",
+        back_populates="source_profile",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        Index("ix_source_profiles_source_id_started_at", "source_id", "started_at"),
+        Index("ix_source_profiles_source_id_status", "source_id", "status"),
+    )
+
+
+class UrlFamily(Base):
+    __tablename__ = "url_families"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    source_profile_id: Mapped[str] = mapped_column(String, ForeignKey("source_profiles.id"), nullable=False)
+    family_key: Mapped[str] = mapped_column(String, nullable=False)
+    family_label: Mapped[str] = mapped_column(String, nullable=False)
+    path_pattern: Mapped[str] = mapped_column(String, nullable=False)
+    page_type_candidate: Mapped[str] = mapped_column(String, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    sample_urls_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    follow_policy_candidate: Mapped[str | None] = mapped_column(String, nullable=True)
+    pagination_policy_candidate: Mapped[str | None] = mapped_column(String, nullable=True)
+    include_by_default: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    diagnostics_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+
+    source_profile: Mapped["SourceProfile"] = relationship("SourceProfile", back_populates="url_families")
+
+    __table_args__ = (
+        UniqueConstraint("source_profile_id", "family_key", name="uq_url_families_profile_family"),
+        Index("ix_url_families_profile_id_confidence", "source_profile_id", "confidence"),
     )
 
 
