@@ -333,7 +333,7 @@ export interface MappingFamilyRuleUpdate {
   pagination_mode?: string;
   freshness_policy?: string;
   rationale?: string;
-  family_label?: string;
+  family_label?: string | null;
 }
 
 export interface MappingDriftSignal {

@@ -352,6 +352,7 @@ async def run_durable_crawl(
                 continue
 
             page, _created = await crud.get_or_create_page(db, source_id=source_id, url=result.final_url)
+            previous_page_status = page.status
             update_kwargs: dict[str, Any] = {
                 "crawl_run_id": crawl_run.id,
                 "original_url": row.url,
@@ -367,7 +368,11 @@ async def run_durable_crawl(
                 "crawled_at": now,
                 "mapping_version_id_used": mapping_version_id,
             }
-            update_kwargs["status"] = "fetched"
+            update_kwargs["status"] = (
+                previous_page_status
+                if (not refresh_mode and previous_page_status in TERMINAL_PAGE_STATUSES)
+                else "fetched"
+            )
             await crud.update_page(db, page.id, **update_kwargs)
             await crud.update_frontier_row(
                 db,
@@ -385,7 +390,7 @@ async def run_durable_crawl(
                 lease_expires_at=None,
                 leased_by_worker=None,
             )
-            if not refresh_mode and page.status in TERMINAL_PAGE_STATUSES:
+            if not refresh_mode and previous_page_status in TERMINAL_PAGE_STATUSES:
                 await crud.update_frontier_row(
                     db,
                     row.id,
