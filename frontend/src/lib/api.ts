@@ -1,11 +1,72 @@
-import axios from "axios";
+import axios, { AxiosHeaders } from "axios";
+import { getAdminToken, getApiKey } from "@/lib/auth";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
 const api = axios.create({ baseURL: API_URL });
+export const API_EVENTS = {
+  authRequired: "artio:api-auth-required",
+} as const;
+
+export class ApiAuthError extends Error {
+  readonly status: number;
+  readonly isAuthError: boolean;
+
+  constructor(message: string, status = 401) {
+    super(message);
+    this.name = "ApiAuthError";
+    this.status = status;
+    this.isAuthError = true;
+  }
+}
+
+let lastAuthEventAt = 0;
+const AUTH_EVENT_COOLDOWN_MS = 3000;
+
+function emitAuthRequiredEvent() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const now = Date.now();
+  if (now - lastAuthEventAt < AUTH_EVENT_COOLDOWN_MS) {
+    return;
+  }
+  lastAuthEventAt = now;
+  window.dispatchEvent(new CustomEvent(API_EVENTS.authRequired));
+}
+
+export function buildAuthHeaders(): Record<string, string> {
+  const adminToken = getAdminToken();
+  if (adminToken) {
+    return { "X-Admin-Token": adminToken };
+  }
+  const apiKey = getApiKey();
+  if (apiKey) {
+    return { "X-API-Key": apiKey };
+  }
+  return {};
+}
+
+export function isApiAuthError(error: unknown): error is ApiAuthError {
+  return error instanceof ApiAuthError;
+}
+
+api.interceptors.request.use((config) => {
+  const authHeaders = buildAuthHeaders();
+  config.headers = AxiosHeaders.from({
+    ...(config.headers ?? {}),
+    ...authHeaders,
+  });
+  return config;
+});
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (error?.response?.status === 401) {
+      emitAuthRequiredEvent();
+      return Promise.reject(new ApiAuthError("Admin authentication required. Your admin token is missing or invalid."));
+    }
     const detail = error?.response?.data?.detail;
     if (typeof detail === "string" && detail.length > 0) {
       return Promise.reject(new Error(detail));
