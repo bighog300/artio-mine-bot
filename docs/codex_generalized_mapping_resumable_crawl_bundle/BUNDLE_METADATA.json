@@ -1,0 +1,18 @@
+{
+  "bundle_name": "codex_generalized_mapping_resumable_crawl_bundle",
+  "version": "1.0",
+  "focus": "generalized source mapping, admin approval, durable frontier, resumable crawling, freshness, drift detection",
+  "files": [
+    "README.md",
+    "PHASE_PLAN.md",
+    "ARCHITECTURE.md",
+    "DATA_MODEL.md",
+    "UI_WORKFLOW.md",
+    "RESUME_AND_FRESHNESS.md",
+    "DRIFT_DETECTION.md",
+    "IMPLEMENTATION_CHECKLIST.md",
+    "TEST_PLAN.md",
+    "CODEX_PROMPT.md",
+    "TASKS.yaml"
+  ]
+}

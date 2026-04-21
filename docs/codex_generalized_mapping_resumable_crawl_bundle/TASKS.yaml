@@ -1,0 +1,70 @@
+workstream: generalized_source_mapping_resumable_crawl
+
+phases:
+  - name: phase_1_profiler
+    priority: 1
+    tasks:
+      - create_source_profile_models
+      - create_url_family_models
+      - implement_seed_url_sampling
+      - implement_sitemap_discovery
+      - implement_nav_link_discovery
+      - implement_url_family_clustering
+      - implement_representative_sample_selection
+      - implement_page_type_candidate_inference
+      - add_profiler_api_endpoint
+      - add_profiler_tests
+
+  - name: phase_2_mapping_suggestions
+    priority: 2
+    tasks:
+      - create_mapping_suggestion_service
+      - generate_family_level_rules
+      - suggest_include_exclude_flags
+      - suggest_follow_link_policies
+      - detect_pagination_patterns
+      - infer_initial_freshness_policy
+      - add_llm_ambiguity_resolution_path
+      - save_draft_mapping_version
+      - add_mapping_suggestion_tests
+
+  - name: phase_3_admin_approval
+    priority: 3
+    tasks:
+      - build_source_onboarding_wizard
+      - build_family_preview_ui
+      - add_family_override_controls
+      - publish_approved_mapping_version
+      - trigger_crawl_from_approved_mapping
+      - add_ui_and_api_tests
+
+  - name: phase_4_durable_frontier_resume
+    priority: 4
+    tasks:
+      - create_frontier_url_model
+      - create_crawl_run_checkpoint_model
+      - persist_frontier_status_transitions
+      - integrate_queue_with_frontier
+      - implement_resume_service
+      - add_resume_api_endpoint
+      - add_frontier_and_resume_tests
+
+  - name: phase_5_incremental_freshness
+    priority: 5
+    tasks:
+      - add_family_freshness_policies
+      - compute_next_eligible_fetch_at
+      - store_content_hash_etag_modified
+      - trigger_targeted_reextract_on_change
+      - add_freshness_tests
+
+  - name: phase_6_drift_detection
+    priority: 6
+    tasks:
+      - create_mapping_drift_signal_model
+      - implement_null_rate_anomaly_detection
+      - implement_new_family_detection
+      - expose_drift_review_api
+      - add_drift_review_ui
+      - generate_remap_draft_from_drift
+      - add_drift_tests
