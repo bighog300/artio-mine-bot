@@ -5,15 +5,16 @@ import structlog
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import get_db
-from app.config import settings, validate_env
+from app.config import is_serverless_environment, settings, validate_env
 
 logger = structlog.get_logger()
 
 # Determine if running on serverless platform
 # (where we need stricter CORS and different initialization)
-IS_SERVERLESS = settings.environment in {"production", "vercel"}
+IS_SERVERLESS = is_serverless_environment()
 
 
 @asynccontextmanager
@@ -22,7 +23,7 @@ async def lifespan(app: FastAPI):
 
     validate_env()
 
-    if settings.environment not in {"production", "vercel", "docker"}:
+    if not is_serverless_environment() and settings.environment != "docker":
         await init_db()
 
     if not settings.openai_api_key:
@@ -89,7 +90,7 @@ async def track_public_api_usage(request, call_next):
                 )
         finally:
             await db_gen.aclose()
-    except Exception:
+    except (RuntimeError, ValueError, OSError, SQLAlchemyError):
         logger.exception("usage_tracking_failed")
     return response
 
@@ -101,14 +102,17 @@ async def health():
     Returns:
         dict: Status of API, database, and OpenAI configuration
     """
+    overall_status = "ok"
     try:
         from app.db.database import AsyncSessionLocal
         import sqlalchemy
         async with AsyncSessionLocal() as session:
             await session.execute(sqlalchemy.text("SELECT 1"))
         db_status = "ok"
-    except Exception as e:
-        db_status = f"error: {str(e)}"
+    except Exception:
+        logger.exception("health_db_check_failed")
+        db_status = "error"
+        overall_status = "degraded"
 
     try:
         from app.queue import check_queue_health
@@ -120,9 +124,10 @@ async def health():
         logger.exception("health_queue_check_failed")
         redis_status = "unavailable"
         workers_status = "unavailable"
+        overall_status = "degraded"
 
     return {
-        "status": "ok",
+        "status": overall_status,
         "version": "1.0.0",
         "db": db_status,
         "redis": redis_status,

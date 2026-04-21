@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 import httpx
 import structlog
 
-from app.config import settings
+from app.config import is_serverless_environment, settings
 
 logger = structlog.get_logger()
 
@@ -55,7 +55,7 @@ def _truncate_html(html: str) -> tuple[str, bool]:
 
 
 async def _fetch_with_playwright(url: str) -> FetchResult:
-    if settings.environment == "production":
+    if is_serverless_environment():
         raise RuntimeError("This task must run in a worker environment, not Vercel.")
 
     from playwright.async_api import async_playwright

@@ -80,11 +80,11 @@ class ArtioClient:
                             result.failed.append(
                                 {"id": record.get("id"), "error": f"{resp2.status_code}"}
                             )
-                except Exception as exc:
+                except httpx.HTTPError as exc:
                     for record in batch:
                         result.failed.append({"id": record.get("id"), "error": str(exc)})
 
-        except Exception as exc:
+        except httpx.HTTPError as exc:
             logger.error("artio_push_error", error=str(exc))
             for record in batch:
                 result.failed.append({"id": record.get("id"), "error": str(exc)})
