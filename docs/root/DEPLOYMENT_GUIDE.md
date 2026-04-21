@@ -527,7 +527,7 @@ EOF
 2. 📝 Create test sources and run mining jobs
 3. 📊 Review mined data in dashboard
 4. 🔧 Adjust crawl settings based on your needs
-5. 🔐 Consider adding authentication layer for production
+5. 🔐 Configure production authentication (`X-Admin-Token` and/or `X-API-Key`); development auto-admin is not allowed in production
 6. 📈 Set up monitoring and logging aggregation
 7. 🌐 If public-facing, add SSL/TLS certificate
 
