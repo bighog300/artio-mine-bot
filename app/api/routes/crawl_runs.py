@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.api.rbac import require_permission
+from app.crawler.resume_service import resume_crawl_run as resume_crawl_run_service
 from app.db import crud
 from app.db.log_writer import log_stream_manager
 from app.db.models import CrawlFrontier, Page, Record
@@ -41,6 +42,7 @@ async def list_source_crawl_runs(
                 "seed_url": row.seed_url,
                 "worker_id": row.worker_id,
                 "attempt": row.attempt,
+                "mapping_version_id": row.mapping_version_id,
                 "cooldown_until": row.cooldown_until,
                 "started_at": row.started_at,
                 "completed_at": row.completed_at,
@@ -64,22 +66,33 @@ async def get_crawl_run_detail(
     if row is None:
         raise HTTPException(status_code=404, detail="Crawl run not found")
     counts = await crud.get_crawl_frontier_counts(db, crawl_run_id)
+    checkpoint = await crud.get_crawl_run_checkpoint(db, crawl_run_id)
     records_created = await crud.count_records(db, source_id=row.source_id)
     pages_visible = await crud.count_pages(db, source_id=row.source_id)
+    retryable_count = counts.get("failed_retryable", 0)
+    resumable = row.status in {"paused", "failed", "stale", "cooling_down"} or retryable_count > 0 or counts.get("queued", 0) > 0
     return {
         "crawl_run_id": row.id,
         "status": row.status,
         "queued_count": counts.get("queued", 0),
-        "leased_count": counts.get("leased", 0),
+        "fetching_count": counts.get("fetching", 0),
         "fetched_count": counts.get("fetched", 0),
+        "extracted_count": counts.get("extracted", 0),
         "skipped_count": counts.get("skipped", 0),
-        "error_count": counts.get("error", 0),
-        "rate_limited_count": counts.get("rate_limited", 0),
+        "error_count": counts.get("failed_terminal", 0) + retryable_count,
+        "retryable_count": retryable_count,
         "records_created": records_created,
         "records_updated": 0,
         "pages_visible": pages_visible,
         "last_event_at": row.updated_at,
         "cooldown_until": row.cooldown_until,
+        "mapping_version_id": row.mapping_version_id,
+        "resumable": resumable,
+        "checkpoint": {
+            "status": checkpoint.status,
+            "last_checkpoint_at": checkpoint.last_checkpoint_at,
+            "last_processed_url": checkpoint.last_processed_url,
+        } if checkpoint else None,
     }
 
 
@@ -106,10 +119,13 @@ async def get_crawl_run_frontier(
                 "status": row.status,
                 "retry_count": row.retry_count,
                 "next_retry_at": row.next_retry_at,
+                "skip_reason": row.skip_reason,
                 "last_status_code": row.last_status_code,
                 "last_error": row.last_error,
                 "leased_by_worker": row.leased_by_worker,
                 "lease_expires_at": row.lease_expires_at,
+                "mapping_version_id": row.mapping_version_id,
+                "family_key": row.family_key,
             }
             for row in rows
         ],
@@ -148,9 +164,16 @@ async def pause_crawl_run(crawl_run_id: str, db: AsyncSession = Depends(get_db),
 
 @router.post("/crawl-runs/{crawl_run_id}/resume")
 async def resume_crawl_run(crawl_run_id: str, db: AsyncSession = Depends(get_db), _role: str = Depends(require_permission("manage_jobs"))):
-    row = await crud.update_crawl_run(db, crawl_run_id, status="running", cooldown_until=None)
-    await crud.update_source(db, row.source_id, queue_paused=False, operational_status="running")
-    return {"id": row.id, "status": row.status}
+    try:
+        payload = await resume_crawl_run_service(db, crawl_run_id=crawl_run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "id": payload["crawl_run_id"],
+        "status": payload["status"],
+        "requeued": payload["requeued"],
+        "mapping_version_id": payload.get("mapping_version_id"),
+    }
 
 
 @router.post("/crawl-runs/{crawl_run_id}/cancel")

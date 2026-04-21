@@ -14,6 +14,7 @@ from app.db.models import (
     APIUsageEvent,
     CrawlFrontier,
     CrawlRun,
+    CrawlRunCheckpoint,
     AuditAction,
     AuditEvent,
     DuplicateReview,
@@ -44,6 +45,16 @@ from app.db.models import (
 logger = structlog.get_logger()
 TERMINAL_JOB_STATUSES = {"done", "completed", "failed", "cancelled"}
 TERMINAL_CRAWL_RUN_STATUSES = {"completed", "failed", "cancelled"}
+FRONTIER_STATUS_TRANSITIONS: dict[str, set[str]] = {
+    "discovered": {"queued", "skipped", "failed_terminal"},
+    "queued": {"fetching", "skipped", "failed_retryable", "failed_terminal"},
+    "fetching": {"queued", "fetched", "failed_retryable", "failed_terminal", "skipped"},
+    "fetched": {"extracted", "skipped", "failed_retryable", "failed_terminal"},
+    "extracted": set(),
+    "skipped": set(),
+    "failed_retryable": {"queued", "fetching", "failed_terminal", "skipped"},
+    "failed_terminal": set(),
+}
 
 MAPPING_ALLOWED_FIELDS: dict[str, set[str]] = {
     "artist": {"title", "description", "bio", "nationality", "birth_year", "website_url", "instagram_url", "email"},
@@ -2757,6 +2768,7 @@ async def create_crawl_run(
     job_id: str | None = None,
     status: str = "queued",
     worker_id: str | None = None,
+    mapping_version_id: str | None = None,
 ) -> CrawlRun:
     crawl_run = CrawlRun(
         source_id=source_id,
@@ -2764,6 +2776,7 @@ async def create_crawl_run(
         seed_url=seed_url,
         status=status,
         worker_id=worker_id,
+        mapping_version_id=mapping_version_id,
         started_at=datetime.now(UTC) if status == "running" else None,
     )
     db.add(crawl_run)
@@ -2834,29 +2847,39 @@ async def upsert_crawl_frontier_rows(
     inserted = 0
     for row in rows:
         normalized_url = row["normalized_url"]
+        mapping_version_id = row.get("mapping_version_id")
         existing = (
             await db.execute(
                 select(CrawlFrontier).where(
                     CrawlFrontier.source_id == source_id,
+                    CrawlFrontier.mapping_version_id == mapping_version_id,
                     CrawlFrontier.normalized_url == normalized_url,
                 )
             )
         ).scalar_one_or_none()
         if existing:
+            existing.priority = max(existing.priority, int(row.get("priority", existing.priority or 0)))
+            existing.updated_at = datetime.now(UTC)
             continue
         frontier = CrawlFrontier(
             crawl_run_id=crawl_run_id,
             source_id=source_id,
+            mapping_version_id=mapping_version_id,
             url=row["url"],
             normalized_url=normalized_url,
+            canonical_url=row.get("canonical_url"),
+            family_key=row.get("family_key"),
             depth=int(row.get("depth", 0)),
             discovered_from_url=row.get("discovered_from_url"),
             priority=int(row.get("priority", 0)),
             predicted_page_type=row.get("predicted_page_type"),
             discovered_from_page_type=row.get("discovered_from_page_type"),
             discovery_reason=row.get("discovery_reason"),
-            status=row.get("status", "queued"),
+            status=row.get("status", "discovered"),
+            skip_reason=row.get("skip_reason"),
             next_retry_at=row.get("next_retry_at"),
+            next_eligible_fetch_at=row.get("next_eligible_fetch_at"),
+            diagnostics_json=json.dumps(row.get("diagnostics", {})),
         )
         db.add(frontier)
         inserted += 1
@@ -2877,8 +2900,9 @@ async def claim_frontier_rows(
         select(CrawlFrontier)
         .where(
             CrawlFrontier.crawl_run_id == crawl_run_id,
-            CrawlFrontier.status.in_(["queued", "rate_limited"]),
+            CrawlFrontier.status.in_(["queued", "failed_retryable"]),
             or_(CrawlFrontier.next_retry_at.is_(None), CrawlFrontier.next_retry_at <= now),
+            or_(CrawlFrontier.next_eligible_fetch_at.is_(None), CrawlFrontier.next_eligible_fetch_at <= now),
         )
         .order_by(CrawlFrontier.priority.desc(), CrawlFrontier.depth.asc(), CrawlFrontier.created_at.asc())
         .limit(limit)
@@ -2886,7 +2910,7 @@ async def claim_frontier_rows(
     rows = list((await db.execute(stmt)).scalars().all())
     lease_expires_at = now + timedelta(seconds=lease_seconds)
     for row in rows:
-        row.status = "leased"
+        row.status = "fetching"
         row.leased_by_worker = worker_id
         row.lease_expires_at = lease_expires_at
         row.updated_at = now
@@ -2899,6 +2923,11 @@ async def update_frontier_row(db: AsyncSession, frontier_id: str, **kwargs: Any)
     row = (await db.execute(select(CrawlFrontier).where(CrawlFrontier.id == frontier_id))).scalar_one_or_none()
     if row is None:
         raise ValueError(f"Crawl frontier row {frontier_id} not found")
+    new_status = kwargs.get("status")
+    if new_status is not None and row.status != new_status:
+        allowed_next = FRONTIER_STATUS_TRANSITIONS.get(row.status, set())
+        if new_status not in allowed_next:
+            raise ValueError(f"Invalid frontier status transition: {row.status} -> {new_status}")
     for key, value in kwargs.items():
         setattr(row, key, value)
     row.updated_at = datetime.now(UTC)
@@ -2918,7 +2947,7 @@ async def reclaim_expired_frontier_leases(
             await db.execute(
                 select(CrawlFrontier).where(
                     CrawlFrontier.crawl_run_id == crawl_run_id,
-                    CrawlFrontier.status == "leased",
+                    CrawlFrontier.status == "fetching",
                     CrawlFrontier.lease_expires_at.is_not(None),
                     CrawlFrontier.lease_expires_at < now,
                 )
@@ -2926,9 +2955,12 @@ async def reclaim_expired_frontier_leases(
         ).scalars().all()
     )
     for row in rows:
-        row.status = "queued"
+        row.status = "failed_retryable"
         row.leased_by_worker = None
         row.lease_expires_at = None
+        row.retry_count = int(row.retry_count or 0) + 1
+        row.last_error = "lease_expired"
+        row.next_retry_at = now
         row.updated_at = now
     if rows:
         await db.commit()
@@ -2956,3 +2988,99 @@ async def count_crawl_frontier_rows_by_error(
         CrawlFrontier.last_error == last_error,
     )
     return int((await db.execute(stmt)).scalar_one() or 0)
+
+
+async def upsert_crawl_run_checkpoint(
+    db: AsyncSession,
+    *,
+    crawl_run_id: str,
+    source_id: str,
+    mapping_version_id: str | None,
+    status: str,
+    frontier_counts: dict[str, int],
+    last_processed_url: str | None = None,
+    progress: dict[str, Any] | None = None,
+    worker_state: dict[str, Any] | None = None,
+) -> CrawlRunCheckpoint:
+    existing = (
+        await db.execute(select(CrawlRunCheckpoint).where(CrawlRunCheckpoint.crawl_run_id == crawl_run_id))
+    ).scalar_one_or_none()
+    now = datetime.now(UTC)
+    if existing is None:
+        existing = CrawlRunCheckpoint(
+            crawl_run_id=crawl_run_id,
+            source_id=source_id,
+            mapping_version_id=mapping_version_id,
+            status=status,
+            frontier_counts_json=json.dumps(frontier_counts),
+            last_processed_url=last_processed_url,
+            progress_json=json.dumps(progress or {}),
+            worker_state_json=json.dumps(worker_state or {}),
+            last_checkpoint_at=now,
+        )
+        db.add(existing)
+    else:
+        existing.status = status
+        existing.mapping_version_id = mapping_version_id
+        existing.frontier_counts_json = json.dumps(frontier_counts)
+        existing.last_processed_url = last_processed_url
+        existing.progress_json = json.dumps(progress or {})
+        existing.worker_state_json = json.dumps(worker_state or {})
+        existing.last_checkpoint_at = now
+        existing.updated_at = now
+    await db.commit()
+    await db.refresh(existing)
+    return existing
+
+
+async def get_crawl_run_checkpoint(db: AsyncSession, crawl_run_id: str) -> CrawlRunCheckpoint | None:
+    return (
+        await db.execute(select(CrawlRunCheckpoint).where(CrawlRunCheckpoint.crawl_run_id == crawl_run_id))
+    ).scalar_one_or_none()
+
+
+async def queue_discovered_frontier_rows(db: AsyncSession, *, crawl_run_id: str, limit: int = 100) -> int:
+    rows = list(
+        (
+            await db.execute(
+                select(CrawlFrontier)
+                .where(
+                    CrawlFrontier.crawl_run_id == crawl_run_id,
+                    CrawlFrontier.status == "discovered",
+                )
+                .order_by(CrawlFrontier.created_at.asc())
+                .limit(limit)
+            )
+        ).scalars().all()
+    )
+    now = datetime.now(UTC)
+    for row in rows:
+        row.status = "queued"
+        row.updated_at = now
+    if rows:
+        await db.commit()
+    return len(rows)
+
+
+async def requeue_retryable_frontier_rows(db: AsyncSession, *, crawl_run_id: str, limit: int = 1000) -> int:
+    rows = list(
+        (
+            await db.execute(
+                select(CrawlFrontier)
+                .where(
+                    CrawlFrontier.crawl_run_id == crawl_run_id,
+                    CrawlFrontier.status == "failed_retryable",
+                )
+                .order_by(CrawlFrontier.updated_at.asc())
+                .limit(limit)
+            )
+        ).scalars().all()
+    )
+    now = datetime.now(UTC)
+    for row in rows:
+        row.status = "queued"
+        row.next_retry_at = now
+        row.updated_at = now
+    if rows:
+        await db.commit()
+    return len(rows)
