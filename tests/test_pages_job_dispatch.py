@@ -84,6 +84,9 @@ async def test_runner_supports_reclassify_and_reextract_job_types(db_session: As
         await _run_pipeline_job_async(reclassify_job.id, source.id, "reclassify_page", {"page_id": "p-1"})
         await _run_pipeline_job_async(reextract_job.id, source.id, "reextract_page", {"page_id": "p-2"})
 
+    # _run_pipeline_job_async uses a separate DB session, so refresh state in this test session.
+    await db_session.refresh(reclassify_job)
+    await db_session.refresh(reextract_job)
     reclassify_refreshed = await crud.get_job(db_session, reclassify_job.id)
     reextract_refreshed = await crud.get_job(db_session, reextract_job.id)
     assert reclassify_refreshed is not None and reclassify_refreshed.status == "done"
