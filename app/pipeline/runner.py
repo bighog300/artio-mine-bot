@@ -28,7 +28,7 @@ from app.crawler.automated_crawler import AutomatedCrawler
 from app.crawler.durable_frontier import run_durable_crawl
 from app.crawler.robots import RobotsChecker
 from app.crawler.site_mapper import SiteMap, map_site
-from app.config import settings
+from app.config import is_serverless_environment, require_worker_environment, settings
 from app.db import crud
 from app.db.database import AsyncSessionLocal
 from app.db.log_writer import configure_structlog_for_service
@@ -167,8 +167,7 @@ class PipelineRunner:
 
     async def run_full_pipeline(self, source_id: str) -> None:
         """Run complete pipeline: map → crawl → extract."""
-        if settings.environment == "production":
-            raise RuntimeError("This task must run in a worker environment, not Vercel.")
+        require_worker_environment()
         crawl_exception: Exception | None = None
         try:
             await self._control_checkpoint()
@@ -396,8 +395,7 @@ class PipelineRunner:
 
     async def run_map_site(self, source_id: str) -> SiteMap:
         """Map site structure and store in Source record."""
-        if settings.environment == "production":
-            raise RuntimeError("This task must run in a worker environment, not Vercel.")
+        require_worker_environment()
         source = await crud.get_source(self.db, source_id)
         if source is None:
             raise ValueError(f"Source {source_id} not found")
@@ -430,8 +428,7 @@ class PipelineRunner:
         site_map: SiteMap | None = None,
     ) -> Any:
         """Crawl all pages for a source."""
-        if settings.environment == "production":
-            raise RuntimeError("This task must run in a worker environment, not Vercel.")
+        require_worker_environment()
         source_exists = await crud.wait_for_source(
             self.db,
             source_id,
@@ -539,8 +536,7 @@ class PipelineRunner:
         include_existing: bool = False,
     ) -> ExtractionStats:
         """Extract records from eligible pages that are not yet terminal."""
-        if settings.environment == "production":
-            raise RuntimeError("This task must run in a worker environment, not Vercel.")
+        require_worker_environment()
         logger.info("extraction_started", source_id=source_id)
         status_result = await self.db.execute(
             select(Page.status, func.count(Page.id))
@@ -640,6 +636,61 @@ class PipelineRunner:
         await crud.update_source(self.db, source_id, total_records=total_records)
         return stats
 
+    async def run_reclassify_page(self, page_id: str) -> dict[str, Any]:
+        page = await crud.get_page(self.db, page_id)
+        if page is None:
+            raise ValueError(f"Page {page_id} not found")
+        if not page.html:
+            raise ValueError(f"Page {page_id} has no HTML to classify")
+
+        source_hints = await self._get_crawl_hints(page.source_id)
+        selected_forced_type = self._get_page_role_override(page.url, source_hints) or self._infer_page_role(page.url)
+        if selected_forced_type is not None:
+            classify_result = type(
+                "ForcedClassifyResult",
+                (),
+                {"page_type": selected_forced_type, "confidence": 100},
+            )()
+        elif self.ai_client is not None:
+            classify_result = await classify_page(url=page.url, html=page.html, ai_client=self.ai_client)
+        else:
+            classify_result = type("NoAIClassifyResult", (), {"page_type": "unknown", "confidence": 0})()
+
+        await crud.update_page(
+            self.db,
+            page.id,
+            page_type=classify_result.page_type,
+            status="classified",
+            error_message=None,
+        )
+        return {
+            "page_id": page.id,
+            "page_type": classify_result.page_type,
+            "confidence": classify_result.confidence,
+            "status": "classified",
+        }
+
+    async def run_reextract_page(self, page_id: str) -> dict[str, Any]:
+        page = await crud.get_page(self.db, page_id)
+        if page is None:
+            raise ValueError(f"Page {page_id} not found")
+        if not page.html:
+            raise ValueError(f"Page {page_id} has no HTML to extract")
+
+        structure_map = await self._get_structure_map(page.source_id)
+        metrics_payload, action = await self.run_extraction_for_page(
+            page,
+            structure_map=structure_map,
+            allow_updates=True,
+        )
+        refreshed = await crud.get_page(self.db, page.id)
+        return {
+            "page_id": page.id,
+            "action": action or "skipped",
+            "page_status": refreshed.status if refreshed else "unknown",
+            "metrics": metrics_payload if isinstance(metrics_payload, dict) else {},
+        }
+
     async def run_extraction_for_page(
         self,
         page: Page,
@@ -648,8 +699,7 @@ class PipelineRunner:
         allow_updates: bool = False,
     ) -> tuple[dict[str, int], str | None]:
         """Classify page, extract record, score confidence, store in DB."""
-        if settings.environment == "production":
-            raise RuntimeError("This task must run in a worker environment, not Vercel.")
+        require_worker_environment()
         if not page.html:
             logger.warning(
                 "page_extraction_skipped_no_html",
@@ -1599,7 +1649,6 @@ async def _run_pipeline_job_async(
     job_type: str,
     payload: dict[str, Any],
 ) -> None:
-    del payload  # reserved for future task-specific options
     await worker_log_processor.start()
 
     try:
@@ -1713,6 +1762,16 @@ async def _run_pipeline_job_async(
                         "media_assets_captured": stats.media_assets_captured,
                         "entity_links_created": stats.entity_links_created,
                     }
+                elif job_type == "reclassify_page":
+                    page_id = str(payload.get("page_id", "")).strip()
+                    if not page_id:
+                        raise ValueError("Missing required payload field: page_id")
+                    result = await runner.run_reclassify_page(page_id)
+                elif job_type == "reextract_page":
+                    page_id = str(payload.get("page_id", "")).strip()
+                    if not page_id:
+                        raise ValueError("Missing required payload field: page_id")
+                    result = await runner.run_reextract_page(page_id)
                 else:
                     raise ValueError(f"Unsupported job type: {job_type}")
 

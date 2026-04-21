@@ -4,6 +4,7 @@ import os
 # This ensures settings.database_url resolves to SQLite even when DATABASE_URL
 # is set to a PostgreSQL URL in the developer's environment or .env file.
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+os.environ.setdefault("ADMIN_API_TOKEN", "test-admin-token")
 
 import pytest  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
@@ -46,7 +47,11 @@ async def test_client(db_session: AsyncSession):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"X-Admin-Token": "test-admin-token"},
+    ) as client:
         yield client
     app.dependency_overrides.clear()
 
