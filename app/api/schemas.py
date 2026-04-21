@@ -325,6 +325,35 @@ class SourceProfileResponse(BaseModel):
     families: list[UrlFamilyResponse] = []
 
 
+class MappingSuggestionDraftRequest(BaseModel):
+    profile_id: str
+
+
+class MappingFamilyRuleResponse(BaseModel):
+    family_key: str
+    path_pattern: str
+    page_type: str
+    include: bool
+    follow_links: bool
+    crawl_priority: str
+    pagination_mode: str
+    freshness_policy: str
+    confidence: float
+    rationale: str
+    diagnostics_summary: dict[str, Any] = {}
+
+
+class MappingSuggestionResponse(BaseModel):
+    id: str
+    source_id: str
+    based_on_profile_id: str | None = None
+    version_number: int
+    status: str
+    created_at: datetime
+    family_rules: list[MappingFamilyRuleResponse] = []
+    diagnostics: dict[str, Any] = {}
+
+
 class SourceMappingPresetSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str

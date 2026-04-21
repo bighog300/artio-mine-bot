@@ -148,6 +148,10 @@ class SourceProfile(Base):
         back_populates="source_profile",
         cascade="all, delete-orphan",
     )
+    mapping_versions: Mapped[list["SourceMappingVersion"]] = relationship(
+        "SourceMappingVersion",
+        back_populates="based_on_profile",
+    )
 
     __table_args__ = (
         Index("ix_source_profiles_source_id_started_at", "source_id", "started_at"),
@@ -510,11 +514,13 @@ class SourceMappingVersion(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
     source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
+    based_on_profile_id: Mapped[str | None] = mapped_column(String, ForeignKey("source_profiles.id"), nullable=True)
     version_number: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="draft")
     scan_status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
     scan_options_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     summary_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mapping_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     created_by: Mapped[str | None] = mapped_column(String, nullable=True)
     published_by: Mapped[str | None] = mapped_column(String, nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
@@ -525,6 +531,10 @@ class SourceMappingVersion(Base):
         "Source",
         back_populates="mapping_versions",
         foreign_keys=[source_id],
+    )
+    based_on_profile: Mapped["SourceProfile | None"] = relationship(
+        "SourceProfile",
+        back_populates="mapping_versions",
     )
     page_types: Mapped[list["SourceMappingPageType"]] = relationship(
         "SourceMappingPageType",
