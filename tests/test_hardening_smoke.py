@@ -6,18 +6,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.api.main import app
+from app.config import settings
 from app.db import crud
 
 
 @pytest.mark.asyncio
 async def test_smoke_admin_route_requires_verified_auth(db_session: AsyncSession):
-    async def override_get_db():
-        yield db_session
+    original_dev_auto_admin = settings.dev_auto_admin
+    try:
+        settings.dev_auto_admin = False
 
-    app.dependency_overrides[get_db] = override_get_db
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        unauth = await client.get("/api/sources")
-    app.dependency_overrides.clear()
+        async def override_get_db():
+            yield db_session
+
+        app.dependency_overrides[get_db] = override_get_db
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            unauth = await client.get("/api/sources")
+    finally:
+        app.dependency_overrides.clear()
+        settings.dev_auto_admin = original_dev_auto_admin
 
     assert unauth.status_code == 401
 
