@@ -404,6 +404,45 @@ class MappingRefreshTriggerResponse(BaseModel):
     message: str
 
 
+class MappingDriftSignalResponse(BaseModel):
+    id: str
+    source_id: str
+    mapping_version_id: str | None = None
+    family_key: str | None = None
+    signal_type: str
+    severity: str
+    detected_at: datetime
+    status: str
+    metrics: dict[str, Any] = {}
+    diagnostics: dict[str, Any] = {}
+    sample_urls: list[str] = []
+    proposed_action: str | None = None
+    resolution_notes: str | None = None
+    acknowledged_at: datetime | None = None
+    resolved_at: datetime | None = None
+
+
+class MappingDriftSignalListResponse(BaseModel):
+    source_id: str
+    active_mapping_version_id: str | None = None
+    mapping_health: str
+    open_high_severity: int
+    items: list[MappingDriftSignalResponse]
+    total: int
+
+
+class DriftSignalStatusUpdateRequest(BaseModel):
+    resolution_notes: str | None = None
+
+
+class DriftRemapDraftResponse(BaseModel):
+    source_id: str
+    signal_id: str | None = None
+    draft_mapping_version_id: str
+    based_on_mapping_version_id: str | None = None
+    status: str
+
+
 class SourceMappingPresetSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
