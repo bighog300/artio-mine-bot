@@ -191,9 +191,14 @@ export function SourceDetail() {
       {activeTab === "mapping" && (
         <div className="bg-card border rounded p-4 text-sm space-y-3">
           <p>Configure AI Source Mapper scans, mappings, and preview output for this source.</p>
-          <Button className="w-fit" onClick={() => navigate(`/sources/${id}/mapping`)}>
-            Open Mapping Workspace
-          </Button>
+          <div className="flex gap-2">
+            <Button className="w-fit" onClick={() => navigate(`/sources/${id}/mapping`)}>
+              Open Mapping Workspace
+            </Button>
+            <Button variant="secondary" className="w-fit" onClick={() => navigate(`/sources/${id}/drift`)}>
+              Review Drift Signals
+            </Button>
+          </div>
         </div>
       )}
 

@@ -24,6 +24,7 @@ from app.db.models import (
     JobEvent,
     MergeHistory,
     MetricSnapshot,
+    MappingDriftSignal,
     Page,
     Record,
     ScheduledJob,
@@ -63,6 +64,8 @@ MAPPING_ALLOWED_FIELDS: dict[str, set[str]] = {
     "venue": {"title", "description", "address", "city", "country", "phone", "opening_hours"},
     "artwork": {"title", "description", "medium", "year", "dimensions", "price"},
 }
+DRIFT_SIGNAL_STATUSES = {"open", "acknowledged", "resolved", "dismissed"}
+DRIFT_SIGNAL_SEVERITIES = {"low", "medium", "high"}
 
 
 def _ensure_utc(value: datetime | None) -> datetime | None:
@@ -744,6 +747,30 @@ async def clone_published_mapping_to_draft(
     return draft
 
 
+async def create_drift_remap_draft(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    generated_from_signal_id: str | None = None,
+    created_by: str | None = None,
+) -> SourceMappingVersion:
+    source = await get_source(db, source_id)
+    if source is None:
+        raise ValueError(f"Source {source_id} not found")
+    if not source.active_mapping_version_id:
+        raise ValueError("No active mapping available for remap draft generation")
+    draft = await clone_published_mapping_to_draft(db, source_id, created_by=created_by)
+    summary = json.loads(draft.summary_json or "{}") if draft.summary_json else {}
+    summary["drift_triggered"] = True
+    summary["generated_from_signal_id"] = generated_from_signal_id
+    summary["based_on_active_mapping_version"] = source.active_mapping_version_id
+    summary["generated_at"] = datetime.now(UTC).isoformat()
+    draft.summary_json = json.dumps(summary)
+    await db.commit()
+    await db.refresh(draft)
+    return draft
+
+
 async def set_source_mapping_rows_status(
     db: AsyncSession,
     source_id: str,
@@ -822,6 +849,148 @@ async def publish_source_mapping_version(
     await db.commit()
     await db.refresh(draft)
     return draft
+
+
+async def create_mapping_drift_signal(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    mapping_version_id: str | None,
+    signal_type: str,
+    severity: str,
+    family_key: str | None = None,
+    metrics: dict[str, Any] | None = None,
+    diagnostics: dict[str, Any] | None = None,
+    sample_urls: list[str] | None = None,
+    proposed_action: str | None = None,
+    dedupe_hours: int = 12,
+) -> MappingDriftSignal:
+    if severity not in DRIFT_SIGNAL_SEVERITIES:
+        raise ValueError(f"Invalid drift severity '{severity}'")
+    if dedupe_hours > 0:
+        cutoff = datetime.now(UTC) - timedelta(hours=dedupe_hours)
+        existing_stmt = select(MappingDriftSignal).where(
+            MappingDriftSignal.source_id == source_id,
+            MappingDriftSignal.mapping_version_id == mapping_version_id,
+            MappingDriftSignal.signal_type == signal_type,
+            MappingDriftSignal.status.in_(["open", "acknowledged"]),
+            MappingDriftSignal.detected_at >= cutoff,
+        )
+        if family_key is None:
+            existing_stmt = existing_stmt.where(MappingDriftSignal.family_key.is_(None))
+        else:
+            existing_stmt = existing_stmt.where(MappingDriftSignal.family_key == family_key)
+        existing = (await db.execute(existing_stmt.order_by(MappingDriftSignal.detected_at.desc()))).scalar_one_or_none()
+        if existing is not None:
+            existing.severity = severity
+            existing.metrics_json = json.dumps(metrics or {})
+            existing.diagnostics_json = json.dumps(diagnostics or {})
+            existing.sample_urls_json = json.dumps(sample_urls or [])
+            existing.proposed_action = proposed_action
+            existing.detected_at = datetime.now(UTC)
+            existing.updated_at = datetime.now(UTC)
+            await db.commit()
+            await db.refresh(existing)
+            return existing
+
+    signal = MappingDriftSignal(
+        source_id=source_id,
+        mapping_version_id=mapping_version_id,
+        family_key=family_key,
+        signal_type=signal_type,
+        severity=severity,
+        metrics_json=json.dumps(metrics or {}),
+        diagnostics_json=json.dumps(diagnostics or {}),
+        sample_urls_json=json.dumps(sample_urls or []),
+        proposed_action=proposed_action,
+        status="open",
+        detected_at=datetime.now(UTC),
+    )
+    db.add(signal)
+    await db.commit()
+    await db.refresh(signal)
+    return signal
+
+
+async def list_mapping_drift_signals(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    status: str | None = None,
+    severity: str | None = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> list[MappingDriftSignal]:
+    stmt = select(MappingDriftSignal).where(MappingDriftSignal.source_id == source_id)
+    if status:
+        stmt = stmt.where(MappingDriftSignal.status == status)
+    if severity:
+        stmt = stmt.where(MappingDriftSignal.severity == severity)
+    stmt = stmt.order_by(MappingDriftSignal.detected_at.desc()).offset(skip).limit(limit)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_mapping_drift_signal(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    signal_id: str,
+) -> MappingDriftSignal | None:
+    stmt = select(MappingDriftSignal).where(
+        MappingDriftSignal.source_id == source_id,
+        MappingDriftSignal.id == signal_id,
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def update_mapping_drift_signal_status(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    signal_id: str,
+    status: str,
+    resolution_notes: str | None = None,
+) -> MappingDriftSignal:
+    if status not in DRIFT_SIGNAL_STATUSES:
+        raise ValueError(f"Invalid drift status '{status}'")
+    signal = await get_mapping_drift_signal(db, source_id=source_id, signal_id=signal_id)
+    if signal is None:
+        raise ValueError("Drift signal not found")
+    now = datetime.now(UTC)
+    signal.status = status
+    signal.updated_at = now
+    if resolution_notes is not None:
+        signal.resolution_notes = resolution_notes
+    if status == "acknowledged":
+        signal.acknowledged_at = now
+    if status in {"resolved", "dismissed"}:
+        signal.resolved_at = now
+    await db.commit()
+    await db.refresh(signal)
+    return signal
+
+
+async def get_mapping_health_state(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    mapping_version_id: str | None,
+) -> str:
+    stmt = select(MappingDriftSignal).where(
+        MappingDriftSignal.source_id == source_id,
+        MappingDriftSignal.status.in_(["open", "acknowledged"]),
+    )
+    if mapping_version_id:
+        stmt = stmt.where(MappingDriftSignal.mapping_version_id == mapping_version_id)
+    signals = list((await db.execute(stmt)).scalars().all())
+    high_count = sum(1 for item in signals if item.severity == "high")
+    medium_count = sum(1 for item in signals if item.severity == "medium")
+    if high_count > 0 or len(signals) >= 3:
+        return "stale"
+    if medium_count > 0:
+        return "warning"
+    return "healthy"
 
 
 async def create_source_mapping_page_type(

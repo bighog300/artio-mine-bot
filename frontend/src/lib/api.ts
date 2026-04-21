@@ -336,6 +336,39 @@ export interface MappingFamilyRuleUpdate {
   family_label?: string;
 }
 
+export interface MappingDriftSignal {
+  id: string;
+  source_id: string;
+  mapping_version_id: string | null;
+  family_key: string | null;
+  signal_type: string;
+  severity: "low" | "medium" | "high";
+  detected_at: string;
+  status: "open" | "acknowledged" | "resolved" | "dismissed";
+  metrics: Record<string, unknown>;
+  diagnostics: Record<string, unknown>;
+  sample_urls: string[];
+  proposed_action: string | null;
+  resolution_notes: string | null;
+}
+
+export interface MappingDriftSignalListResponse {
+  source_id: string;
+  active_mapping_version_id: string | null;
+  mapping_health: "healthy" | "warning" | "stale";
+  open_high_severity: number;
+  items: MappingDriftSignal[];
+  total: number;
+}
+
+export interface DriftRemapDraftResponse {
+  source_id: string;
+  signal_id: string | null;
+  draft_mapping_version_id: string;
+  based_on_mapping_version_id: string | null;
+  status: string;
+}
+
 export interface MineOptions {
   max_depth?: number;
   max_pages?: number;
@@ -1096,6 +1129,37 @@ export const applySourceMappingPreset = (
   presetId: string
 ): Promise<{ source_id: string; active_mapping_preset_id: string; runtime_map_source: string; has_runtime_map: boolean }> =>
   api.post(`/sources/${sourceId}/mapping-presets/${presetId}/apply`).then((r) => r.data);
+
+export const detectSourceDriftSignals = (
+  sourceId: string
+): Promise<{ created: number; mapping_health: string }> =>
+  api.post(`/sources/${sourceId}/drift-signals/detect`).then((r) => r.data);
+
+export const getSourceDriftSignals = (
+  sourceId: string,
+  params?: { status?: string; severity?: string }
+): Promise<MappingDriftSignalListResponse> =>
+  api.get(`/sources/${sourceId}/drift-signals`, { params }).then((r) => r.data);
+
+export const acknowledgeDriftSignal = (
+  sourceId: string,
+  signalId: string,
+  resolution_notes?: string
+): Promise<MappingDriftSignal> =>
+  api.post(`/sources/${sourceId}/drift-signals/${signalId}/acknowledge`, { resolution_notes }).then((r) => r.data);
+
+export const dismissDriftSignal = (
+  sourceId: string,
+  signalId: string,
+  resolution_notes?: string
+): Promise<MappingDriftSignal> =>
+  api.post(`/sources/${sourceId}/drift-signals/${signalId}/dismiss`, { resolution_notes }).then((r) => r.data);
+
+export const createRemapDraftFromDriftSignal = (
+  sourceId: string,
+  signalId: string
+): Promise<DriftRemapDraftResponse> =>
+  api.post(`/sources/${sourceId}/drift-signals/${signalId}/remap-draft`).then((r) => r.data);
 
 // Mining
 export const startMining = (sourceId: string, opts?: MineOptions): Promise<MineStartResponse> =>

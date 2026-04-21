@@ -104,6 +104,11 @@ class Source(Base):
         primaryjoin="Source.id == SourceMappingPreset.source_id",
         foreign_keys="SourceMappingPreset.source_id",
     )
+    mapping_drift_signals: Mapped[list["MappingDriftSignal"]] = relationship(
+        "MappingDriftSignal",
+        back_populates="source",
+        cascade="all, delete-orphan",
+    )
     source_profiles: Mapped[list["SourceProfile"]] = relationship(
         "SourceProfile",
         back_populates="source",
@@ -614,6 +619,11 @@ class SourceMappingVersion(Base):
         back_populates="mapping_version",
         cascade="all, delete-orphan",
     )
+    drift_signals: Mapped[list["MappingDriftSignal"]] = relationship(
+        "MappingDriftSignal",
+        back_populates="mapping_version",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         UniqueConstraint("source_id", "version_number", name="uq_source_mapping_versions_source_version"),
@@ -806,6 +816,41 @@ class SourceMappingPresetRow(Base):
 
     __table_args__ = (
         Index("ix_source_mapping_preset_rows_preset_id_sort_order", "preset_id", "sort_order"),
+    )
+
+
+class MappingDriftSignal(Base):
+    __tablename__ = "mapping_drift_signals"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
+    source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
+    mapping_version_id: Mapped[str | None] = mapped_column(String, ForeignKey("source_mapping_versions.id"), nullable=True)
+    family_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    signal_type: Mapped[str] = mapped_column(String, nullable=False)
+    severity: Mapped[str] = mapped_column(String, nullable=False, default="medium")
+    detected_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False, default=_now)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="open")
+    metrics_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    diagnostics_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    sample_urls_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    proposed_action: Mapped[str | None] = mapped_column(String, nullable=True)
+    resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False, default=_now, onupdate=_now)
+
+    source: Mapped["Source"] = relationship("Source", back_populates="mapping_drift_signals")
+    mapping_version: Mapped["SourceMappingVersion | None"] = relationship(
+        "SourceMappingVersion",
+        back_populates="drift_signals",
+    )
+
+    __table_args__ = (
+        Index("ix_mapping_drift_signals_source_status_detected", "source_id", "status", "detected_at"),
+        Index("ix_mapping_drift_signals_mapping_severity_status", "mapping_version_id", "severity", "status"),
+        Index("ix_mapping_drift_signals_source_type_family", "source_id", "signal_type", "family_key"),
     )
 
 
