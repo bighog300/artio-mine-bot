@@ -291,6 +291,40 @@ class MappingVersionPublishResponse(BaseModel):
     published_by: str | None = None
 
 
+class SourceProfileRunRequest(BaseModel):
+    max_pages: int = Field(default=40, ge=5, le=200)
+
+
+class UrlFamilyResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    family_key: str
+    family_label: str
+    path_pattern: str
+    page_type_candidate: str
+    confidence: float
+    sample_urls: list[str] = []
+    follow_policy_candidate: str | None = None
+    pagination_policy_candidate: str | None = None
+    include_by_default: bool
+    diagnostics: dict[str, Any] = {}
+
+
+class SourceProfileResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    source_id: str
+    seed_url: str
+    status: str
+    started_at: datetime
+    completed_at: datetime | None = None
+    site_fingerprint: dict[str, Any] = {}
+    sitemap_urls: list[str] = []
+    nav_discovery_summary: dict[str, Any] = {}
+    profile_metrics: dict[str, Any] = {}
+    families: list[UrlFamilyResponse] = []
+
+
 class SourceMappingPresetSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str

@@ -27,6 +27,7 @@ from app.db.models import (
     Record,
     ScheduledJob,
     Source,
+    SourceProfile,
     SourceMappingPageType,
     SourceMappingPreset,
     SourceMappingPresetRow,
@@ -36,6 +37,7 @@ from app.db.models import (
     SourceMappingSampleRun,
     SourceMappingVersion,
     Tenant,
+    UrlFamily,
     WorkerState,
 )
 
@@ -156,6 +158,84 @@ async def create_source(
 async def get_source(db: AsyncSession, source_id: str) -> Source | None:
     result = await db.execute(select(Source).where(Source.id == source_id))
     return result.scalar_one_or_none()
+
+
+async def create_source_profile(db: AsyncSession, source_id: str, seed_url: str) -> SourceProfile:
+    profile = SourceProfile(source_id=source_id, seed_url=seed_url, status="running")
+    db.add(profile)
+    await db.commit()
+    await db.refresh(profile)
+    return profile
+
+
+async def finalize_source_profile(
+    db: AsyncSession,
+    profile_id: str,
+    *,
+    status: str,
+    site_fingerprint: dict[str, Any],
+    sitemap_urls: list[str],
+    nav_discovery_summary: dict[str, Any],
+    profile_metrics: dict[str, Any],
+) -> SourceProfile:
+    result = await db.execute(select(SourceProfile).where(SourceProfile.id == profile_id))
+    profile = result.scalar_one()
+    profile.status = status
+    profile.completed_at = datetime.now(UTC)
+    profile.site_fingerprint = json.dumps(site_fingerprint)
+    profile.sitemap_urls = json.dumps(sitemap_urls)
+    profile.nav_discovery_summary = json.dumps(nav_discovery_summary)
+    profile.profile_metrics_json = json.dumps(profile_metrics)
+    await db.commit()
+    await db.refresh(profile)
+    return profile
+
+
+async def replace_url_families(
+    db: AsyncSession,
+    *,
+    profile_id: str,
+    families: list[dict[str, Any]],
+) -> list[UrlFamily]:
+    await db.execute(delete(UrlFamily).where(UrlFamily.source_profile_id == profile_id))
+    created: list[UrlFamily] = []
+    for family in families:
+        row = UrlFamily(
+            source_profile_id=profile_id,
+            family_key=family["family_key"],
+            family_label=family["family_label"],
+            path_pattern=family["path_pattern"],
+            page_type_candidate=family["page_type_candidate"],
+            confidence=float(family["confidence"]),
+            sample_urls_json=json.dumps(family.get("sample_urls", [])),
+            follow_policy_candidate=family.get("follow_policy_candidate"),
+            pagination_policy_candidate=family.get("pagination_policy_candidate"),
+            include_by_default=bool(family.get("include_by_default", True)),
+            diagnostics_json=json.dumps(family.get("diagnostics", {})),
+        )
+        db.add(row)
+        created.append(row)
+    await db.commit()
+    for row in created:
+        await db.refresh(row)
+    return created
+
+
+async def get_source_profile(db: AsyncSession, source_id: str, profile_id: str) -> SourceProfile | None:
+    result = await db.execute(
+        select(SourceProfile)
+        .where(SourceProfile.id == profile_id, SourceProfile.source_id == source_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def list_url_families(db: AsyncSession, profile_id: str) -> list[UrlFamily]:
+    result = await db.execute(
+        select(UrlFamily)
+        .where(UrlFamily.source_profile_id == profile_id)
+        .order_by(UrlFamily.confidence.desc(), UrlFamily.path_pattern.asc())
+    )
+    return list(result.scalars().all())
 
 
 async def get_source_by_url(db: AsyncSession, url: str) -> Source | None:
