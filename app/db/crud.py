@@ -238,6 +238,59 @@ async def list_url_families(db: AsyncSession, profile_id: str) -> list[UrlFamily
     return list(result.scalars().all())
 
 
+async def create_mapping_suggestion_draft(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    profile_id: str,
+    mapping_json: dict[str, Any],
+    tenant_id: str = "public",
+    created_by: str | None = None,
+) -> SourceMappingVersion:
+    profile = await get_source_profile(db, source_id, profile_id)
+    if profile is None:
+        raise ValueError("Profile not found")
+    current = await db.execute(
+        select(func.max(SourceMappingVersion.version_number)).where(SourceMappingVersion.source_id == source_id)
+    )
+    next_version = int(current.scalar_one_or_none() or 0) + 1
+    mapping_version = SourceMappingVersion(
+        source_id=source_id,
+        tenant_id=tenant_id,
+        based_on_profile_id=profile_id,
+        version_number=next_version,
+        status="draft",
+        scan_status="completed",
+        created_by=created_by,
+        mapping_json=json.dumps(mapping_json),
+        summary_json=json.dumps(
+            {
+                "family_rule_count": len(mapping_json.get("family_rules", [])),
+                "generation_mode": "deterministic",
+            }
+        ),
+    )
+    db.add(mapping_version)
+    await db.commit()
+    await db.refresh(mapping_version)
+    return mapping_version
+
+
+async def get_mapping_suggestion_draft(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    mapping_id: str,
+) -> SourceMappingVersion | None:
+    result = await db.execute(
+        select(SourceMappingVersion).where(
+            SourceMappingVersion.id == mapping_id,
+            SourceMappingVersion.source_id == source_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def get_source_by_url(db: AsyncSession, url: str) -> Source | None:
     result = await db.execute(select(Source).where(Source.url == url))
     return result.scalar_one_or_none()
