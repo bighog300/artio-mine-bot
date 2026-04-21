@@ -291,6 +291,96 @@ async def get_mapping_suggestion_draft(
     return result.scalar_one_or_none()
 
 
+async def update_mapping_suggestion_draft_family_rules(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    mapping_id: str,
+    family_updates: list[dict[str, Any]],
+) -> SourceMappingVersion:
+    version = await get_mapping_suggestion_draft(db, source_id=source_id, mapping_id=mapping_id)
+    if version is None:
+        raise ValueError("Mapping version not found")
+    if version.status != "draft":
+        raise ValueError("Only draft mappings are editable")
+
+    mapping_json = json.loads(version.mapping_json or "{}")
+    rules = mapping_json.get("family_rules", [])
+    by_key = {rule.get("family_key"): rule for rule in rules if isinstance(rule, dict)}
+    for update in family_updates:
+        family_key = update.get("family_key")
+        if family_key not in by_key:
+            raise ValueError(f"Family '{family_key}' not found in mapping")
+        target = by_key[family_key]
+        for field in (
+            "page_type",
+            "include",
+            "follow_links",
+            "crawl_priority",
+            "pagination_mode",
+            "freshness_policy",
+            "rationale",
+            "family_label",
+        ):
+            if field in update and update[field] is not None:
+                target[field] = update[field]
+
+    mapping_json["family_rules"] = list(by_key.values())
+    version.mapping_json = json.dumps(mapping_json)
+    version.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(version)
+    return version
+
+
+async def approve_mapping_suggestion_version(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    mapping_id: str,
+    approved_by: str | None = None,
+) -> SourceMappingVersion:
+    source = await get_source(db, source_id)
+    if source is None:
+        raise ValueError("Source not found")
+    version = await get_mapping_suggestion_draft(db, source_id=source_id, mapping_id=mapping_id)
+    if version is None:
+        raise ValueError("Mapping version not found")
+    if version.status != "draft":
+        raise ValueError("Only draft mappings can be approved")
+
+    now = datetime.now(UTC)
+    existing = await db.execute(
+        select(SourceMappingVersion).where(
+            SourceMappingVersion.source_id == source_id,
+            SourceMappingVersion.id != mapping_id,
+            SourceMappingVersion.is_active.is_(True),
+        )
+    )
+    for row in list(existing.scalars().all()):
+        row.is_active = False
+        row.status = "superseded"
+        row.superseded_at = now
+        row.updated_at = now
+
+    version.status = "approved"
+    version.is_active = True
+    version.approved_at = now
+    version.approved_by = approved_by
+    version.published_at = now
+    version.published_by = approved_by
+    version.updated_at = now
+
+    source.active_mapping_version_id = version.id
+    source.published_mapping_version_id = version.id
+    source.mapping_status = "published"
+    source.last_mapping_published_at = now
+    source.updated_at = now
+    await db.commit()
+    await db.refresh(version)
+    return version
+
+
 async def get_source_by_url(db: AsyncSession, url: str) -> Source | None:
     result = await db.execute(select(Source).where(Source.url == url))
     return result.scalar_one_or_none()

@@ -5,6 +5,7 @@ import { Sources } from "@/pages/Sources";
 import { SourceDetail } from "@/pages/SourceDetail";
 import { SourceOperations } from "@/pages/SourceOperations";
 import { SourceMapping } from "@/pages/SourceMapping";
+import { MappingReview } from "@/pages/MappingReview";
 import { Records } from "@/pages/Records";
 import { RecordDetail } from "@/pages/RecordDetail";
 import { Pages } from "@/pages/Pages";
@@ -38,6 +39,7 @@ export default function App() {
           <Route path="/sources/:id" element={<SourceDetail />} />
           <Route path="/sources/:id/operations" element={<SourceOperations />} />
           <Route path="/sources/:id/mapping" element={<SourceMapping />} />
+          <Route path="/sources/:id/mappings/:mappingId/review" element={<MappingReview />} />
           <Route path="/records" element={<Records />} />
           <Route path="/admin-review" element={<AdminReview />} />
           <Route path="/duplicates" element={<DuplicateResolution />} />

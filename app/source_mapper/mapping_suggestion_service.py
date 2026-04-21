@@ -15,6 +15,7 @@ class MappingSuggestionService:
         family_payload = [
             {
                 "family_key": family.family_key,
+                "family_label": family.family_label,
                 "path_pattern": family.path_pattern,
                 "page_type_candidate": family.page_type_candidate,
                 "confidence": float(family.confidence),
