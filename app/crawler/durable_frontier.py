@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -10,6 +11,11 @@ from bs4 import BeautifulSoup
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crawler.fetcher import fetch
+from app.crawler.freshness import (
+    compute_next_eligible_fetch_at,
+    detect_content_change,
+    normalize_freshness_policy,
+)
 from app.crawler.crawl_policy import score_url
 from app.crawler.robots import RobotsChecker
 from app.crawler.seeding import build_seed_rows
@@ -94,6 +100,9 @@ async def run_durable_crawl(
     max_pages: int,
     max_depth: int,
     robots_checker: RobotsChecker | None = None,
+    refresh_mode: bool = False,
+    force_refresh: bool = False,
+    crawl_run_id: str | None = None,
 ) -> dict[str, Any]:
     robots_checker = robots_checker or RobotsChecker()
     source = await crud.get_source(db, source_id)
@@ -101,7 +110,7 @@ async def run_durable_crawl(
         raise ValueError(f"Source {source_id} not found")
     resolved_seed_url = source.url or seed_url
     mapping_version_id = source.published_mapping_version_id
-    crawl_run = await crud.get_active_crawl_run_for_source(db, source_id)
+    crawl_run = await crud.get_crawl_run(db, crawl_run_id) if crawl_run_id else await crud.get_active_crawl_run_for_source(db, source_id)
     if crawl_run is None or crawl_run.status in {"completed", "failed", "cancelled"}:
         crawl_run = await crud.create_crawl_run(
             db,
@@ -112,32 +121,33 @@ async def run_durable_crawl(
             worker_id=worker_id,
             mapping_version_id=mapping_version_id,
         )
-        seed_rows = build_seed_rows(
-            root_url=resolved_seed_url,
-            structure_map=source.structure_map,
-        )
-        for seed_row in seed_rows:
-            seed_row["mapping_version_id"] = mapping_version_id
-        seed_priority, seed_page_type = score_url(resolved_seed_url, source.structure_map)
-        await crud.upsert_crawl_frontier_rows(
-            db,
-            crawl_run_id=crawl_run.id,
-            source_id=source_id,
-            rows=seed_rows
-            or [
-                {
-                    "url": resolved_seed_url,
-                    "normalized_url": normalize_url(resolved_seed_url),
-                    "depth": 0,
-                    "status": "queued",
-                    "mapping_version_id": mapping_version_id,
-                    "priority": seed_priority,
-                    "predicted_page_type": seed_page_type,
-                    "discovered_from_page_type": "seed",
-                    "discovery_reason": "seed_root",
-                }
-            ],
-        )
+        if not refresh_mode:
+            seed_rows = build_seed_rows(
+                root_url=resolved_seed_url,
+                structure_map=source.structure_map,
+            )
+            for seed_row in seed_rows:
+                seed_row["mapping_version_id"] = mapping_version_id
+            seed_priority, seed_page_type = score_url(resolved_seed_url, source.structure_map)
+            await crud.upsert_crawl_frontier_rows(
+                db,
+                crawl_run_id=crawl_run.id,
+                source_id=source_id,
+                rows=seed_rows
+                or [
+                    {
+                        "url": resolved_seed_url,
+                        "normalized_url": normalize_url(resolved_seed_url),
+                        "depth": 0,
+                        "status": "queued",
+                        "mapping_version_id": mapping_version_id,
+                        "priority": seed_priority,
+                        "predicted_page_type": seed_page_type,
+                        "discovered_from_page_type": "seed",
+                        "discovery_reason": "seed_root",
+                    }
+                ],
+            )
     else:
         crawl_run = await crud.update_crawl_run(
             db,
@@ -150,7 +160,20 @@ async def run_durable_crawl(
         )
         mapping_version_id = crawl_run.mapping_version_id
 
+    mapping_version = await crud.get_mapping_suggestion_draft(
+        db,
+        source_id=source_id,
+        mapping_id=mapping_version_id,
+    ) if mapping_version_id else None
+    mapping_json = json.loads(mapping_version.mapping_json or "{}") if mapping_version else {}
+    family_policy_by_key = {
+        str(rule.get("family_key")): normalize_freshness_policy(rule.get("freshness_policy"))
+        for rule in mapping_json.get("family_rules", [])
+        if isinstance(rule, dict) and rule.get("family_key")
+    }
     processed = 0
+    changed_count = 0
+    unchanged_count = 0
     while processed < max_pages:
         source = await crud.get_source(db, source_id)
         if source is None:
@@ -297,6 +320,37 @@ async def run_durable_crawl(
                 )
                 continue
 
+            new_content_hash = hashlib.sha256((result.html or "").encode("utf-8")).hexdigest()
+            change = detect_content_change(
+                previous_content_hash=row.content_hash,
+                new_content_hash=new_content_hash,
+                previous_etag=row.etag,
+                new_etag=getattr(result, "etag", None),
+                previous_last_modified=row.last_modified,
+                new_last_modified=getattr(result, "last_modified", None),
+            )
+            family_policy = family_policy_by_key.get(row.family_key or "", "daily")
+            next_eligible_fetch_at = compute_next_eligible_fetch_at(policy=family_policy, now=now)
+            if refresh_mode and not force_refresh and not change.changed and row.last_fetched_at is not None:
+                unchanged_count += 1
+                await crud.update_frontier_row(
+                    db,
+                    row.id,
+                    status="extracted",
+                    last_status_code=result.status_code,
+                    last_fetched_at=now,
+                    canonical_url=result.final_url,
+                    etag=getattr(result, "etag", None),
+                    last_modified=getattr(result, "last_modified", None),
+                    content_hash=new_content_hash,
+                    next_eligible_fetch_at=next_eligible_fetch_at,
+                    last_refresh_outcome="unchanged",
+                    lease_expires_at=None,
+                    leased_by_worker=None,
+                )
+                processed += 1
+                continue
+
             page, _created = await crud.get_or_create_page(db, source_id=source_id, url=result.final_url)
             update_kwargs: dict[str, Any] = {
                 "crawl_run_id": crawl_run.id,
@@ -313,8 +367,7 @@ async def run_durable_crawl(
                 "crawled_at": now,
                 "mapping_version_id_used": mapping_version_id,
             }
-            if page.status not in TERMINAL_PAGE_STATUSES:
-                update_kwargs["status"] = "fetched"
+            update_kwargs["status"] = "fetched"
             await crud.update_page(db, page.id, **update_kwargs)
             await crud.update_frontier_row(
                 db,
@@ -323,16 +376,26 @@ async def run_durable_crawl(
                 last_status_code=result.status_code,
                 last_fetched_at=now,
                 canonical_url=result.final_url,
+                etag=getattr(result, "etag", None),
+                last_modified=getattr(result, "last_modified", None),
+                content_hash=new_content_hash,
+                next_eligible_fetch_at=next_eligible_fetch_at,
+                last_refresh_outcome="changed" if refresh_mode else "fetched",
+                last_change_detected_at=now if change.changed else row.last_change_detected_at,
                 lease_expires_at=None,
                 leased_by_worker=None,
             )
-            if page.status in TERMINAL_PAGE_STATUSES:
+            if not refresh_mode and page.status in TERMINAL_PAGE_STATUSES:
                 await crud.update_frontier_row(
                     db,
                     row.id,
                     status="extracted",
                     last_extracted_at=now,
                 )
+            if change.changed:
+                changed_count += 1
+            elif refresh_mode:
+                unchanged_count += 1
             links = _extract_links(result.html or "", result.final_url)
             source_page_type = row.predicted_page_type or "generic"
             discovered_rows: list[dict[str, Any]] = []
@@ -352,13 +415,14 @@ async def run_durable_crawl(
                         "discovery_reason": "outlink",
                     }
                 )
-            await crud.upsert_crawl_frontier_rows(
-                db,
-                crawl_run_id=crawl_run.id,
-                source_id=source_id,
-                rows=discovered_rows,
-            )
-            await crud.queue_discovered_frontier_rows(db, crawl_run_id=crawl_run.id, limit=max(100, len(discovered_rows)))
+            if not refresh_mode:
+                await crud.upsert_crawl_frontier_rows(
+                    db,
+                    crawl_run_id=crawl_run.id,
+                    source_id=source_id,
+                    rows=discovered_rows,
+                )
+                await crud.queue_discovered_frontier_rows(db, crawl_run_id=crawl_run.id, limit=max(100, len(discovered_rows)))
             processed += 1
             await crud.update_crawl_run(
                 db,
@@ -399,6 +463,8 @@ async def run_durable_crawl(
     return {
         "crawl_run_id": crawl_run.id,
         "pages_crawled": counts.get("fetched", 0),
+        "changed": changed_count,
+        "unchanged": unchanged_count,
         "failed": counts.get("failed_retryable", 0) + counts.get("failed_terminal", 0),
         "robots_blocked": robots_blocked,
         "queued": counts.get("queued", 0),

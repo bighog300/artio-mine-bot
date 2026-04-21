@@ -48,12 +48,12 @@ TERMINAL_CRAWL_RUN_STATUSES = {"completed", "failed", "cancelled"}
 FRONTIER_STATUS_TRANSITIONS: dict[str, set[str]] = {
     "discovered": {"queued", "skipped", "failed_terminal"},
     "queued": {"fetching", "skipped", "failed_retryable", "failed_terminal"},
-    "fetching": {"queued", "fetched", "failed_retryable", "failed_terminal", "skipped"},
+    "fetching": {"queued", "fetched", "extracted", "failed_retryable", "failed_terminal", "skipped"},
     "fetched": {"extracted", "skipped", "failed_retryable", "failed_terminal"},
-    "extracted": set(),
-    "skipped": set(),
+    "extracted": {"queued", "fetching"},
+    "skipped": {"queued", "fetching"},
     "failed_retryable": {"queued", "fetching", "failed_terminal", "skipped"},
-    "failed_terminal": set(),
+    "failed_terminal": {"queued", "fetching"},
 }
 
 MAPPING_ALLOWED_FIELDS: dict[str, set[str]] = {
@@ -63,6 +63,14 @@ MAPPING_ALLOWED_FIELDS: dict[str, set[str]] = {
     "venue": {"title", "description", "address", "city", "country", "phone", "opening_hours"},
     "artwork": {"title", "description", "medium", "year", "dimensions", "price"},
 }
+
+
+def _ensure_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def _extract_completeness_and_conflicts(raw_data: str | None) -> tuple[int, bool]:
@@ -2859,6 +2867,10 @@ async def upsert_crawl_frontier_rows(
         ).scalar_one_or_none()
         if existing:
             existing.priority = max(existing.priority, int(row.get("priority", existing.priority or 0)))
+            if row.get("next_eligible_fetch_at") is not None:
+                existing.next_eligible_fetch_at = row.get("next_eligible_fetch_at")
+            if row.get("family_key"):
+                existing.family_key = row.get("family_key")
             existing.updated_at = datetime.now(UTC)
             continue
         frontier = CrawlFrontier(
@@ -2879,6 +2891,13 @@ async def upsert_crawl_frontier_rows(
             skip_reason=row.get("skip_reason"),
             next_retry_at=row.get("next_retry_at"),
             next_eligible_fetch_at=row.get("next_eligible_fetch_at"),
+            last_fetched_at=row.get("last_fetched_at"),
+            last_extracted_at=row.get("last_extracted_at"),
+            content_hash=row.get("content_hash"),
+            etag=row.get("etag"),
+            last_modified=row.get("last_modified"),
+            last_change_detected_at=row.get("last_change_detected_at"),
+            last_refresh_outcome=row.get("last_refresh_outcome"),
             diagnostics_json=json.dumps(row.get("diagnostics", {})),
         )
         db.add(frontier)
@@ -3084,3 +3103,77 @@ async def requeue_retryable_frontier_rows(db: AsyncSession, *, crawl_run_id: str
     if rows:
         await db.commit()
     return len(rows)
+
+
+async def get_refresh_eligibility_counts(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    mapping_version_id: str,
+    as_of: datetime | None = None,
+) -> dict[str, int]:
+    now = as_of or datetime.now(UTC)
+    base_stmt = select(CrawlFrontier).where(
+        CrawlFrontier.source_id == source_id,
+        CrawlFrontier.mapping_version_id == mapping_version_id,
+    )
+    rows = list((await db.execute(base_stmt)).scalars().all())
+    eligible = 0
+    skipped_not_due = 0
+    for row in rows:
+        next_eligible = _ensure_utc(row.next_eligible_fetch_at)
+        if next_eligible is None or next_eligible <= now:
+            eligible += 1
+        else:
+            skipped_not_due += 1
+    return {
+        "total": len(rows),
+        "eligible": eligible,
+        "skipped_not_due": skipped_not_due,
+    }
+
+
+async def prepare_refresh_frontier_rows(
+    db: AsyncSession,
+    *,
+    crawl_run_id: str,
+    source_id: str,
+    mapping_version_id: str,
+    force: bool = False,
+    limit: int = 1000,
+    as_of: datetime | None = None,
+) -> dict[str, int]:
+    now = as_of or datetime.now(UTC)
+    stmt = (
+        select(CrawlFrontier)
+        .where(
+            CrawlFrontier.source_id == source_id,
+            CrawlFrontier.mapping_version_id == mapping_version_id,
+        )
+        .order_by(CrawlFrontier.updated_at.asc())
+        .limit(limit)
+    )
+    rows = list((await db.execute(stmt)).scalars().all())
+    selected = 0
+    skipped_not_due = 0
+    for row in rows:
+        next_eligible = _ensure_utc(row.next_eligible_fetch_at)
+        due = next_eligible is None or next_eligible <= now
+        if not force and not due:
+            skipped_not_due += 1
+            continue
+        row.crawl_run_id = crawl_run_id
+        row.status = "queued"
+        row.skip_reason = None
+        row.leased_by_worker = None
+        row.lease_expires_at = None
+        row.last_error = None
+        row.next_retry_at = None
+        row.updated_at = now
+        selected += 1
+    if rows:
+        await db.commit()
+    return {
+        "selected": selected,
+        "skipped_not_due": skipped_not_due,
+    }

@@ -384,6 +384,26 @@ class MappingCrawlTriggerResponse(BaseModel):
     message: str
 
 
+class MappingRefreshEligibilityResponse(BaseModel):
+    source_id: str
+    mapping_id: str
+    total: int
+    eligible: int
+    skipped_not_due: int
+
+
+class MappingRefreshTriggerResponse(BaseModel):
+    source_id: str
+    mapping_id: str
+    crawl_run_id: str
+    job_id: str
+    queue_job_id: str
+    status: str
+    selected: int
+    skipped_not_due: int
+    message: str
+
+
 class SourceMappingPresetSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str

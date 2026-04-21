@@ -8,6 +8,8 @@ from app.api.deps import get_db
 from app.api.rbac import require_permission
 from app.api.schemas import (
     MappingCrawlTriggerResponse,
+    MappingRefreshEligibilityResponse,
+    MappingRefreshTriggerResponse,
     MappingFamilyRuleResponse,
     MappingSuggestionDraftRequest,
     MappingSuggestionResponse,
@@ -152,4 +154,94 @@ async def trigger_crawl_from_approved_mapping(
         queue_job_id=queue_job.id,
         status="queued",
         message="Crawl triggered from approved mapping",
+    )
+
+
+@router.get("/{mapping_id}/refresh/eligibility", response_model=MappingRefreshEligibilityResponse)
+async def get_refresh_eligibility(
+    source_id: str,
+    mapping_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    version = await crud.get_mapping_suggestion_draft(db, source_id=source_id, mapping_id=mapping_id)
+    if version is None:
+        raise HTTPException(status_code=404, detail="Mapping version not found")
+    if version.status != "approved":
+        raise HTTPException(status_code=400, detail="Only approved mappings can trigger refresh execution")
+    counts = await crud.get_refresh_eligibility_counts(
+        db,
+        source_id=source_id,
+        mapping_version_id=mapping_id,
+    )
+    return MappingRefreshEligibilityResponse(
+        source_id=source_id,
+        mapping_id=mapping_id,
+        **counts,
+    )
+
+
+@router.post("/{mapping_id}/refresh", response_model=MappingRefreshTriggerResponse)
+async def trigger_refresh_from_approved_mapping(
+    source_id: str,
+    mapping_id: str,
+    force: bool = False,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("rollback")),
+):
+    version = await crud.get_mapping_suggestion_draft(db, source_id=source_id, mapping_id=mapping_id)
+    if version is None:
+        raise HTTPException(status_code=404, detail="Mapping version not found")
+    if version.status != "approved":
+        raise HTTPException(status_code=400, detail="Only approved mappings can trigger refresh execution")
+    source = await crud.get_source(db, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    crawl_run = await crud.create_crawl_run(
+        db,
+        source_id=source_id,
+        seed_url=source.url,
+        status="queued",
+        mapping_version_id=mapping_id,
+    )
+    selection = await crud.prepare_refresh_frontier_rows(
+        db,
+        crawl_run_id=crawl_run.id,
+        source_id=source_id,
+        mapping_version_id=mapping_id,
+        force=force,
+    )
+
+    payload = {
+        "mapping_version_id": mapping_id,
+        "trigger": "approved_mapping_refresh_manual",
+        "crawl_run_id": crawl_run.id,
+        "force_refresh": force,
+    }
+    try:
+        await crud.update_source(db, source_id, status="queued", error_message=None)
+        job = await crud.create_job(db, source_id=source_id, job_type="crawl_refresh", payload=payload)
+        await crud.update_job_status(db, job.id, "queued")
+        queue_job = get_default_queue().enqueue(
+            "app.pipeline.runner.process_pipeline_job",
+            job.id,
+            source_id,
+            "crawl_refresh",
+            payload,
+            job_timeout=900,
+        )
+    except (QueueUnavailableError, RedisError, OSError, RuntimeError) as exc:
+        raise HTTPException(status_code=503, detail=f"Failed to queue refresh job: {exc}") from exc
+
+    return MappingRefreshTriggerResponse(
+        source_id=source_id,
+        mapping_id=mapping_id,
+        crawl_run_id=crawl_run.id,
+        job_id=job.id,
+        queue_job_id=queue_job.id,
+        status="queued",
+        selected=int(selection.get("selected", 0)),
+        skipped_not_due=int(selection.get("skipped_not_due", 0)),
+        message="Refresh crawl triggered from approved mapping",
     )

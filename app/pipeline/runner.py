@@ -426,6 +426,10 @@ class PipelineRunner:
         self,
         source_id: str,
         site_map: SiteMap | None = None,
+        *,
+        refresh_mode: bool = False,
+        force_refresh: bool = False,
+        crawl_run_id: str | None = None,
     ) -> Any:
         """Crawl all pages for a source."""
         require_worker_environment()
@@ -442,7 +446,7 @@ class PipelineRunner:
             raise ValueError(f"Source {source_id} not found")
 
         runtime_map, runtime_map_source = await crud.get_active_runtime_map(self.db, source_id)
-        if runtime_map is not None:
+        if runtime_map is not None and not refresh_mode:
             structure_map = runtime_map
             ai_allowed = not (
                 source.runtime_mode == "deterministic_runtime"
@@ -509,20 +513,25 @@ class PipelineRunner:
             worker_id=WORKER_ID,
             max_pages=int(source.max_pages or settings.max_pages_per_source),
             max_depth=int(source.max_depth or settings.max_crawl_depth),
+            refresh_mode=refresh_mode,
+            force_refresh=force_refresh,
+            crawl_run_id=crawl_run_id,
         )
-        pages_crawled = max(int(durable_stats.get("pages_crawled", stats.pages_fetched)), 1)
+        pages_crawled = max(int(durable_stats.get("pages_crawled", 0)), 1)
         fallback_stats = {
             "crawl_run_id": durable_stats.get("crawl_run_id"),
-            "pages_crawled": max(int(durable_stats.get("pages_crawled", 0)), stats.pages_fetched),
-            "failed": max(int(durable_stats.get("failed", 0)), stats.pages_error),
+            "pages_crawled": int(durable_stats.get("pages_crawled", 0)),
+            "failed": int(durable_stats.get("failed", 0)),
             "rate_limited": int(durable_stats.get("rate_limited", 0)),
+            "changed": int(durable_stats.get("changed", 0)),
+            "unchanged": int(durable_stats.get("unchanged", 0)),
         }
         logger.info(
             "crawl_stats",
             source_id=source_id,
             deterministic_rate=0.0,
             ai_fallback_rate=0.0,
-            failure_rate=round(stats.pages_error / pages_crawled, 4),
+            failure_rate=round(int(durable_stats.get("failed", 0)) / pages_crawled, 4),
             tokens_used=0,
             cost=0.0,
         )
@@ -1749,6 +1758,13 @@ async def _run_pipeline_job_async(
                     result = {"sections": len(site_map.sections)}
                 elif job_type == "crawl_section":
                     result = await runner.run_crawl(source_id)
+                elif job_type == "crawl_refresh":
+                    result = await runner.run_crawl(
+                        source_id,
+                        refresh_mode=True,
+                        force_refresh=bool(payload.get("force_refresh", False)),
+                        crawl_run_id=str(payload.get("crawl_run_id")) if payload.get("crawl_run_id") else None,
+                    )
                 elif job_type == "extract_page":
                     stats = await runner.run_extract(source_id, allow_updates=False, include_existing=False)
                     result = {
