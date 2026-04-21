@@ -34,7 +34,7 @@ async def test_rate_limited_frontier_row_becomes_retryable(db_session):
             max_depth=1,
         )
 
-    assert stats["rate_limited"] >= 1
+    assert stats["retryable"] >= 1
     crawl_run = await crud.get_active_crawl_run_for_source(db_session, source.id)
     assert crawl_run is not None
     assert crawl_run.status in {"cooling_down", "running", "completed"}

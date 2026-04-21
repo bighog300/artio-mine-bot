@@ -420,6 +420,11 @@ class CrawlRun(Base):
     started_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
     stats_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    mapping_version_id: Mapped[str | None] = mapped_column(
+        String,
+        ForeignKey("source_mapping_versions.id"),
+        nullable=True,
+    )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
@@ -437,32 +442,79 @@ class CrawlFrontier(Base):
     tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
     crawl_run_id: Mapped[str] = mapped_column(String, ForeignKey("crawl_runs.id"), nullable=False)
     source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
+    mapping_version_id: Mapped[str | None] = mapped_column(
+        String,
+        ForeignKey("source_mapping_versions.id"),
+        nullable=True,
+    )
     url: Mapped[str] = mapped_column(String, nullable=False)
     normalized_url: Mapped[str] = mapped_column(String, nullable=False)
+    canonical_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    family_key: Mapped[str | None] = mapped_column(String, nullable=True)
     depth: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     discovered_from_url: Mapped[str | None] = mapped_column(String, nullable=True)
     priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     predicted_page_type: Mapped[str | None] = mapped_column(String, nullable=True)
     discovered_from_page_type: Mapped[str | None] = mapped_column(String, nullable=True)
     discovery_reason: Mapped[str | None] = mapped_column(String, nullable=True)
-    status: Mapped[str] = mapped_column(String, default="queued", nullable=False)
+    status: Mapped[str] = mapped_column(String, default="discovered", nullable=False)
+    skip_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
     leased_by_worker: Mapped[str | None] = mapped_column(String, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     next_retry_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    next_eligible_fetch_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
     last_status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    etag: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_modified: Mapped[str | None] = mapped_column(String, nullable=True)
+    first_discovered_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
     last_fetched_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    last_extracted_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    diagnostics_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     content_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("source_id", "normalized_url", name="uq_crawl_frontier_source_normalized_url"),
+        UniqueConstraint(
+            "source_id",
+            "mapping_version_id",
+            "normalized_url",
+            name="uq_crawl_frontier_source_mapping_normalized_url",
+        ),
         Index("ix_crawl_frontier_crawl_run_id_status", "crawl_run_id", "status"),
         Index("ix_crawl_frontier_crawl_run_priority_depth_created", "crawl_run_id", "priority", "depth", "created_at"),
         Index("ix_crawl_frontier_lease_expires_at", "lease_expires_at"),
         Index("ix_crawl_frontier_next_retry_at", "next_retry_at"),
+    )
+
+
+class CrawlRunCheckpoint(Base):
+    __tablename__ = "crawl_run_checkpoints"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
+    crawl_run_id: Mapped[str] = mapped_column(String, ForeignKey("crawl_runs.id"), nullable=False, unique=True)
+    source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
+    mapping_version_id: Mapped[str | None] = mapped_column(
+        String,
+        ForeignKey("source_mapping_versions.id"),
+        nullable=True,
+    )
+    status: Mapped[str] = mapped_column(String, nullable=False, default="running")
+    last_checkpoint_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    frontier_counts_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    progress_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    last_processed_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    worker_state_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
+
+    __table_args__ = (
+        Index("ix_crawl_run_checkpoints_crawl_run_id", "crawl_run_id"),
+        Index("ix_crawl_run_checkpoints_status", "status"),
+        Index("ix_crawl_run_checkpoints_last_checkpoint_at", "last_checkpoint_at"),
     )
 
 
