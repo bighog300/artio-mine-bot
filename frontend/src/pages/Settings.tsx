@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getSettings, saveSettings, testArtioConnection } from "@/lib/api";
+import { clearAdminToken, getAdminToken, setAdminToken } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { Alert, Button, Input, useToast } from "@/components/ui";
 
@@ -33,6 +34,8 @@ export function Settings() {
   const [crawlDelay, setCrawlDelay] = useState(1000);
 
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [adminTokenInput, setAdminTokenInput] = useState("");
+  const [hasAdminToken, setHasAdminToken] = useState(() => Boolean(getAdminToken()));
 
   // Populate form once settings are loaded
   useEffect(() => {
@@ -44,6 +47,36 @@ export function Settings() {
     setMaxPages(data.max_pages_per_source);
     setCrawlDelay(data.crawl_delay_ms);
   }, [data]);
+
+  const refreshProtectedQueries = () => {
+    const protectedKeys = ["sources", "jobs", "queues", "workers"];
+    for (const key of protectedKeys) {
+      queryClient.invalidateQueries({ queryKey: [key] });
+    }
+  };
+
+  const saveAdminToken = () => {
+    if (!adminTokenInput.trim()) {
+      toast.error("Admin token required", "Enter a token value before saving.");
+      return;
+    }
+    setAdminToken(adminTokenInput);
+    setAdminTokenInput("");
+    setHasAdminToken(true);
+    refreshProtectedQueries();
+    toast.success("Admin token saved", "Protected admin routes will now include X-Admin-Token.");
+  };
+
+  const removeAdminToken = () => {
+    clearAdminToken();
+    setAdminTokenInput("");
+    setHasAdminToken(false);
+    queryClient.removeQueries({ queryKey: ["sources"] });
+    queryClient.removeQueries({ queryKey: ["jobs"] });
+    queryClient.removeQueries({ queryKey: ["queues"] });
+    queryClient.removeQueries({ queryKey: ["workers"] });
+    toast.success("Admin token cleared");
+  };
 
   const saveMutation = useMutation({
     mutationFn: () =>
@@ -116,6 +149,46 @@ export function Settings() {
           description="Add OPENAI_API_KEY below to enable mining."
         />
       )}
+
+      <div className="rounded-lg border bg-card">
+        <div className="border-b p-4">
+          <h2 className="font-semibold text-foreground">Operator Authentication</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Configure the local admin token used for protected /api routes.
+          </p>
+        </div>
+        <div className="space-y-4 p-4">
+          <Alert
+            variant={hasAdminToken ? "success" : "warning"}
+            title={hasAdminToken ? "Authenticated" : "Not authenticated"}
+            description={
+              hasAdminToken
+                ? "An admin token is stored in this browser and will be sent as X-Admin-Token."
+                : "No admin token is configured. Protected routes may return 401."
+            }
+          />
+          <Field
+            label="Admin Token"
+            hint="Stored in this browser only. The saved value is not shown after save."
+          >
+            <Input
+              type="password"
+              value={adminTokenInput}
+              onChange={(e) => setAdminTokenInput(e.target.value)}
+              placeholder="Enter admin token"
+              className={inputCls}
+            />
+          </Field>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={saveAdminToken} variant="secondary">
+              Save Admin Token
+            </Button>
+            <Button onClick={removeAdminToken} variant="ghost">
+              Clear Token
+            </Button>
+          </div>
+        </div>
+      </div>
 
       {/* ── Artio API card ──────────────────────────────────────────────────── */}
       <div className="rounded-lg border bg-card">

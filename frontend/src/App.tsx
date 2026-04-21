@@ -24,11 +24,13 @@ import { JobDetail } from "@/pages/JobDetail";
 import { Workers } from "@/pages/Workers";
 import { MobileTest } from "@/pages/MobileTest";
 import { ToastProvider } from "@/components/ui";
+import { ApiAuthNotice } from "@/components/shared/ApiAuthNotice";
 
 export default function App() {
   return (
     <BrowserRouter>
       <ToastProvider>
+      <ApiAuthNotice />
       <Layout>
         <Routes>
           <Route path="/" element={<Dashboard />} />

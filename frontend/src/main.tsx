@@ -3,13 +3,19 @@ import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import { ThemeProvider } from "@/context/ThemeContext";
+import { isApiAuthError } from "@/lib/api";
 import "./index.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
-      retry: 1,
+      retry: (failureCount, error) => {
+        if (isApiAuthError(error)) {
+          return false;
+        }
+        return failureCount < 1;
+      },
     },
   },
 });
