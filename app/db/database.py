@@ -8,10 +8,10 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
 from app.config import is_serverless_environment, settings, validate_async_driver
+from app.db.base import Base
 
 logger = structlog.get_logger()
 
@@ -63,11 +63,6 @@ def AsyncSessionLocal() -> AsyncSession:
             expire_on_commit=False,
         )
     return _session_factory()
-
-
-class Base(DeclarativeBase):
-    pass
-
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:

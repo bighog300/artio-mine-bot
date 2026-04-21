@@ -6,8 +6,9 @@ from alembic import context
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy import pool
 
-# Import Base so Alembic can detect schema changes
-from app.db.database import Base
+# Import Base + models so Alembic can detect schema changes without importing
+# the runtime database engine/logging setup.
+from app.db.base import Base
 import app.db.models  # noqa: F401
 from app.config import settings
 
