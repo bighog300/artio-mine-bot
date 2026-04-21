@@ -473,6 +473,8 @@ class CrawlFrontier(Base):
     last_extracted_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
     diagnostics_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     content_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_change_detected_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    last_refresh_outcome: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
 

@@ -26,6 +26,8 @@ class FetchResult:
     status_code: int
     method: str  # "httpx" | "playwright"
     error: str | None = None
+    etag: str | None = None
+    last_modified: str | None = None
 
 
 def _domain(url: str) -> str:
@@ -107,6 +109,8 @@ async def fetch(url: str, use_playwright: bool = False) -> FetchResult:
             final_url = str(resp.url)
             html = resp.text
             status_code = resp.status_code
+            etag = resp.headers.get("etag")
+            last_modified = resp.headers.get("last-modified")
 
         html_truncated, was_truncated = _truncate_html(html)
 
@@ -121,6 +125,8 @@ async def fetch(url: str, use_playwright: bool = False) -> FetchResult:
             html=html_truncated,
             status_code=status_code,
             method="httpx",
+            etag=etag,
+            last_modified=last_modified,
         )
     except Exception as exc:
         logger.error("httpx_fetch_error", url=url, error=str(exc))
