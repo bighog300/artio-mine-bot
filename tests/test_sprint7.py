@@ -98,7 +98,7 @@ async def test_schedule_and_rbac(test_client: AsyncClient, db_session: AsyncSess
 
     forbidden = await test_client.post(
         "/api/schedule",
-        headers={"X-API-Key": viewer_key},
+        headers={"X-API-Key": viewer_key, "X-Admin-Token": ""},
         json={"job_type": "crawl_job", "cron": "0 * * * *", "source_id": source.id},
     )
     assert forbidden.status_code == 403

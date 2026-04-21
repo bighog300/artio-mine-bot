@@ -5,6 +5,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud
+from tests.conftest import TestSessionLocal
 from app.pipeline.runner import _run_pipeline_job_async
 
 
@@ -74,6 +75,7 @@ async def test_runner_supports_reclassify_and_reextract_job_types(db_session: As
     )
 
     with (
+        patch("app.pipeline.runner.AsyncSessionLocal", return_value=TestSessionLocal()),
         patch("app.pipeline.runner.worker_log_processor.start", AsyncMock()),
         patch("app.pipeline.runner.worker_log_processor.stop", AsyncMock()),
         patch("app.pipeline.runner.PipelineRunner.run_reclassify_page", AsyncMock(return_value={"status": "classified"})),
