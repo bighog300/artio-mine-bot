@@ -13,6 +13,7 @@ ARCHIVE_TOKENS = ("archive", "archives", "year", "past")
 @dataclass(slots=True)
 class FamilyRule:
     family_key: str
+    family_label: str | None
     path_pattern: str
     page_type: str
     include: bool
@@ -134,6 +135,7 @@ def build_family_rule(family) -> FamilyRule:
     }
     return FamilyRule(
         family_key=family["family_key"],
+        family_label=family.get("family_label"),
         path_pattern=family["path_pattern"],
         page_type=page_type,
         include=include,
@@ -155,4 +157,3 @@ def build_mapping_json(source_id: str, profile_id: str, families: list[dict[str,
         "status": "draft",
         "family_rules": [asdict(rule) for rule in rules],
     }
-

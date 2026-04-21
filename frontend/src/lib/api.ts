@@ -294,6 +294,48 @@ export interface MappingSampleRunResultResponse {
   items: MappingSampleRunResult[];
 }
 
+export interface MappingFamilyRule {
+  family_key: string;
+  family_label?: string | null;
+  path_pattern: string;
+  page_type: string;
+  include: boolean;
+  follow_links: boolean;
+  crawl_priority: string;
+  pagination_mode: string;
+  freshness_policy: string;
+  confidence: number;
+  rationale: string;
+  diagnostics_summary: Record<string, unknown>;
+}
+
+export interface MappingSuggestionDetail {
+  id: string;
+  source_id: string;
+  based_on_profile_id: string | null;
+  version_number: number;
+  status: string;
+  is_active: boolean;
+  approved_at: string | null;
+  approved_by: string | null;
+  superseded_at: string | null;
+  created_at: string;
+  family_rules: MappingFamilyRule[];
+  diagnostics: Record<string, unknown>;
+}
+
+export interface MappingFamilyRuleUpdate {
+  family_key: string;
+  page_type?: string;
+  include?: boolean;
+  follow_links?: boolean;
+  crawl_priority?: string;
+  pagination_mode?: string;
+  freshness_policy?: string;
+  rationale?: string;
+  family_label?: string;
+}
+
 export interface MineOptions {
   max_depth?: number;
   max_pages?: number;
@@ -1007,6 +1049,30 @@ export const rollbackSourceMappingVersion = (
   versionId: string
 ): Promise<{ id: string; source_id: string; status: string; published_at: string; published_by: string | null }> =>
   api.post(`/sources/${sourceId}/mapping-drafts/versions/${versionId}/rollback`).then((r) => r.data);
+
+export const getDraftMappingSuggestion = (
+  sourceId: string,
+  mappingId: string
+): Promise<MappingSuggestionDetail> => api.get(`/sources/${sourceId}/mappings/${mappingId}`).then((r) => r.data);
+
+export const updateDraftMappingSuggestion = (
+  sourceId: string,
+  mappingId: string,
+  family_rules: MappingFamilyRuleUpdate[]
+): Promise<MappingSuggestionDetail> =>
+  api.patch(`/sources/${sourceId}/mappings/${mappingId}`, { family_rules }).then((r) => r.data);
+
+export const approveDraftMappingSuggestion = (
+  sourceId: string,
+  mappingId: string
+): Promise<MappingSuggestionDetail> =>
+  api.post(`/sources/${sourceId}/mappings/${mappingId}/approve`).then((r) => r.data);
+
+export const triggerMappingCrawl = (
+  sourceId: string,
+  mappingId: string
+): Promise<{ source_id: string; mapping_id: string; job_id: string; queue_job_id: string; status: string; message: string }> =>
+  api.post(`/sources/${sourceId}/mappings/${mappingId}/crawl`).then((r) => r.data);
 
 export const getSourceMappingPresets = (
   sourceId: string

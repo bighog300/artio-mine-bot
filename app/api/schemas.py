@@ -331,6 +331,7 @@ class MappingSuggestionDraftRequest(BaseModel):
 
 class MappingFamilyRuleResponse(BaseModel):
     family_key: str
+    family_label: str | None = None
     path_pattern: str
     page_type: str
     include: bool
@@ -349,9 +350,38 @@ class MappingSuggestionResponse(BaseModel):
     based_on_profile_id: str | None = None
     version_number: int
     status: str
+    is_active: bool = False
+    approved_at: datetime | None = None
+    approved_by: str | None = None
+    superseded_at: datetime | None = None
     created_at: datetime
     family_rules: list[MappingFamilyRuleResponse] = []
     diagnostics: dict[str, Any] = {}
+
+
+class MappingFamilyRuleUpdate(BaseModel):
+    family_key: str
+    page_type: str | None = None
+    include: bool | None = None
+    follow_links: bool | None = None
+    crawl_priority: str | None = None
+    pagination_mode: str | None = None
+    freshness_policy: str | None = None
+    rationale: str | None = None
+    family_label: str | None = None
+
+
+class MappingSuggestionUpdateRequest(BaseModel):
+    family_rules: list[MappingFamilyRuleUpdate] = Field(default_factory=list)
+
+
+class MappingCrawlTriggerResponse(BaseModel):
+    source_id: str
+    mapping_id: str
+    job_id: str
+    queue_job_id: str
+    status: str
+    message: str
 
 
 class SourceMappingPresetSummary(BaseModel):
