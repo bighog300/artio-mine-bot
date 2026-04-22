@@ -60,8 +60,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_url_families_profile_id_confidence", table_name="url_families")
-    op.drop_table("url_families")
-    op.drop_index("ix_source_profiles_source_id_status", table_name="source_profiles")
-    op.drop_index("ix_source_profiles_source_id_started_at", table_name="source_profiles")
-    op.drop_table("source_profiles")
+    op.drop_index("ix_url_families_profile_id_confidence", table_name="url_families", if_exists=True)
+    op.drop_table("url_families", if_exists=True)
+    op.drop_index("ix_source_profiles_source_id_status", table_name="source_profiles", if_exists=True)
+    op.drop_index("ix_source_profiles_source_id_started_at", table_name="source_profiles", if_exists=True)
+    op.drop_table("source_profiles", if_exists=True)

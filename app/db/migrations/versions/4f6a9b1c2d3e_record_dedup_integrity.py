@@ -67,18 +67,18 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     with op.batch_alter_table("images", schema=None) as batch_op:
-        batch_op.drop_index("ix_images_source_hash")
-        batch_op.drop_column("image_hash")
+        batch_op.drop_index("ix_images_source_hash", if_exists=True)
+        batch_op.drop_column("image_hash", if_exists=True)
 
     with op.batch_alter_table("records", schema=None) as batch_op:
-        batch_op.drop_constraint("uq_records_type_normalized_name_source", type_="unique")
-        batch_op.drop_constraint("ck_records_record_type_enum", type_="check")
-        batch_op.drop_constraint("fk_records_job_id_jobs", type_="foreignkey")
-        batch_op.drop_index("ix_records_fingerprint")
-        batch_op.drop_index("ix_records_normalized_name")
-        batch_op.drop_index("ix_records_job_id")
-        batch_op.drop_column("field_confidence")
-        batch_op.drop_column("structured_data")
-        batch_op.drop_column("fingerprint")
-        batch_op.drop_column("normalized_name")
-        batch_op.drop_column("job_id")
+        batch_op.drop_constraint("uq_records_type_normalized_name_source", type_="unique", if_exists=True)
+        batch_op.drop_constraint("ck_records_record_type_enum", type_="check", if_exists=True)
+        batch_op.drop_constraint("fk_records_job_id_jobs", type_="foreignkey", if_exists=True)
+        batch_op.drop_index("ix_records_fingerprint", if_exists=True)
+        batch_op.drop_index("ix_records_normalized_name", if_exists=True)
+        batch_op.drop_index("ix_records_job_id", if_exists=True)
+        batch_op.drop_column("field_confidence", if_exists=True)
+        batch_op.drop_column("structured_data", if_exists=True)
+        batch_op.drop_column("fingerprint", if_exists=True)
+        batch_op.drop_column("normalized_name", if_exists=True)
+        batch_op.drop_column("job_id", if_exists=True)

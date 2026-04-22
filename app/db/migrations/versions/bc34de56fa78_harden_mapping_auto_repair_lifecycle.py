@@ -25,8 +25,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("mapping_repair_proposals", "evidence_json")
-    op.drop_column("mapping_repair_proposals", "reasoning")
-    op.drop_column("mapping_repair_proposals", "strategy_used")
-    op.drop_column("mapping_repair_proposals", "priority_score")
-    op.drop_column("mapping_repair_proposals", "occurrence_count")
+    op.drop_column("mapping_repair_proposals", "evidence_json", if_exists=True)
+    op.drop_column("mapping_repair_proposals", "reasoning", if_exists=True)
+    op.drop_column("mapping_repair_proposals", "strategy_used", if_exists=True)
+    op.drop_column("mapping_repair_proposals", "priority_score", if_exists=True)
+    op.drop_column("mapping_repair_proposals", "occurrence_count", if_exists=True)

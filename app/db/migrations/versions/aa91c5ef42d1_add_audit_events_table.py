@@ -49,11 +49,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_audit_events_user_id", table_name="audit_events")
-    op.drop_index("ix_audit_events_source_id", table_name="audit_events")
-    op.drop_index("ix_audit_events_record_id", table_name="audit_events")
-    op.drop_index("ix_audit_events_event_type", table_name="audit_events")
-    op.drop_index("ix_audit_events_entity_type", table_name="audit_events")
-    op.drop_index("ix_audit_events_entity_id", table_name="audit_events")
-    op.drop_index("ix_audit_events_created_at", table_name="audit_events")
-    op.drop_table("audit_events")
+    op.drop_index("ix_audit_events_user_id", table_name="audit_events", if_exists=True)
+    op.drop_index("ix_audit_events_source_id", table_name="audit_events", if_exists=True)
+    op.drop_index("ix_audit_events_record_id", table_name="audit_events", if_exists=True)
+    op.drop_index("ix_audit_events_event_type", table_name="audit_events", if_exists=True)
+    op.drop_index("ix_audit_events_entity_type", table_name="audit_events", if_exists=True)
+    op.drop_index("ix_audit_events_entity_id", table_name="audit_events", if_exists=True)
+    op.drop_index("ix_audit_events_created_at", table_name="audit_events", if_exists=True)
+    op.drop_table("audit_events", if_exists=True)

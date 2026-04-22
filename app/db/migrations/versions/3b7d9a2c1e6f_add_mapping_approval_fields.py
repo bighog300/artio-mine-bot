@@ -29,7 +29,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("source_mapping_versions", "superseded_at")
-    op.drop_column("source_mapping_versions", "is_active")
-    op.drop_column("source_mapping_versions", "approved_at")
-    op.drop_column("source_mapping_versions", "approved_by")
+    op.drop_column("source_mapping_versions", "superseded_at", if_exists=True)
+    op.drop_column("source_mapping_versions", "is_active", if_exists=True)
+    op.drop_column("source_mapping_versions", "approved_at", if_exists=True)
+    op.drop_column("source_mapping_versions", "approved_by", if_exists=True)

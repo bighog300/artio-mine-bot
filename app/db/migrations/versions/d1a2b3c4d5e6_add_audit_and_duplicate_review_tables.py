@@ -60,12 +60,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_audit_actions_source_id", table_name="audit_actions")
-    op.drop_index("ix_audit_actions_record_id", table_name="audit_actions")
-    op.drop_index("ix_audit_actions_created_at", table_name="audit_actions")
-    op.drop_index("ix_audit_actions_action_type", table_name="audit_actions")
-    op.drop_table("audit_actions")
+    op.drop_index("ix_audit_actions_source_id", table_name="audit_actions", if_exists=True)
+    op.drop_index("ix_audit_actions_record_id", table_name="audit_actions", if_exists=True)
+    op.drop_index("ix_audit_actions_created_at", table_name="audit_actions", if_exists=True)
+    op.drop_index("ix_audit_actions_action_type", table_name="audit_actions", if_exists=True)
+    op.drop_table("audit_actions", if_exists=True)
 
-    op.drop_index("ix_duplicate_reviews_similarity_score", table_name="duplicate_reviews")
-    op.drop_index("ix_duplicate_reviews_status", table_name="duplicate_reviews")
-    op.drop_table("duplicate_reviews")
+    op.drop_index("ix_duplicate_reviews_similarity_score", table_name="duplicate_reviews", if_exists=True)
+    op.drop_index("ix_duplicate_reviews_status", table_name="duplicate_reviews", if_exists=True)
+    op.drop_table("duplicate_reviews", if_exists=True)

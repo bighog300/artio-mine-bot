@@ -40,9 +40,9 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     with op.batch_alter_table("logs", schema=None) as batch_op:
-        batch_op.drop_index("ix_logs_source_id")
-        batch_op.drop_index("ix_logs_service")
-        batch_op.drop_index("ix_logs_level")
-        batch_op.drop_index("ix_logs_timestamp")
+        batch_op.drop_index("ix_logs_source_id", if_exists=True)
+        batch_op.drop_index("ix_logs_service", if_exists=True)
+        batch_op.drop_index("ix_logs_level", if_exists=True)
+        batch_op.drop_index("ix_logs_timestamp", if_exists=True)
 
-    op.drop_table("logs")
+    op.drop_table("logs", if_exists=True)

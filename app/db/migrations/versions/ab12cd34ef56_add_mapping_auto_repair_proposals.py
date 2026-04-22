@@ -63,9 +63,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_mapping_repair_proposals_mapping_field", table_name="mapping_repair_proposals")
-    op.drop_index("ix_mapping_repair_proposals_source_status", table_name="mapping_repair_proposals")
-    op.drop_table("mapping_repair_proposals")
-    op.drop_column("mapping_drift_signals", "failing_selector")
-    op.drop_column("mapping_drift_signals", "selector_path")
-    op.drop_column("mapping_drift_signals", "mapping_field")
+    op.drop_index("ix_mapping_repair_proposals_mapping_field", table_name="mapping_repair_proposals", if_exists=True)
+    op.drop_index("ix_mapping_repair_proposals_source_status", table_name="mapping_repair_proposals", if_exists=True)
+    op.drop_table("mapping_repair_proposals", if_exists=True)
+    op.drop_column("mapping_drift_signals", "failing_selector", if_exists=True)
+    op.drop_column("mapping_drift_signals", "selector_path", if_exists=True)
+    op.drop_column("mapping_drift_signals", "mapping_field", if_exists=True)

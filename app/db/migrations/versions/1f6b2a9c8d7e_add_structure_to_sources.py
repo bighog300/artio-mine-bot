@@ -28,7 +28,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("sources", "analyzed_at")
-    op.drop_column("sources", "structure_error")
-    op.drop_column("sources", "structure_status")
-    op.drop_column("sources", "structure_map")
+    op.drop_column("sources", "analyzed_at", if_exists=True)
+    op.drop_column("sources", "structure_error", if_exists=True)
+    op.drop_column("sources", "structure_status", if_exists=True)
+    op.drop_column("sources", "structure_map", if_exists=True)

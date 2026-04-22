@@ -79,7 +79,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_source_mapping_preset_rows_preset_id_sort_order", table_name="source_mapping_preset_rows")
-    op.drop_table("source_mapping_preset_rows")
-    op.drop_index("ix_source_mapping_presets_source_id_created_at", table_name="source_mapping_presets")
-    op.drop_table("source_mapping_presets")
+    op.drop_index("ix_source_mapping_preset_rows_preset_id_sort_order", table_name="source_mapping_preset_rows", if_exists=True)
+    op.drop_table("source_mapping_preset_rows", if_exists=True)
+    op.drop_index("ix_source_mapping_presets_source_id_created_at", table_name="source_mapping_presets", if_exists=True)
+    op.drop_table("source_mapping_presets", if_exists=True)

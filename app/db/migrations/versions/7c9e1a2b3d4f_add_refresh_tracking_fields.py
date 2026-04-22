@@ -22,5 +22,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("crawl_frontier", "last_refresh_outcome")
-    op.drop_column("crawl_frontier", "last_change_detected_at")
+    op.drop_column("crawl_frontier", "last_refresh_outcome", if_exists=True)
+    op.drop_column("crawl_frontier", "last_change_detected_at", if_exists=True)

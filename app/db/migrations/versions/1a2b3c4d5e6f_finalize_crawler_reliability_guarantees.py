@@ -25,5 +25,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     with op.batch_alter_table("crawl_frontier") as batch_op:
-        batch_op.drop_column("retry_after")
-        batch_op.drop_column("lease_version")
+        batch_op.drop_column("retry_after", if_exists=True)
+        batch_op.drop_column("lease_version", if_exists=True)

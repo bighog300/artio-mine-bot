@@ -35,6 +35,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_mapping_templates_is_system", table_name="mapping_templates")
-    op.drop_index("ix_mapping_templates_created_at", table_name="mapping_templates")
-    op.drop_table("mapping_templates")
+    op.drop_index("ix_mapping_templates_is_system", table_name="mapping_templates", if_exists=True)
+    op.drop_index("ix_mapping_templates_created_at", table_name="mapping_templates", if_exists=True)
+    op.drop_table("mapping_templates", if_exists=True)

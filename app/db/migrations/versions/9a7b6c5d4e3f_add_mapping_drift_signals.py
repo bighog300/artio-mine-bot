@@ -66,7 +66,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_mapping_drift_signals_source_type_family", table_name="mapping_drift_signals")
-    op.drop_index("ix_mapping_drift_signals_mapping_severity_status", table_name="mapping_drift_signals")
-    op.drop_index("ix_mapping_drift_signals_source_status_detected", table_name="mapping_drift_signals")
-    op.drop_table("mapping_drift_signals")
+    op.drop_index("ix_mapping_drift_signals_source_type_family", table_name="mapping_drift_signals", if_exists=True)
+    op.drop_index("ix_mapping_drift_signals_mapping_severity_status", table_name="mapping_drift_signals", if_exists=True)
+    op.drop_index("ix_mapping_drift_signals_source_status_detected", table_name="mapping_drift_signals", if_exists=True)
+    op.drop_table("mapping_drift_signals", if_exists=True)

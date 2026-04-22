@@ -24,4 +24,4 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     with op.batch_alter_table("sources", schema=None) as batch_op:
-        batch_op.drop_column("crawl_hints")
+        batch_op.drop_column("crawl_hints", if_exists=True)

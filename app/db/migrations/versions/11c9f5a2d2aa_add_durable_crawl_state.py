@@ -88,23 +88,23 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_records_crawl_run_id", table_name="records")
-    op.drop_constraint("fk_records_crawl_run_id", "records", type_="foreignkey")
-    op.drop_column("records", "crawl_run_id")
+    op.drop_index("ix_records_crawl_run_id", table_name="records", if_exists=True)
+    op.drop_constraint("fk_records_crawl_run_id", "records", type_="foreignkey", if_exists=True)
+    op.drop_column("records", "crawl_run_id", if_exists=True)
 
-    op.drop_index("ix_pages_crawl_run_id", table_name="pages")
-    op.drop_constraint("fk_pages_crawl_run_id", "pages", type_="foreignkey")
-    op.drop_column("pages", "crawl_run_id")
+    op.drop_index("ix_pages_crawl_run_id", table_name="pages", if_exists=True)
+    op.drop_constraint("fk_pages_crawl_run_id", "pages", type_="foreignkey", if_exists=True)
+    op.drop_column("pages", "crawl_run_id", if_exists=True)
 
-    op.drop_index("ix_jobs_crawl_run_id", table_name="jobs")
-    op.drop_constraint("fk_jobs_crawl_run_id", "jobs", type_="foreignkey")
-    op.drop_column("jobs", "crawl_run_id")
+    op.drop_index("ix_jobs_crawl_run_id", table_name="jobs", if_exists=True)
+    op.drop_constraint("fk_jobs_crawl_run_id", "jobs", type_="foreignkey", if_exists=True)
+    op.drop_column("jobs", "crawl_run_id", if_exists=True)
 
-    op.drop_index("ix_crawl_frontier_next_retry_at", table_name="crawl_frontier")
-    op.drop_index("ix_crawl_frontier_lease_expires_at", table_name="crawl_frontier")
-    op.drop_index("ix_crawl_frontier_crawl_run_id_status", table_name="crawl_frontier")
-    op.drop_table("crawl_frontier")
+    op.drop_index("ix_crawl_frontier_next_retry_at", table_name="crawl_frontier", if_exists=True)
+    op.drop_index("ix_crawl_frontier_lease_expires_at", table_name="crawl_frontier", if_exists=True)
+    op.drop_index("ix_crawl_frontier_crawl_run_id_status", table_name="crawl_frontier", if_exists=True)
+    op.drop_table("crawl_frontier", if_exists=True)
 
-    op.drop_index("ix_crawl_runs_last_heartbeat_at", table_name="crawl_runs")
-    op.drop_index("ix_crawl_runs_source_id_status", table_name="crawl_runs")
-    op.drop_table("crawl_runs")
+    op.drop_index("ix_crawl_runs_last_heartbeat_at", table_name="crawl_runs", if_exists=True)
+    op.drop_index("ix_crawl_runs_source_id_status", table_name="crawl_runs", if_exists=True)
+    op.drop_table("crawl_runs", if_exists=True)

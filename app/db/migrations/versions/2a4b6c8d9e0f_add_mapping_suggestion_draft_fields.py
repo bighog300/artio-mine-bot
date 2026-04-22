@@ -31,6 +31,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_constraint("fk_source_mapping_versions_based_on_profile_id", "source_mapping_versions", type_="foreignkey")
-    op.drop_column("source_mapping_versions", "mapping_json")
-    op.drop_column("source_mapping_versions", "based_on_profile_id")
+    op.drop_constraint("fk_source_mapping_versions_based_on_profile_id", "source_mapping_versions", type_="foreignkey", if_exists=True)
+    op.drop_column("source_mapping_versions", "mapping_json", if_exists=True)
+    op.drop_column("source_mapping_versions", "based_on_profile_id", if_exists=True)
