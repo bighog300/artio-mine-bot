@@ -6,7 +6,7 @@ import { ConfidenceBar } from "@/components/shared/ConfidenceBar";
 import { Button, EmptyState, Select, Skeleton } from "@/components/ui";
 import { ConflictBadge } from "@/modules/entities/components/ConflictBadge";
 
-const conflictPriority = { major: 3, minor: 2, none: 1 } as const;
+const conflictPriority = { major: 4, medium: 3, minor: 2, none: 1 } as const;
 
 export function EntityListPage() {
   const [typeFilter, setTypeFilter] = useState("");
@@ -67,6 +67,7 @@ export function EntityListPage() {
           options={[
             { value: "", label: "All conflict states" },
             { value: "major", label: "Major" },
+            { value: "medium", label: "Medium" },
             { value: "minor", label: "Minor" },
             { value: "none", label: "None" },
           ]}

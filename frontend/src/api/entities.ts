@@ -5,7 +5,7 @@ import { buildAuthHeaders } from "@/lib/api";
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 const entitiesApi = axios.create({ baseURL: API_URL });
 
-type ConflictStatus = "none" | "minor" | "major";
+type ConflictStatus = "none" | "minor" | "medium" | "major";
 
 export interface EntityListItem {
   id: string;
@@ -21,12 +21,13 @@ export interface CanonicalField {
   field: string;
   value: string;
   confidence: number;
-  source: string;
+  source?: string;
+  sources?: Array<{ source: string; confidence?: number }>;
 }
 
 export interface EntityConflict {
   field: string;
-  severity: "minor" | "major";
+  severity: "minor" | "medium" | "major";
   explanation: string;
   impact_count?: number;
   canonical_value?: string;
@@ -46,6 +47,9 @@ export interface EntityRelationship {
   type: string;
   relationship_type: string;
   count?: number;
+  confidence?: number;
+  importance?: number;
+  last_updated?: string;
 }
 
 export interface EntityDetail {
@@ -73,6 +77,12 @@ export interface MergeCandidate {
   entity_b: { id: string; name: string; type: string };
   similarity_score: number;
   matching_signals: string[];
+  signal_breakdown?: {
+    name_similarity?: number;
+    shared_relationships?: boolean;
+    overlapping_fields?: string[];
+    conflicting_fields?: string[];
+  };
 }
 
 export interface EntityComparison {
@@ -96,6 +106,27 @@ export interface MergeEntitiesInput {
   primary_entity_id: string;
   secondary_entity_id: string;
   field_choices?: Record<string, "a" | "b">;
+}
+
+export interface EntityDecisionHistoryItem {
+  id: string;
+  action_type: "resolve" | "merge" | "split";
+  field?: string;
+  old_value?: string | null;
+  new_value?: string | null;
+  source?: string | null;
+  operator?: string | null;
+  timestamp: string;
+}
+
+export interface UndoMergeImpact {
+  restored_entities: number;
+  relinked_records: number;
+}
+
+export interface UndoMergeSupport {
+  supported: boolean;
+  impact?: UndoMergeImpact;
 }
 
 function authConfig() {
@@ -141,6 +172,29 @@ async function mergeEntities(payload: MergeEntitiesInput): Promise<{ merged_enti
   return data;
 }
 
+async function getEntityHistory(id: string): Promise<EntityDecisionHistoryItem[]> {
+  const { data } = await entitiesApi.get<EntityDecisionHistoryItem[] | { items: EntityDecisionHistoryItem[] }>(`/entities/${id}/history`, authConfig());
+  const items = Array.isArray(data) ? data : data.items;
+  return items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+}
+
+async function getUndoMergeSupport(id: string): Promise<UndoMergeSupport> {
+  try {
+    const { data } = await entitiesApi.get<UndoMergeSupport>(`/entities/${id}/undo-merge`, authConfig());
+    return data;
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 404) {
+      return { supported: false };
+    }
+    throw error;
+  }
+}
+
+async function undoMerge(id: string): Promise<{ status: string }> {
+  const { data } = await entitiesApi.post<{ status: string }>(`/entities/${id}/undo-merge`, undefined, authConfig());
+  return data;
+}
+
 export function useEntities(filters: { type?: string; conflict_status?: string }) {
   return useQuery({ queryKey: ["entities", filters], queryFn: () => getEntities(filters) });
 }
@@ -178,6 +232,27 @@ export function useMergeEntities() {
   return useMutation({
     mutationFn: mergeEntities,
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["entities"] });
+      queryClient.invalidateQueries({ queryKey: ["merge-candidates"] });
+    },
+  });
+}
+
+export function useEntityHistory(id?: string) {
+  return useQuery({ queryKey: ["entity-history", id], queryFn: () => getEntityHistory(id as string), enabled: Boolean(id) });
+}
+
+export function useUndoMergeSupport(id?: string) {
+  return useQuery({ queryKey: ["undo-merge-support", id], queryFn: () => getUndoMergeSupport(id as string), enabled: Boolean(id) });
+}
+
+export function useUndoMerge() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: undoMerge,
+    onSuccess: (_, entityId) => {
+      queryClient.invalidateQueries({ queryKey: ["entity", entityId] });
+      queryClient.invalidateQueries({ queryKey: ["entity-history", entityId] });
       queryClient.invalidateQueries({ queryKey: ["entities"] });
       queryClient.invalidateQueries({ queryKey: ["merge-candidates"] });
     },
