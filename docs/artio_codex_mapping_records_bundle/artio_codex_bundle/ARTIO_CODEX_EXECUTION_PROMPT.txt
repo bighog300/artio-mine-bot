@@ -1,0 +1,106 @@
+You are working in the Artio Mine Bot repository.
+
+Implement the mapping-admin and records-moderation fixes described below directly in the repo. Do not stop at analysis. Make code changes, add/update tests, run them, and summarize what changed.
+
+## Objective
+Fix and harden:
+1. the admin mapping workflow,
+2. the records review/moderation workflow,
+3. mine-readiness validation related to mapping state.
+
+## Repo-specific context
+The current repo has:
+- Main mapping workflow page: `frontend/src/pages/SourceMapping.tsx`
+- Secondary/legacy mapping page: `frontend/src/pages/MappingReview.tsx`
+- Records moderation UI: `frontend/src/pages/Records.tsx`, `frontend/src/pages/RecordDetail.tsx`
+- Mapping APIs: `app/api/routes/source_mapper.py`, `app/api/routes/mapping_presets.py`
+- Records API: `app/api/routes/records.py`
+- Admin conflict review API: `app/api/routes/review.py`
+- Mining start/readiness API: `app/api/routes/mine.py`
+- Frontend route registration: `frontend/src/App.tsx`
+- Frontend API bindings: `frontend/src/lib/api.ts`
+
+## Tasks
+
+### A. Unify the mapping workflow
+Audit the two mapping pages and make `SourceMapping.tsx` the clearly authoritative workflow.
+
+Required outcome:
+- eliminate operator confusion caused by duplicate mapping review UIs,
+- either remove `MappingReview.tsx`, redirect its route to the main mapping page, or otherwise isolate it clearly as legacy,
+- keep the real source-mapper flow working end-to-end.
+
+Inspect at least:
+- `frontend/src/App.tsx`
+- `frontend/src/pages/SourceMapping.tsx`
+- `frontend/src/pages/MappingReview.tsx`
+- existing mapping frontend tests
+
+### B. Strengthen mapping readiness before mining
+`app/api/routes/mine.py::_assert_source_mapping_ready` is currently too weak.
+
+Strengthen it so mining only starts when the source is actually ready.
+At minimum validate:
+- source exists,
+- there is applicable mapping state,
+- `structure_map` exists and is a non-empty dict,
+- `crawl_plan.phases` exists and is non-empty,
+- there is enough extraction/runtime-map information to consider the source mineable.
+
+Fail early with a clear 422 error when invalid.
+
+Do not weaken current publish/apply constraints elsewhere.
+
+### C. Improve mapping UI gating and clarity
+In the main mapping UI:
+- disable actions that should not be allowed before prerequisites are met,
+- make workflow state clearer,
+- preserve row moderation and sample-run moderation,
+- do not break preset create/apply flows.
+
+### D. Tighten records moderation permissions and workflow
+Audit `app/api/routes/records.py` against `review.py` / `source_mapper.py`.
+
+Required outcome:
+- moderation permissions are explicit and intentional,
+- approve/reject/update/bulk approve continue to work,
+- reject reason remains supported,
+- audit behavior remains correct or is improved.
+
+Be careful not to unintentionally over-restrict read-only browsing if that is meant to remain available.
+
+### E. Improve records moderation UX
+In `Records.tsx` and `RecordDetail.tsx`:
+- verify approve/reject flows work consistently,
+- ensure reject-with-reason is supported cleanly,
+- improve queue/review ergonomics where feasible,
+- keep adjacent navigation working.
+
+## Constraints
+- Make minimal, focused changes.
+- Preserve existing working mapping/sample-run functionality.
+- Do not touch migrations.
+- Do not rewrite the mining engine for this task.
+- If a page appears legacy, prefer redirecting/removing it over maintaining duplicate behavior.
+
+## Tests
+Add/update tests for the changed behavior.
+
+At minimum include:
+- backend tests for `_assert_source_mapping_ready` with empty/unusable `structure_map`
+- backend tests for records moderation permissions if permissions are changed
+- frontend tests for mapping-route behavior if `MappingReview` is removed/redirected
+- frontend tests for record approve/reject interactions or state transitions where practical
+
+Run and report:
+- `pytest -q tests/test_source_mapper_phase1.py tests/test_api.py`
+- any newly added backend tests
+- relevant frontend tests
+- `npm -C frontend run build`
+
+## Deliverable format
+After implementation, provide:
+1. Summary of root causes addressed
+2. Files changed with one-line purpose each
+3. Tests run and outcomes
+4. Any remaining risks or manual follow-up
