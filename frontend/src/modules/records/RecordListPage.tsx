@@ -10,8 +10,9 @@ import { useQuery } from "@tanstack/react-query";
 export function RecordListPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const mappingId = searchParams.get("mapping_id") ?? undefined;
-  const [confidenceBand, setConfidenceBand] = useState("");
+  const mappingId = searchParams.get("mappingId") ?? searchParams.get("mapping_id") ?? undefined;
+  const initialConfidence = searchParams.get("confidence") === "low" ? "LOW" : "";
+  const [confidenceBand, setConfidenceBand] = useState(initialConfidence);
   const [sourceId, setSourceId] = useState("");
   const [recordType, setRecordType] = useState("");
 
@@ -63,7 +64,7 @@ export function RecordListPage() {
         <Select value={recordType} onChange={(e) => setRecordType(e.target.value)} options={[{ value: "", label: "All types" }, { value: "artist", label: "Artist" }, { value: "event", label: "Event" }, { value: "exhibition", label: "Exhibition" }, { value: "venue", label: "Venue" }, { value: "artwork", label: "Artwork" }]} />
       </div>
 
-      <div className="rounded-lg border bg-card overflow-hidden">
+      {(data?.items?.length ?? 0) === 0 ? (<div className="rounded border bg-card p-6 text-sm text-muted-foreground">No records match this filter.</div>) : (<div className="rounded-lg border bg-card overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-muted/40">
             <tr>
@@ -86,7 +87,7 @@ export function RecordListPage() {
             ))}
           </tbody>
         </table>
-      </div>
+      </div>)}
     </div>
   );
 }

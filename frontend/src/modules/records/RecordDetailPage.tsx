@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AlertTriangle } from "lucide-react";
 import { useRecord } from "@/api/records";
+import { RootCausePanel } from "@/components/data/RootCausePanel";
 import { ProvenanceTrail } from "@/components/data/ProvenanceTrail";
 import { Alert, Button, EmptyState, Skeleton } from "@/components/ui";
 import { FieldConfidenceTable, type FieldConfidenceRow } from "@/modules/records/FieldConfidenceTable";
@@ -24,6 +25,11 @@ export function RecordDetailPage() {
     }));
   }, [record]);
 
+  const weakestField = useMemo(
+    () => [...fieldRows].sort((a, b) => a.confidence - b.confidence).find((row) => !row.value || row.confidence < 0.6),
+    [fieldRows],
+  );
+
   if (isLoading) return <Skeleton className="h-40 rounded-lg" />;
   if (isError) {
     return (
@@ -42,18 +48,31 @@ export function RecordDetailPage() {
   const pageId = (record as { page_id?: string | null }).page_id;
   const jobId = (record as { job_id?: string | null }).job_id;
 
+  const rootCauseItems = [
+    weakestField ? `Field '${weakestField.field}' is missing or weak in this record.` : "",
+    record.confidence_score < 60 ? `Confidence dropped to ${record.confidence_score}% for this record.` : "",
+    record.confidence_reasons?.[0] ? `Recent failure signal: ${record.confidence_reasons[0]}` : "",
+  ].filter(Boolean);
+
   return (
     <div className="space-y-4">
       <div className="rounded-lg border bg-card p-4">
         <div className="flex items-center justify-between gap-2">
           <h1 className="text-2xl font-bold">{record.title ?? "Untitled record"}</h1>
           <div className="flex gap-2">
-            {mappingId ? <Link className="text-sm text-primary underline" to={`/mappings/${mappingId}`}>View Mapping</Link> : null}
+            {mappingId ? <Link className="text-sm text-primary underline" to={`/mappings/${mappingId}?field=${encodeURIComponent(weakestField?.field ?? "")}`}>View Mapping</Link> : null}
             <Link className="text-sm text-primary underline" to={`/sources/${record.source_id}`}>View Source</Link>
           </div>
         </div>
         <p className="text-sm text-muted-foreground mt-1">{record.record_type} · {record.status}</p>
       </div>
+
+      <RootCausePanel
+        items={rootCauseItems}
+        mappingLink={mappingId ? `/mappings/${mappingId}?field=${encodeURIComponent(weakestField?.field ?? "")}` : undefined}
+        ctaLabel="Fix mapping for this field"
+        severity={record.confidence_score < 60 ? "high" : "medium"}
+      />
 
       {record.confidence_score < 60 ? (
         <Alert variant="warning" title="Low confidence record" description="Review weak or missing fields before approving downstream mapping changes." />
