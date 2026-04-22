@@ -96,6 +96,8 @@ class Source(Base):
     jobs: Mapped[list["Job"]] = relationship("Job", back_populates="source", cascade="all, delete-orphan")
     job_events: Mapped[list["JobEvent"]] = relationship("JobEvent", back_populates="source")
     logs: Mapped[list["Log"]] = relationship("Log", back_populates="source")
+    entities: Mapped[list["Entity"]] = relationship("Entity", back_populates="source", cascade="all, delete-orphan")
+    entity_links: Mapped[list["EntityLink"]] = relationship("EntityLink", back_populates="source", cascade="all, delete-orphan")
     schedules: Mapped[list["ScheduledJob"]] = relationship(
         "ScheduledJob",
         back_populates="source",
@@ -350,6 +352,7 @@ class Record(Base):
         uselist=False,
         post_update=True,
     )
+    entity_links: Mapped[list["EntityLink"]] = relationship("EntityLink", back_populates="record")
 
     __table_args__ = (
         Index("ix_records_tenant_id", "tenant_id"),
@@ -1075,9 +1078,13 @@ class EntityRelationship(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
-    from_record_id: Mapped[str] = mapped_column(String, ForeignKey("records.id"), nullable=False)
-    to_record_id: Mapped[str] = mapped_column(String, ForeignKey("records.id"), nullable=False)
+    from_record_id: Mapped[str | None] = mapped_column(String, ForeignKey("records.id"), nullable=True)
+    to_record_id: Mapped[str | None] = mapped_column(String, ForeignKey("records.id"), nullable=True)
+    from_entity_id: Mapped[str | None] = mapped_column(String, ForeignKey("entities.id"), nullable=True)
+    to_entity_id: Mapped[str | None] = mapped_column(String, ForeignKey("entities.id"), nullable=True)
     relationship_type: Mapped[str] = mapped_column(String, nullable=False)
+    confidence_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    source_record_id: Mapped[str | None] = mapped_column(String, ForeignKey("records.id"), nullable=True)
     metadata_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
 
@@ -1089,10 +1096,64 @@ class EntityRelationship(Base):
             "relationship_type",
             name="uq_entity_relationships_dedup",
         ),
+        UniqueConstraint(
+            "from_entity_id",
+            "to_entity_id",
+            "relationship_type",
+            "source_record_id",
+            name="uq_entity_relationships_entity_dedup",
+        ),
         Index("ix_entity_relationships_source_id", "source_id"),
         Index("ix_entity_relationships_from_record_id", "from_record_id"),
         Index("ix_entity_relationships_to_record_id", "to_record_id"),
+        Index("ix_entity_relationships_from_entity_id", "from_entity_id"),
+        Index("ix_entity_relationships_to_entity_id", "to_entity_id"),
         Index("ix_entity_relationships_type", "relationship_type"),
+    )
+
+
+class Entity(Base):
+    __tablename__ = "entities"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    source_id: Mapped[str | None] = mapped_column(String, ForeignKey("sources.id"), nullable=True)
+    entity_type: Mapped[str] = mapped_column(String, nullable=False)
+    canonical_name: Mapped[str] = mapped_column(String, nullable=False)
+    canonical_data: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    confidence_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
+
+    source: Mapped["Source | None"] = relationship("Source", back_populates="entities")
+    links: Mapped[list["EntityLink"]] = relationship("EntityLink", back_populates="entity", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("ix_entities_entity_type", "entity_type"),
+        Index("ix_entities_canonical_name", "canonical_name"),
+        Index("ix_entities_source_id", "source_id"),
+    )
+
+
+class EntityLink(Base):
+    __tablename__ = "entity_links"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    entity_id: Mapped[str] = mapped_column(String, ForeignKey("entities.id"), nullable=False)
+    record_id: Mapped[str] = mapped_column(String, ForeignKey("records.id"), nullable=False)
+    source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
+    confidence_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    match_method: Mapped[str] = mapped_column(String, nullable=False, default="exact")
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+
+    entity: Mapped["Entity"] = relationship("Entity", back_populates="links")
+    record: Mapped["Record"] = relationship("Record", back_populates="entity_links")
+    source: Mapped["Source"] = relationship("Source", back_populates="entity_links")
+
+    __table_args__ = (
+        UniqueConstraint("record_id", name="uq_entity_links_record"),
+        UniqueConstraint("entity_id", "record_id", name="uq_entity_links_entity_record"),
+        Index("ix_entity_links_entity_id", "entity_id"),
+        Index("ix_entity_links_source_id", "source_id"),
     )
 
 
