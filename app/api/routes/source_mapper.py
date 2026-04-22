@@ -26,7 +26,7 @@ from app.api.schemas import (
     MappingVersionListItem,
     MappingVersionPublishResponse,
 )
-from app.config import settings
+from app.config import is_serverless_environment, settings
 from app.db import crud
 from app.queue import QueueUnavailableError, get_default_queue
 from app.source_mapper.service import SourceMapperService
@@ -48,7 +48,8 @@ def _enqueue_mapping_scan_job(source_id: str, draft_id: str) -> str:
 
 
 async def _dispatch_mapping_scan(db: AsyncSession, source, draft) -> tuple[str, str]:
-    if settings.environment == "test":
+    run_inline = not is_serverless_environment() and settings.environment in {"development", "docker", "test"}
+    if run_inline:
         mapper = SourceMapperService(db)
         result = await mapper.run_scan(source, draft)
         return str(result.get("scan_status", draft.scan_status or "queued")), f"inline-{draft.id}"
