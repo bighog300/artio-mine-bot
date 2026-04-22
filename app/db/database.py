@@ -1,6 +1,7 @@
 from collections.abc import AsyncGenerator
 
 import structlog
+from sqlalchemy import inspect
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -75,18 +76,35 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_db() -> None:
     async with get_engine().begin() as conn:
-        await conn.run_sync(Base.metadata.create_all, checkfirst=True)
-        try:
-            await conn.exec_driver_sql(
-                "INSERT INTO tenants (id, name, is_active, created_at, updated_at) "
-                "VALUES ('public', 'public', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) "
-                "ON CONFLICT(id) DO NOTHING"
-            )
-        except Exception:
-            logger.exception("default_tenant_seed_failed")
+        tenants_table_exists = await conn.run_sync(
+            lambda sync_conn: inspect(sync_conn).has_table("tenants")
+        )
+        if tenants_table_exists:
+            try:
+                await conn.exec_driver_sql(
+                    "INSERT INTO tenants (id, name, is_active, created_at, updated_at) "
+                    "VALUES ('public', 'public', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) "
+                    "ON CONFLICT(id) DO NOTHING"
+                )
+            except Exception:
+                logger.exception("default_tenant_seed_failed")
+        else:
+            logger.info("default_tenant_seed_skipped", reason="tenants_table_missing")
 
-    async with AsyncSessionLocal() as session:
-        user_settings = await load_user_settings(session)
+        settings_table_exists = await conn.run_sync(
+            lambda sync_conn: inspect(sync_conn).has_table("settings")
+        )
+
+    user_settings: dict[str, str | None] = {
+        "artio_api_url": None,
+        "artio_api_key": None,
+        "openai_api_key": None,
+    }
+    if settings_table_exists:
+        async with AsyncSessionLocal() as session:
+            user_settings = await load_user_settings(session)
+    else:
+        logger.info("user_settings_load_skipped", reason="settings_table_missing")
 
     if user_settings.get("artio_api_url") is not None:
         settings.artio_api_url = user_settings["artio_api_url"]
