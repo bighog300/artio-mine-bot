@@ -33,6 +33,7 @@ from app.db.models import (
     MetricSnapshot,
     MappingTemplate,
     MappingDriftSignal,
+    MappingRepairProposal,
     Page,
     Record,
     ScheduledJob,
@@ -88,6 +89,7 @@ MAPPING_ALLOWED_FIELDS: dict[str, set[str]] = {
 DRIFT_SIGNAL_STATUSES = {"open", "acknowledged", "resolved", "dismissed"}
 DRIFT_SIGNAL_SEVERITIES = {"low", "medium", "high"}
 DRIFT_SIGNAL_TYPES = {"FIELD_MISSING", "FIELD_EMPTY", "STRUCTURE_CHANGED", "SELECTOR_FAIL", "VALUE_ANOMALY"}
+MAPPING_REPAIR_STATUSES = {"DRAFT", "VALIDATED", "REJECTED", "APPLIED"}
 
 
 def _ensure_utc(value: datetime | None) -> datetime | None:
@@ -948,6 +950,9 @@ async def create_mapping_drift_signal(
     page_id: str | None = None,
     record_id: str | None = None,
     field_name: str | None = None,
+    mapping_field: str | None = None,
+    selector_path: str | None = None,
+    failing_selector: str | None = None,
     drift_type: str | None = None,
     previous_value: str | None = None,
     current_value: str | None = None,
@@ -981,6 +986,9 @@ async def create_mapping_drift_signal(
             existing.page_id = page_id
             existing.record_id = record_id
             existing.field_name = field_name
+            existing.mapping_field = mapping_field
+            existing.selector_path = selector_path
+            existing.failing_selector = failing_selector
             existing.drift_type = normalized_drift_type
             existing.previous_value = previous_value
             existing.current_value = current_value
@@ -997,6 +1005,9 @@ async def create_mapping_drift_signal(
         page_id=page_id,
         record_id=record_id,
         field_name=field_name,
+        mapping_field=mapping_field,
+        selector_path=selector_path,
+        failing_selector=failing_selector,
         drift_type=normalized_drift_type,
         family_key=family_key,
         signal_type=signal_type,
@@ -1074,6 +1085,102 @@ async def update_mapping_drift_signal_status(
     await db.commit()
     await db.refresh(signal)
     return signal
+
+
+async def create_mapping_repair_proposal(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    mapping_version_id: str | None,
+    field_name: str,
+    old_selector: str | None,
+    proposed_selector: str,
+    confidence_score: float,
+    supporting_pages: list[str],
+    drift_signals_used: list[str],
+    validation_results: dict[str, Any],
+    status: str = "DRAFT",
+) -> MappingRepairProposal:
+    if status not in MAPPING_REPAIR_STATUSES:
+        raise ValueError(f"Invalid mapping repair status '{status}'")
+    proposal = MappingRepairProposal(
+        source_id=source_id,
+        mapping_version_id=mapping_version_id,
+        field_name=field_name,
+        old_selector=old_selector,
+        proposed_selector=proposed_selector,
+        confidence_score=confidence_score,
+        supporting_pages_json=json.dumps(supporting_pages),
+        drift_signals_used_json=json.dumps(drift_signals_used),
+        validation_results_json=json.dumps(validation_results),
+        status=status,
+    )
+    db.add(proposal)
+    await db.commit()
+    await db.refresh(proposal)
+    return proposal
+
+
+async def list_mapping_repair_proposals(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    status: str | None = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> list[MappingRepairProposal]:
+    stmt = select(MappingRepairProposal).where(MappingRepairProposal.source_id == source_id)
+    if status:
+        stmt = stmt.where(MappingRepairProposal.status == status)
+    stmt = stmt.order_by(MappingRepairProposal.created_at.desc()).offset(skip).limit(limit)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_mapping_repair_proposal(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    proposal_id: str,
+) -> MappingRepairProposal | None:
+    stmt = select(MappingRepairProposal).where(
+        MappingRepairProposal.source_id == source_id,
+        MappingRepairProposal.id == proposal_id,
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def update_mapping_repair_proposal(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    proposal_id: str,
+    status: str | None = None,
+    reviewed_by: str | None = None,
+    validation_results: dict[str, Any] | None = None,
+    feedback: dict[str, Any] | None = None,
+    applied_mapping_version_id: str | None = None,
+) -> MappingRepairProposal:
+    proposal = await get_mapping_repair_proposal(db, source_id=source_id, proposal_id=proposal_id)
+    if proposal is None:
+        raise ValueError("Mapping repair proposal not found")
+    if status is not None:
+        if status not in MAPPING_REPAIR_STATUSES:
+            raise ValueError(f"Invalid mapping repair status '{status}'")
+        proposal.status = status
+    if validation_results is not None:
+        proposal.validation_results_json = json.dumps(validation_results)
+    if feedback is not None:
+        proposal.feedback_json = json.dumps(feedback)
+    if reviewed_by is not None:
+        proposal.reviewed_by = reviewed_by
+        proposal.reviewed_at = datetime.now(UTC)
+    if applied_mapping_version_id is not None:
+        proposal.applied_mapping_version_id = applied_mapping_version_id
+    proposal.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(proposal)
+    return proposal
 
 
 async def get_mapping_health_state(

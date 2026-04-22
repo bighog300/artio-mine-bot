@@ -412,6 +412,9 @@ class MappingDriftSignalResponse(BaseModel):
     page_url: str | None = None
     record_id: str | None = None
     field_name: str | None = None
+    mapping_field: str | None = None
+    selector_path: str | None = None
+    failing_selector: str | None = None
     drift_type: str | None = None
     family_key: str | None = None
     signal_type: str
@@ -465,6 +468,32 @@ class DriftSummaryResponse(BaseModel):
 class DriftFieldsResponse(BaseModel):
     source_id: str
     fields: list[dict[str, Any]]
+
+
+class MappingRepairProposalResponse(BaseModel):
+    id: str
+    source_id: str
+    mapping_version_id: str | None = None
+    field_name: str
+    old_selector: str | None = None
+    proposed_selector: str
+    confidence_score: float
+    supporting_pages: list[str] = []
+    drift_signals_used: list[str] = []
+    validation_results: dict[str, Any] = {}
+    status: str
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+    applied_mapping_version_id: str | None = None
+    feedback: dict[str, Any] = {}
+    created_at: datetime
+    updated_at: datetime
+
+
+class MappingRepairProposalListResponse(BaseModel):
+    source_id: str
+    items: list[MappingRepairProposalResponse]
+    total: int
 
 
 class SourceMappingPresetSummary(BaseModel):

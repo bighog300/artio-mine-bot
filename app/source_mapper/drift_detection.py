@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import crud
 from app.db.models import CrawlFrontier, Page
+from app.source_mapper.auto_repair import AutoRepairService
 
 logger = structlog.get_logger()
 
@@ -118,6 +119,10 @@ class DriftDetectionService:
             signal_count=len(created_signals),
             mapping_health=health,
         )
+        auto_repair = AutoRepairService(self.db)
+        for signal in created_signals:
+            if signal.status == "open":
+                await auto_repair.generate_for_signal(signal)
         return {
             "source_id": source_id,
             "mapping_version_id": mapping_version_id,
@@ -166,6 +171,8 @@ class DriftDetectionService:
                         "stale_threshold": self.thresholds.null_rate_stale,
                     },
                     diagnostics={"reason": "selector_like_miss_rate_spike"},
+                    selector_path=(rows[0].last_error if rows and rows[0].last_error and "selector" in rows[0].last_error.lower() else None),
+                    failing_selector=(rows[0].last_error if rows and rows[0].last_error and "selector" in rows[0].last_error.lower() else None),
                     sample_urls=sample_urls,
                     proposed_action="Review selectors and sample extraction output for this family",
                 )
@@ -244,6 +251,7 @@ class DriftDetectionService:
                         severity="medium",
                         metrics={"count": len(matching_pages)},
                         diagnostics={"reason": "page_review_reason_selector_or_unmapped"},
+                        mapping_field="title",
                         sample_urls=[p.url for p in matching_pages[:5] if p.url],
                         proposed_action="Generate remap draft to refresh selectors for this family",
                     )

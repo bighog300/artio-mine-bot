@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import crud
 from app.db.models import Page, Record, Source
 from app.services.completeness import RECORD_TYPE_FIELDS
+from app.source_mapper.auto_repair import AutoRepairService
 
 logger = structlog.get_logger()
 
@@ -62,6 +63,8 @@ class DriftDetectionService:
                 if signal.field_name:
                     fields_counter[signal.field_name] += 1
                 severity_counter[signal.severity.lower()] += 1
+                if signal.status == "open":
+                    await AutoRepairService(self.db).generate_for_signal(signal)
 
         total_pages_checked = len(pages)
         drift_rate = (len(pages_with_drift) / total_pages_checked) if total_pages_checked else 0.0
@@ -131,6 +134,7 @@ class DriftDetectionService:
                         page_id=page.id,
                         record_id=record.id,
                         field_name=field,
+                        mapping_field=field,
                         drift_type="FIELD_MISSING",
                         signal_type="field_missing",
                         severity="high",
@@ -152,6 +156,7 @@ class DriftDetectionService:
                         page_id=page.id,
                         record_id=record.id,
                         field_name=field,
+                        mapping_field=field,
                         drift_type="FIELD_EMPTY",
                         signal_type="field_empty",
                         severity="high",
@@ -174,6 +179,7 @@ class DriftDetectionService:
                         page_id=page.id,
                         record_id=record.id,
                         field_name=field,
+                        mapping_field=field,
                         drift_type="VALUE_ANOMALY",
                         signal_type="value_anomaly",
                         severity=anomaly["severity"],
@@ -186,6 +192,9 @@ class DriftDetectionService:
                 )
 
         if page.error_message and "selector" in page.error_message.lower():
+            failing_selector = None
+            if "for " in page.error_message:
+                failing_selector = page.error_message.split("for ", 1)[-1].strip()[:255]
             signals.append(
                 await crud.create_mapping_drift_signal(
                     self.db,
@@ -197,6 +206,8 @@ class DriftDetectionService:
                     signal_type="selector_fail",
                     severity="high",
                     confidence=0.92,
+                    selector_path=failing_selector,
+                    failing_selector=failing_selector,
                     current_value=page.error_message,
                     sample_urls=[page.url],
                 )
@@ -232,6 +243,7 @@ class DriftDetectionService:
                         mapping_version_id=mapping_version_id,
                         page_id=page.id,
                         record_id=record.id,
+                        mapping_field=field,
                         drift_type="VALUE_ANOMALY",
                         signal_type="confidence_drop",
                         severity="medium",

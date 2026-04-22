@@ -119,6 +119,11 @@ class Source(Base):
         back_populates="source",
         cascade="all, delete-orphan",
     )
+    mapping_repair_proposals: Mapped[list["MappingRepairProposal"]] = relationship(
+        "MappingRepairProposal",
+        back_populates="source",
+        cascade="all, delete-orphan",
+    )
     source_profiles: Mapped[list["SourceProfile"]] = relationship(
         "SourceProfile",
         back_populates="source",
@@ -661,6 +666,11 @@ class SourceMappingVersion(Base):
         back_populates="mapping_version",
         cascade="all, delete-orphan",
     )
+    repair_proposals: Mapped[list["MappingRepairProposal"]] = relationship(
+        "MappingRepairProposal",
+        foreign_keys="MappingRepairProposal.mapping_version_id",
+        back_populates="mapping_version",
+    )
 
     __table_args__ = (
         UniqueConstraint("source_id", "version_number", name="uq_source_mapping_versions_source_version"),
@@ -886,6 +896,9 @@ class MappingDriftSignal(Base):
     page_id: Mapped[str | None] = mapped_column(String, ForeignKey("pages.id"), nullable=True)
     record_id: Mapped[str | None] = mapped_column(String, ForeignKey("records.id"), nullable=True)
     field_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    mapping_field: Mapped[str | None] = mapped_column(String, nullable=True)
+    selector_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    failing_selector: Mapped[str | None] = mapped_column(String, nullable=True)
     drift_type: Mapped[str | None] = mapped_column(String, nullable=True)
     family_key: Mapped[str | None] = mapped_column(String, nullable=True)
     signal_type: Mapped[str] = mapped_column(String, nullable=False)
@@ -916,6 +929,41 @@ class MappingDriftSignal(Base):
         Index("ix_mapping_drift_signals_mapping_severity_status", "mapping_version_id", "severity", "status"),
         Index("ix_mapping_drift_signals_source_type_family", "source_id", "signal_type", "family_key"),
         Index("ix_mapping_drift_signals_source_page_field", "source_id", "page_id", "field_name"),
+    )
+
+
+class MappingRepairProposal(Base):
+    __tablename__ = "mapping_repair_proposals"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
+    source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
+    mapping_version_id: Mapped[str | None] = mapped_column(String, ForeignKey("source_mapping_versions.id"), nullable=True)
+    field_name: Mapped[str] = mapped_column(String, nullable=False)
+    old_selector: Mapped[str | None] = mapped_column(String, nullable=True)
+    proposed_selector: Mapped[str] = mapped_column(String, nullable=False)
+    confidence_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    supporting_pages_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    drift_signals_used_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    validation_results_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    status: Mapped[str] = mapped_column(String, nullable=False, default="DRAFT")
+    reviewed_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    applied_mapping_version_id: Mapped[str | None] = mapped_column(String, ForeignKey("source_mapping_versions.id"), nullable=True)
+    feedback_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False, default=_now, onupdate=_now)
+
+    source: Mapped["Source"] = relationship("Source", back_populates="mapping_repair_proposals")
+    mapping_version: Mapped["SourceMappingVersion | None"] = relationship(
+        "SourceMappingVersion",
+        foreign_keys=[mapping_version_id],
+        back_populates="repair_proposals",
+    )
+
+    __table_args__ = (
+        Index("ix_mapping_repair_proposals_source_status", "source_id", "status"),
+        Index("ix_mapping_repair_proposals_mapping_field", "mapping_version_id", "field_name"),
     )
 
 
