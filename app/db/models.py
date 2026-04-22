@@ -256,8 +256,11 @@ class Record(Base):
     tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
     source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
     crawl_run_id: Mapped[str | None] = mapped_column(String, ForeignKey("crawl_runs.id"), nullable=True)
+    job_id: Mapped[str | None] = mapped_column(String, ForeignKey("jobs.id"), nullable=True)
     page_id: Mapped[str | None] = mapped_column(String, ForeignKey("pages.id"), nullable=True)
     record_type: Mapped[str] = mapped_column(String, nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String, nullable=False, default="")
+    fingerprint: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, default="pending", nullable=False)
 
     # Core fields
@@ -302,6 +305,8 @@ class Record(Base):
 
     # Extraction metadata
     raw_data: Mapped[str | None] = mapped_column(Text, nullable=True)
+    structured_data: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    field_confidence: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     raw_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     extraction_model: Mapped[str | None] = mapped_column(String, nullable=True)
     extraction_provider: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -344,11 +349,15 @@ class Record(Base):
         Index("ix_records_tenant_id", "tenant_id"),
         Index("ix_records_source_id", "source_id"),
         Index("ix_records_crawl_run_id", "crawl_run_id"),
+        Index("ix_records_job_id", "job_id"),
         Index("ix_records_status", "status"),
         Index("ix_records_record_type", "record_type"),
+        Index("ix_records_normalized_name", "normalized_name"),
+        Index("ix_records_fingerprint", "fingerprint"),
         Index("ix_records_confidence_band", "confidence_band"),
         Index("ix_records_completeness_score", "completeness_score"),
         Index("ix_records_source_record_type", "source_id", "record_type"),
+        UniqueConstraint("record_type", "normalized_name", "source_id", name="uq_records_type_normalized_name_source"),
     )
 
 
@@ -366,6 +375,7 @@ class Image(Base):
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mime_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    image_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     is_valid: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     confidence: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
@@ -382,6 +392,7 @@ class Image(Base):
         Index("ix_images_tenant_id", "tenant_id"),
         Index("ix_images_record_id", "record_id"),
         Index("ix_images_source_id", "source_id"),
+        Index("ix_images_source_hash", "source_id", "image_hash"),
     )
 
 
