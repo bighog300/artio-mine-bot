@@ -16,6 +16,7 @@ interface Props {
   scanLoading?: boolean;
   disableRunScan?: boolean;
   runScanDisabledReason?: string | null;
+  settingsValidationMessage?: string | null;
 }
 
 export function ScanSetupForm({
@@ -28,6 +29,7 @@ export function ScanSetupForm({
   scanLoading,
   disableRunScan,
   runScanDisabledReason,
+  settingsValidationMessage,
 }: Props) {
   const discoveryRoot = settings.discovery_roots[0] ?? "";
   const blockedPaths = settings.blocked_paths.join(", ");
@@ -72,6 +74,10 @@ export function ScanSetupForm({
           />
         </label>
       </div>
+      <p className="text-xs text-muted-foreground">
+        Re-scan refreshes discovered pages and mapping suggestions for this draft. Existing row moderation remains editable.
+      </p>
+      {settingsValidationMessage ? <p className="text-xs text-amber-700">{settingsValidationMessage}</p> : null}
       <div className="flex gap-2">
         <button className="px-3 py-2 bg-blue-600 text-white rounded disabled:opacity-60" onClick={onCreateDraft} disabled={loading}>
           {loading ? "Creating..." : "Create Source Scan"}

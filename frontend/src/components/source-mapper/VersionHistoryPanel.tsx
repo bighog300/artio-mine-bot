@@ -7,6 +7,7 @@ interface Props {
   publishing: boolean;
   canPublish?: boolean;
   publishDisabledReason?: string | null;
+  readinessSummary?: string | null;
   onRollback: (versionId: string) => void;
 }
 
@@ -17,6 +18,7 @@ export function VersionHistoryPanel({
   publishing,
   canPublish = true,
   publishDisabledReason,
+  readinessSummary,
   onRollback,
 }: Props) {
   return (
@@ -36,6 +38,7 @@ export function VersionHistoryPanel({
         {publishing ? "Publishing..." : "Publish Draft"}
       </button>
       {publishDisabledReason ? <p className="text-xs text-muted-foreground">{publishDisabledReason}</p> : null}
+      {readinessSummary ? <p className="text-xs text-muted-foreground">{readinessSummary}</p> : null}
       <div className="text-sm">
         <div className="font-medium mb-1">Recent versions</div>
         {!versions.length ? "No versions yet." : (

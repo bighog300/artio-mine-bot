@@ -158,10 +158,15 @@ async def _assert_source_mapping_ready(db: AsyncSession, source_id: str) -> None
             status_code=422,
             detail="Source has no active mapping — publish a draft or apply a preset before mining",
         )
-    if not source.structure_map:
+    if source.structure_map is None:
         raise HTTPException(
             status_code=422,
             detail="Source runtime mapping is missing — apply a preset or publish a mapping draft before mining",
+        )
+    if not source.structure_map.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="Source runtime mapping is blank — re-apply mapping before mining",
         )
 
     try:
@@ -179,13 +184,28 @@ async def _assert_source_mapping_ready(db: AsyncSession, source_id: str) -> None
         )
 
     crawl_plan = runtime_map.get("crawl_plan")
-    if not isinstance(crawl_plan, dict) or not isinstance(crawl_plan.get("phases"), list) or not crawl_plan["phases"]:
+    if crawl_plan is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Source runtime mapping is incomplete: crawl_plan is required before mining",
+        )
+    if not isinstance(crawl_plan, dict):
+        raise HTTPException(
+            status_code=422,
+            detail="Source runtime mapping is invalid: crawl_plan must be an object before mining",
+        )
+    if "phases" not in crawl_plan:
+        raise HTTPException(
+            status_code=422,
+            detail="Source runtime mapping is incomplete: crawl_plan.phases is required before mining",
+        )
+    if not isinstance(crawl_plan.get("phases"), list) or not crawl_plan["phases"]:
         raise HTTPException(
             status_code=422,
             detail="Source runtime mapping is incomplete: crawl_plan.phases must be a non-empty list before mining",
         )
 
-    if not crud.has_usable_runtime_map_payload(runtime_map):
+    if not crud.has_runtime_extraction_payload(runtime_map):
         raise HTTPException(
             status_code=422,
             detail="Source runtime mapping has no usable extraction/mining rules — apply a complete mapping before mining",
