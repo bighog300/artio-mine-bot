@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Entity, EntityLink, EntityRelationship, Record
+from app.entities.reconciliation import EntityGraphReconciler
 
 
 class EntityRelationshipBuilder:
@@ -64,7 +65,7 @@ class EntityRelationshipBuilder:
         value = name.strip().lower()
         if not value:
             return None
-        result = await self.db.execute(select(Entity).where(Entity.entity_type == entity_type).limit(500))
+        result = await self.db.execute(select(Entity).where(Entity.entity_type == entity_type, Entity.is_deleted.is_(False)).limit(500))
         best: tuple[Entity, float] | None = None
         for entity in result.scalars().all():
             score = SequenceMatcher(None, (entity.canonical_name or "").strip().lower(), value).ratio()
@@ -80,20 +81,38 @@ class EntityRelationshipBuilder:
                 EntityRelationship.from_entity_id == from_entity_id,
                 EntityRelationship.to_entity_id == to_entity_id,
                 EntityRelationship.relationship_type == relationship_type,
-                EntityRelationship.source_record_id == source_record.id,
             )
         )
         existing = result.scalar_one_or_none()
+        incoming_confidence = max(source_record.confidence_score / 100.0, 0.5)
+        metadata = json.dumps(
+            {
+                "signals": [
+                    {
+                        "source_record_id": source_record.id,
+                        "source_page_id": source_record.page_id,
+                        "confidence": incoming_confidence,
+                    }
+                ],
+                "reinforcement_count": 1,
+            }
+        )
+
         if existing is not None:
+            reconciler = EntityGraphReconciler(self.db)
+            existing.confidence_score = await reconciler.aggregate_relationship_confidence(existing, incoming_confidence)
+            existing.metadata_json = reconciler._merge_relationship_metadata(existing.metadata_json, metadata)
+            await self.db.commit()
             return False
+
         rel = EntityRelationship(
             source_id=source_record.source_id,
             from_entity_id=from_entity_id,
             to_entity_id=to_entity_id,
             relationship_type=relationship_type,
-            confidence_score=max(source_record.confidence_score / 100.0, 0.5),
+            confidence_score=incoming_confidence,
             source_record_id=source_record.id,
-            metadata_json=json.dumps({"source_page_id": source_record.page_id}),
+            metadata_json=metadata,
         )
         self.db.add(rel)
         await self.db.commit()

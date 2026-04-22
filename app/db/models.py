@@ -1100,8 +1100,7 @@ class EntityRelationship(Base):
             "from_entity_id",
             "to_entity_id",
             "relationship_type",
-            "source_record_id",
-            name="uq_entity_relationships_entity_dedup",
+            name="uq_entity_relationships_entity_unique",
         ),
         Index("ix_entity_relationships_source_id", "source_id"),
         Index("ix_entity_relationships_from_record_id", "from_record_id"),
@@ -1121,6 +1120,9 @@ class Entity(Base):
     canonical_name: Mapped[str] = mapped_column(String, nullable=False)
     canonical_data: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     confidence_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    merged_into_entity_id: Mapped[str | None] = mapped_column(String, ForeignKey("entities.id"), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
 
@@ -1131,6 +1133,8 @@ class Entity(Base):
         Index("ix_entities_entity_type", "entity_type"),
         Index("ix_entities_canonical_name", "canonical_name"),
         Index("ix_entities_source_id", "source_id"),
+        Index("ix_entities_is_deleted", "is_deleted"),
+        Index("ix_entities_merged_into_entity_id", "merged_into_entity_id"),
     )
 
 

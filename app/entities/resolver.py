@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Entity, EntityLink, Record
+from app.entities.reconciliation import EntityGraphReconciler
 
 
 @dataclass
@@ -70,7 +71,7 @@ class EntityResolver:
         name = (record.title or "").strip()
         if not name:
             return None, 0.0, {}
-        result = await self.db.execute(select(Entity).where(Entity.entity_type == record.record_type).limit(500))
+        result = await self.db.execute(select(Entity).where(Entity.entity_type == record.record_type, Entity.is_deleted.is_(False)).limit(500))
         candidates = list(result.scalars().all())
         best: tuple[Entity, float, dict[str, float]] | None = None
         for entity in candidates:
@@ -192,8 +193,9 @@ class EntityResolver:
             "conflicts": conflicts,
         }
         entity.canonical_name = fields.get("title") or entity.canonical_name
-        entity.confidence_score = max(float(entity.confidence_score or 0.0), incoming_confidence)
         entity.updated_at = datetime.now(UTC)
+        reconciler = EntityGraphReconciler(self.db)
+        entity.confidence_score = await reconciler.compute_entity_confidence(entity.id)
         await self.db.commit()
         await self.db.refresh(entity)
 
