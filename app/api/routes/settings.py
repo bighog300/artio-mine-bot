@@ -1,15 +1,16 @@
 import httpx
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import is_readonly_environment, settings
+from app.api.deps import get_db
+from app.config import settings
+from app.db.settings_store import get_setting, set_setting
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 logger = structlog.get_logger(__name__)
 
-
-# ── Schemas ───────────────────────────────────────────────────────────────────
 
 class SettingsResponse(BaseModel):
     artio_api_url: str | None
@@ -20,7 +21,6 @@ class SettingsResponse(BaseModel):
     crawl_delay_ms: int
     artio_configured: bool
     openai_configured: bool
-    readonly: bool  # True on Vercel — settings managed via env vars
 
 
 class SaveSettingsRequest(BaseModel):
@@ -37,71 +37,73 @@ class TestConnectionResponse(BaseModel):
     message: str
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
 def _mask_key(key: str | None) -> str | None:
     if not key:
         return None
     return f"***...{key[-4:]}" if len(key) > 4 else "****"
 
 
-def _is_readonly() -> bool:
-    """Serverless environments are deployment-managed and read-only."""
-    return is_readonly_environment()
-
-
-# ── Routes ────────────────────────────────────────────────────────────────────
-
 @router.get("", response_model=SettingsResponse)
-async def get_settings() -> SettingsResponse:
+async def get_settings(db: AsyncSession = Depends(get_db)) -> SettingsResponse:
+    artio_api_url = await get_setting(db, "artio_api_url")
+    artio_api_key = await get_setting(db, "artio_api_key")
+    openai_api_key = await get_setting(db, "openai_api_key")
+
+    effective_artio_api_url = artio_api_url if artio_api_url is not None else settings.artio_api_url
+    effective_artio_api_key = artio_api_key if artio_api_key is not None else settings.artio_api_key
+    effective_openai_api_key = openai_api_key if openai_api_key is not None else settings.openai_api_key
+
     return SettingsResponse(
-        artio_api_url=settings.artio_api_url,
-        artio_api_key_masked=_mask_key(settings.artio_api_key),
-        openai_api_key_masked=_mask_key(settings.openai_api_key),
+        artio_api_url=effective_artio_api_url,
+        artio_api_key_masked=_mask_key(effective_artio_api_key),
+        openai_api_key_masked=_mask_key(effective_openai_api_key),
         max_crawl_depth=settings.max_crawl_depth,
         max_pages_per_source=settings.max_pages_per_source,
         crawl_delay_ms=settings.crawl_delay_ms,
-        artio_configured=bool(settings.artio_api_url and settings.artio_api_key),
-        openai_configured=bool(settings.openai_api_key),
-        readonly=_is_readonly(),
+        artio_configured=bool(effective_artio_api_url and effective_artio_api_key),
+        openai_configured=bool(effective_openai_api_key),
     )
 
 
 @router.post("", response_model=SettingsResponse)
-async def save_settings(body: SaveSettingsRequest) -> SettingsResponse:
-    """
-    Persist settings. On Vercel (readonly filesystem), only updates the
-    in-memory settings object — changes won't survive a cold start.
-    Configure permanent values via Vercel Environment Variables dashboard.
-    """
+async def save_settings(
+    body: SaveSettingsRequest,
+    db: AsyncSession = Depends(get_db),
+) -> SettingsResponse:
     sent = body.model_fields_set
 
-    if "artio_api_key" in sent or "openai_api_key" in sent:
-        raise HTTPException(
-            status_code=400,
-            detail="Secret settings are deployment-managed and cannot be updated via this endpoint.",
-        )
-
-    # Runtime-editable non-secret settings only.
     if "artio_api_url" in sent:
         settings.artio_api_url = (body.artio_api_url or "").strip() or None
+        await set_setting(db, "artio_api_url", settings.artio_api_url)
+
+    if "artio_api_key" in sent:
+        settings.artio_api_key = (body.artio_api_key or "").strip() or None
+        await set_setting(db, "artio_api_key", settings.artio_api_key)
+
+    if "openai_api_key" in sent:
+        settings.openai_api_key = (body.openai_api_key or "").strip() or None
+        await set_setting(db, "openai_api_key", settings.openai_api_key)
 
     if "max_crawl_depth" in sent and body.max_crawl_depth is not None:
         if not 1 <= body.max_crawl_depth <= 10:
             raise HTTPException(status_code=400, detail="max_crawl_depth must be between 1 and 10")
         settings.max_crawl_depth = body.max_crawl_depth
+        await set_setting(db, "max_crawl_depth", str(body.max_crawl_depth))
 
     if "max_pages_per_source" in sent and body.max_pages_per_source is not None:
         if not 1 <= body.max_pages_per_source <= 5000:
             raise HTTPException(status_code=400, detail="max_pages_per_source must be between 1 and 5000")
         settings.max_pages_per_source = body.max_pages_per_source
+        await set_setting(db, "max_pages_per_source", str(body.max_pages_per_source))
 
     if "crawl_delay_ms" in sent and body.crawl_delay_ms is not None:
         if not 0 <= body.crawl_delay_ms <= 60000:
             raise HTTPException(status_code=400, detail="crawl_delay_ms must be between 0 and 60000")
         settings.crawl_delay_ms = body.crawl_delay_ms
+        await set_setting(db, "crawl_delay_ms", str(body.crawl_delay_ms))
 
-    return await get_settings()
+    await db.commit()
+    return await get_settings(db)
 
 
 @router.post("/test-artio", response_model=TestConnectionResponse)

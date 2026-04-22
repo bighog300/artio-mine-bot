@@ -20,10 +20,6 @@ def is_development_environment(environment: str | None = None) -> bool:
     return current in DEVELOPMENT_ENVIRONMENTS
 
 
-def is_readonly_environment(environment: str | None = None) -> bool:
-    return is_serverless_environment(environment)
-
-
 def is_dev_auto_admin_enabled(
     environment: str | None = None,
     dev_auto_admin: bool | None = None,
@@ -31,7 +27,7 @@ def is_dev_auto_admin_enabled(
     current_environment = environment or settings.environment
     if not is_development_environment(current_environment):
         return False
-    if is_serverless_environment(current_environment) or is_readonly_environment(current_environment):
+    if is_serverless_environment(current_environment):
         return False
 
     configured = settings.dev_auto_admin if dev_auto_admin is None else dev_auto_admin
@@ -104,7 +100,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     # None means "use environment-based default": True in local development, False otherwise.
     dev_auto_admin: bool | None = None
-    openai_api_key: str = ""
+    openai_api_key: str | None = None
     openai_model: str = "gpt-4o"
     openai_required: bool = False
     database_url: str = get_database_url()

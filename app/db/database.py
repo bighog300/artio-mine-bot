@@ -12,6 +12,7 @@ from sqlalchemy.pool import NullPool
 
 from app.config import is_serverless_environment, settings, validate_async_driver
 from app.db.base import Base
+from app.db.settings_store import load_user_settings
 
 logger = structlog.get_logger()
 
@@ -78,8 +79,18 @@ async def init_db() -> None:
         try:
             await conn.exec_driver_sql(
                 "INSERT INTO tenants (id, name, is_active, created_at, updated_at) "
-                "VALUES ('public', 'public', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) "
+                "VALUES ('public', 'public', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) "
                 "ON CONFLICT(id) DO NOTHING"
             )
         except Exception:
             logger.exception("default_tenant_seed_failed")
+
+    async with AsyncSessionLocal() as session:
+        user_settings = await load_user_settings(session)
+
+    if user_settings.get("artio_api_url") is not None:
+        settings.artio_api_url = user_settings["artio_api_url"]
+    if user_settings.get("artio_api_key") is not None:
+        settings.artio_api_key = user_settings["artio_api_key"]
+    if user_settings.get("openai_api_key") is not None:
+        settings.openai_api_key = user_settings["openai_api_key"]

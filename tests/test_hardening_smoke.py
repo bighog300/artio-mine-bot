@@ -85,4 +85,4 @@ async def test_smoke_page_dispatch_and_health_and_settings(
         "/api/settings",
         json={"openai_api_key": "sk-should-not-save"},
     )
-    assert settings_resp.status_code == 400
+    assert settings_resp.status_code == 200
