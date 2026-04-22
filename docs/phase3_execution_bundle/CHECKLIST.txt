@@ -1,0 +1,14 @@
+PHASE 3 IMPLEMENTATION CHECKLIST
+
+[ ] Frontier stored in DB with states
+[ ] SELECT FOR UPDATE SKIP LOCKED implemented
+[ ] URL normalization in place
+[ ] Idempotent crawl execution
+[ ] Crawl state machine implemented
+[ ] Rate limiting per domain
+[ ] 429 backoff logic implemented
+[ ] CAPTCHA detection implemented
+[ ] robots.txt parsing + enforcement
+[ ] Domain scoping enforced
+[ ] Resume logic working
+[ ] Structured logging added

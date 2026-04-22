@@ -1,0 +1,49 @@
+PHASE 3 — CRAWLER RELIABILITY HARDENING
+
+You are working on the Artio Mine Bot repository.
+
+Your task is to implement production-grade crawler reliability with the following requirements:
+
+1. Durable Frontier
+- Persist all crawl URLs in DB with states: pending, in_progress, done, failed
+- Use SELECT FOR UPDATE SKIP LOCKED for safe concurrency
+- Ensure resume capability after crash
+
+2. Idempotency
+- Before processing a URL, check if it has already been completed
+- Use URL normalization + content hash to avoid duplicate work
+
+3. Crawl State Machine
+Implement explicit job states:
+QUEUED → FETCHING → PARSING → EXTRACTING → COMPLETED / FAILED
+
+4. Rate Limiting
+- Implement per-domain rate limiting
+- Add exponential backoff for HTTP 429
+- Detect CAPTCHA pages and pause crawl
+
+5. Robots.txt Compliance
+- Parse and cache robots.txt
+- Validate every URL before enqueue
+
+6. Domain Scoping
+- Ensure crawler never leaves the source domain
+
+7. Resume Logic
+- Resume from last unfinished URLs
+- No duplication on restart
+
+8. Logging & Observability
+- Log every state transition
+- Log failures with structured metadata
+
+Constraints:
+- Maintain compatibility with existing models
+- Do not break API contracts
+- Use clean, modular design
+- Add inline documentation
+
+Output:
+- Updated crawler modules
+- Any new utilities
+- Notes on schema changes (if any)
