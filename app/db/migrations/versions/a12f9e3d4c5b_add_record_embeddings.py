@@ -26,6 +26,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     with op.batch_alter_table("records", schema=None) as batch_op:
-        batch_op.drop_index("ix_records_embedding_updated_at")
-        batch_op.drop_column("embedding_updated_at")
-        batch_op.drop_column("embedding_vector")
+        batch_op.drop_index("ix_records_embedding_updated_at", if_exists=True)
+        batch_op.drop_column("embedding_updated_at", if_exists=True)
+        batch_op.drop_column("embedding_vector", if_exists=True)

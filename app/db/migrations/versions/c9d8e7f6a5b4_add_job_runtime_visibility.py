@@ -49,15 +49,15 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_job_events_event_type", table_name="job_events")
-    op.drop_index("ix_job_events_source_id_timestamp", table_name="job_events")
-    op.drop_index("ix_job_events_job_id_timestamp", table_name="job_events")
-    op.drop_table("job_events")
+    op.drop_index("ix_job_events_event_type", table_name="job_events", if_exists=True)
+    op.drop_index("ix_job_events_source_id_timestamp", table_name="job_events", if_exists=True)
+    op.drop_index("ix_job_events_job_id_timestamp", table_name="job_events", if_exists=True)
+    op.drop_table("job_events", if_exists=True)
 
-    op.drop_column("jobs", "metrics_json")
-    op.drop_column("jobs", "last_log_message")
-    op.drop_column("jobs", "last_heartbeat_at")
-    op.drop_column("jobs", "progress_total")
-    op.drop_column("jobs", "progress_current")
-    op.drop_column("jobs", "current_item")
-    op.drop_column("jobs", "current_stage")
+    op.drop_column("jobs", "metrics_json", if_exists=True)
+    op.drop_column("jobs", "last_log_message", if_exists=True)
+    op.drop_column("jobs", "last_heartbeat_at", if_exists=True)
+    op.drop_column("jobs", "progress_total", if_exists=True)
+    op.drop_column("jobs", "progress_current", if_exists=True)
+    op.drop_column("jobs", "current_item", if_exists=True)
+    op.drop_column("jobs", "current_stage", if_exists=True)

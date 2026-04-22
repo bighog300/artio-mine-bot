@@ -32,7 +32,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("sources", "health_status")
-    op.drop_column("sources", "enabled")
-    op.drop_column("sources", "max_depth")
-    op.drop_column("sources", "extraction_rules")
+    op.drop_column("sources", "health_status", if_exists=True)
+    op.drop_column("sources", "enabled", if_exists=True)
+    op.drop_column("sources", "max_depth", if_exists=True)
+    op.drop_column("sources", "extraction_rules", if_exists=True)

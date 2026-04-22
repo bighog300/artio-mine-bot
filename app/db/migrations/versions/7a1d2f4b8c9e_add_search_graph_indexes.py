@@ -55,15 +55,15 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     with op.batch_alter_table("entity_relationships", schema=None) as batch_op:
-        batch_op.drop_index("ix_entity_relationships_type")
-        batch_op.drop_index("ix_entity_relationships_to_record_id")
-        batch_op.drop_index("ix_entity_relationships_from_record_id")
-        batch_op.drop_index("ix_entity_relationships_source_id")
+        batch_op.drop_index("ix_entity_relationships_type", if_exists=True)
+        batch_op.drop_index("ix_entity_relationships_to_record_id", if_exists=True)
+        batch_op.drop_index("ix_entity_relationships_from_record_id", if_exists=True)
+        batch_op.drop_index("ix_entity_relationships_source_id", if_exists=True)
 
-    op.drop_table("entity_relationships")
+    op.drop_table("entity_relationships", if_exists=True)
 
     with op.batch_alter_table("records", schema=None) as batch_op:
-        batch_op.drop_index("ix_records_source_record_type")
-        batch_op.drop_index("ix_records_completeness_score")
-        batch_op.drop_column("has_conflicts")
-        batch_op.drop_column("completeness_score")
+        batch_op.drop_index("ix_records_source_record_type", if_exists=True)
+        batch_op.drop_index("ix_records_completeness_score", if_exists=True)
+        batch_op.drop_column("has_conflicts", if_exists=True)
+        batch_op.drop_column("completeness_score", if_exists=True)

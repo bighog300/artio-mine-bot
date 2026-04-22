@@ -17,10 +17,14 @@ depends_on = None
 
 
 def upgrade() -> None:
+    op.execute("""
+    ALTER TABLE crawl_frontier
+    DROP CONSTRAINT IF EXISTS uq_crawl_frontier_source_mapping_normalized_url
+    """)
+
     with op.batch_alter_table("crawl_frontier") as batch_op:
         batch_op.add_column(sa.Column("started_at", sa.DateTime(timezone=True), nullable=True))
         batch_op.add_column(sa.Column("worker_id", sa.String(), nullable=True))
-        batch_op.drop_constraint("uq_crawl_frontier_source_mapping_normalized_url", type_="unique")
         batch_op.create_unique_constraint(
             "uq_crawl_frontier_source_normalized_url",
             ["source_id", "normalized_url"],
@@ -47,19 +51,19 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("domain_rate_limits")
+    op.drop_table("domain_rate_limits", if_exists=True)
 
     with op.batch_alter_table("pages") as batch_op:
-        batch_op.drop_constraint("uq_pages_source_normalized_url", type_="unique")
-        batch_op.drop_column("worker_id")
-        batch_op.drop_column("started_at")
-        batch_op.drop_column("normalized_url")
+        batch_op.drop_constraint("uq_pages_source_normalized_url", type_="unique", if_exists=True)
+        batch_op.drop_column("worker_id", if_exists=True)
+        batch_op.drop_column("started_at", if_exists=True)
+        batch_op.drop_column("normalized_url", if_exists=True)
 
     with op.batch_alter_table("crawl_frontier") as batch_op:
-        batch_op.drop_constraint("uq_crawl_frontier_source_normalized_url", type_="unique")
+        batch_op.drop_constraint("uq_crawl_frontier_source_normalized_url", type_="unique", if_exists=True)
         batch_op.create_unique_constraint(
             "uq_crawl_frontier_source_mapping_normalized_url",
             ["source_id", "mapping_version_id", "normalized_url"],
         )
-        batch_op.drop_column("worker_id")
-        batch_op.drop_column("started_at")
+        batch_op.drop_column("worker_id", if_exists=True)
+        batch_op.drop_column("started_at", if_exists=True)

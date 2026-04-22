@@ -35,7 +35,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("sources", "queue_paused")
-    op.drop_column("sources", "max_pages")
-    op.drop_column("sources", "crawl_intent")
-    op.drop_column("sources", "operational_status")
+    op.drop_column("sources", "queue_paused", if_exists=True)
+    op.drop_column("sources", "max_pages", if_exists=True)
+    op.drop_column("sources", "crawl_intent", if_exists=True)
+    op.drop_column("sources", "operational_status", if_exists=True)

@@ -73,15 +73,15 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_backfill_jobs_status", table_name="backfill_jobs")
-    op.drop_index("ix_backfill_jobs_record_id", table_name="backfill_jobs")
-    op.drop_index("ix_backfill_jobs_campaign_id", table_name="backfill_jobs")
-    op.drop_index("ix_backfill_jobs_tenant_id", table_name="backfill_jobs")
-    op.drop_table("backfill_jobs")
+    op.drop_index("ix_backfill_jobs_status", table_name="backfill_jobs", if_exists=True)
+    op.drop_index("ix_backfill_jobs_record_id", table_name="backfill_jobs", if_exists=True)
+    op.drop_index("ix_backfill_jobs_campaign_id", table_name="backfill_jobs", if_exists=True)
+    op.drop_index("ix_backfill_jobs_tenant_id", table_name="backfill_jobs", if_exists=True)
+    op.drop_table("backfill_jobs", if_exists=True)
 
-    op.drop_index("ix_backfill_campaigns_created_at", table_name="backfill_campaigns")
-    op.drop_index("ix_backfill_campaigns_status", table_name="backfill_campaigns")
-    op.drop_index("ix_backfill_campaigns_tenant_id", table_name="backfill_campaigns")
-    op.drop_table("backfill_campaigns")
+    op.drop_index("ix_backfill_campaigns_created_at", table_name="backfill_campaigns", if_exists=True)
+    op.drop_index("ix_backfill_campaigns_status", table_name="backfill_campaigns", if_exists=True)
+    op.drop_index("ix_backfill_campaigns_tenant_id", table_name="backfill_campaigns", if_exists=True)
+    op.drop_table("backfill_campaigns", if_exists=True)
 
-    op.drop_column("records", "completeness_details")
+    op.drop_column("records", "completeness_details", if_exists=True)

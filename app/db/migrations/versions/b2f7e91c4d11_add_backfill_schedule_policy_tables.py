@@ -60,11 +60,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_backfill_policies_enabled", table_name="backfill_policies")
-    op.drop_index("ix_backfill_policies_tenant_id", table_name="backfill_policies")
-    op.drop_table("backfill_policies")
+    op.drop_index("ix_backfill_policies_enabled", table_name="backfill_policies", if_exists=True)
+    op.drop_index("ix_backfill_policies_tenant_id", table_name="backfill_policies", if_exists=True)
+    op.drop_table("backfill_policies", if_exists=True)
 
-    op.drop_index("ix_backfill_schedules_next_run_at", table_name="backfill_schedules")
-    op.drop_index("ix_backfill_schedules_enabled", table_name="backfill_schedules")
-    op.drop_index("ix_backfill_schedules_tenant_id", table_name="backfill_schedules")
-    op.drop_table("backfill_schedules")
+    op.drop_index("ix_backfill_schedules_next_run_at", table_name="backfill_schedules", if_exists=True)
+    op.drop_index("ix_backfill_schedules_enabled", table_name="backfill_schedules", if_exists=True)
+    op.drop_index("ix_backfill_schedules_tenant_id", table_name="backfill_schedules", if_exists=True)
+    op.drop_table("backfill_schedules", if_exists=True)

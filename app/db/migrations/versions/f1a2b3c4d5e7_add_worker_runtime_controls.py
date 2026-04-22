@@ -39,12 +39,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_worker_states_last_heartbeat_at", table_name="worker_states")
-    op.drop_index("ix_worker_states_status", table_name="worker_states")
-    op.drop_table("worker_states")
+    op.drop_index("ix_worker_states_last_heartbeat_at", table_name="worker_states", if_exists=True)
+    op.drop_index("ix_worker_states_status", table_name="worker_states", if_exists=True)
+    op.drop_table("worker_states", if_exists=True)
 
-    op.drop_index("ix_job_events_worker_id_timestamp", table_name="job_events")
-    op.drop_column("job_events", "worker_id")
+    op.drop_index("ix_job_events_worker_id_timestamp", table_name="job_events", if_exists=True)
+    op.drop_column("job_events", "worker_id", if_exists=True)
 
-    op.drop_index("ix_jobs_worker_id", table_name="jobs")
-    op.drop_column("jobs", "worker_id")
+    op.drop_index("ix_jobs_worker_id", table_name="jobs", if_exists=True)
+    op.drop_column("jobs", "worker_id", if_exists=True)

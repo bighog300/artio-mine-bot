@@ -48,7 +48,7 @@ def upgrade() -> None:
     )
 
     with op.batch_alter_table("crawl_frontier") as batch_op:
-        batch_op.drop_constraint("uq_crawl_frontier_source_normalized_url", type_="unique")
+        batch_op.drop_constraint("uq_crawl_frontier_source_normalized_url", type_="unique", if_exists=True)
         batch_op.create_unique_constraint(
             "uq_crawl_frontier_source_mapping_normalized_url",
             ["source_id", "mapping_version_id", "normalized_url"],
@@ -89,27 +89,27 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_crawl_frontier_source_mapping_next_eligible", table_name="crawl_frontier")
-    op.drop_index("ix_crawl_run_checkpoints_last_checkpoint_at", table_name="crawl_run_checkpoints")
-    op.drop_index("ix_crawl_run_checkpoints_status", table_name="crawl_run_checkpoints")
-    op.drop_index("ix_crawl_run_checkpoints_crawl_run_id", table_name="crawl_run_checkpoints")
-    op.drop_table("crawl_run_checkpoints")
+    op.drop_index("ix_crawl_frontier_source_mapping_next_eligible", table_name="crawl_frontier", if_exists=True)
+    op.drop_index("ix_crawl_run_checkpoints_last_checkpoint_at", table_name="crawl_run_checkpoints", if_exists=True)
+    op.drop_index("ix_crawl_run_checkpoints_status", table_name="crawl_run_checkpoints", if_exists=True)
+    op.drop_index("ix_crawl_run_checkpoints_crawl_run_id", table_name="crawl_run_checkpoints", if_exists=True)
+    op.drop_table("crawl_run_checkpoints", if_exists=True)
 
     with op.batch_alter_table("crawl_frontier") as batch_op:
-        batch_op.drop_constraint("uq_crawl_frontier_source_mapping_normalized_url", type_="unique")
+        batch_op.drop_constraint("uq_crawl_frontier_source_mapping_normalized_url", type_="unique", if_exists=True)
         batch_op.create_unique_constraint("uq_crawl_frontier_source_normalized_url", ["source_id", "normalized_url"])
 
-    op.drop_constraint("fk_crawl_frontier_mapping_version_id", "crawl_frontier", type_="foreignkey")
-    op.drop_column("crawl_frontier", "diagnostics_json")
-    op.drop_column("crawl_frontier", "last_extracted_at")
-    op.drop_column("crawl_frontier", "first_discovered_at")
-    op.drop_column("crawl_frontier", "last_modified")
-    op.drop_column("crawl_frontier", "etag")
-    op.drop_column("crawl_frontier", "next_eligible_fetch_at")
-    op.drop_column("crawl_frontier", "skip_reason")
-    op.drop_column("crawl_frontier", "family_key")
-    op.drop_column("crawl_frontier", "canonical_url")
-    op.drop_column("crawl_frontier", "mapping_version_id")
+    op.drop_constraint("fk_crawl_frontier_mapping_version_id", "crawl_frontier", type_="foreignkey", if_exists=True)
+    op.drop_column("crawl_frontier", "diagnostics_json", if_exists=True)
+    op.drop_column("crawl_frontier", "last_extracted_at", if_exists=True)
+    op.drop_column("crawl_frontier", "first_discovered_at", if_exists=True)
+    op.drop_column("crawl_frontier", "last_modified", if_exists=True)
+    op.drop_column("crawl_frontier", "etag", if_exists=True)
+    op.drop_column("crawl_frontier", "next_eligible_fetch_at", if_exists=True)
+    op.drop_column("crawl_frontier", "skip_reason", if_exists=True)
+    op.drop_column("crawl_frontier", "family_key", if_exists=True)
+    op.drop_column("crawl_frontier", "canonical_url", if_exists=True)
+    op.drop_column("crawl_frontier", "mapping_version_id", if_exists=True)
 
-    op.drop_constraint("fk_crawl_runs_mapping_version_id", "crawl_runs", type_="foreignkey")
-    op.drop_column("crawl_runs", "mapping_version_id")
+    op.drop_constraint("fk_crawl_runs_mapping_version_id", "crawl_runs", type_="foreignkey", if_exists=True)
+    op.drop_column("crawl_runs", "mapping_version_id", if_exists=True)

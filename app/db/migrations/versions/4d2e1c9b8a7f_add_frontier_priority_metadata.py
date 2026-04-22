@@ -30,8 +30,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index("ix_crawl_frontier_crawl_run_priority_depth_created", table_name="crawl_frontier")
-    op.drop_column("crawl_frontier", "discovery_reason")
-    op.drop_column("crawl_frontier", "discovered_from_page_type")
-    op.drop_column("crawl_frontier", "predicted_page_type")
-    op.drop_column("crawl_frontier", "priority")
+    op.drop_index("ix_crawl_frontier_crawl_run_priority_depth_created", table_name="crawl_frontier", if_exists=True)
+    op.drop_column("crawl_frontier", "discovery_reason", if_exists=True)
+    op.drop_column("crawl_frontier", "discovered_from_page_type", if_exists=True)
+    op.drop_column("crawl_frontier", "predicted_page_type", if_exists=True)
+    op.drop_column("crawl_frontier", "priority", if_exists=True)
