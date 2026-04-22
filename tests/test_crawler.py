@@ -356,6 +356,21 @@ def test_classify_by_url():
     assert crawler._classify_by_url("https://example.com/about") == "unknown"
 
 
+def test_classify_by_url_prefers_more_specific_identifier_pattern():
+    crawler = AutomatedCrawler(
+        structure_map={
+            "extraction_rules": {
+                "artist_profile_hub": {"identifiers": ["/[name]/"], "css_selectors": {"name": "h1"}},
+                "artist_biography": {"identifiers": ["/[name]/about.php"], "css_selectors": {"name": "h1"}},
+            }
+        },
+        db=None,
+        ai_client=AsyncMock(),
+    )
+
+    assert crawler._classify_by_url("https://www.art.co.za/cornevaneck/about.php") == "artist_biography"
+
+
 @pytest.mark.asyncio
 async def test_crawl_plan_execution(db_session):
     source = await crud.create_source(db_session, url="https://example.com")
