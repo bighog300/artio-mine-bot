@@ -1,0 +1,13 @@
+PHASE 5 CHECKLIST
+
+[ ] record_type is enum
+[ ] normalized_name implemented
+[ ] unique constraint on records
+[ ] deduplication before insert
+[ ] merge logic implemented
+[ ] confidence-aware fields
+[ ] schema validation enforced
+[ ] lineage tracking complete
+[ ] image filtering + association
+[ ] duplicate prevention tests
+[ ] merge tests

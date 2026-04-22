@@ -1,0 +1,80 @@
+PHASE 5 — RECORD CREATION, DEDUPLICATION & DATA INTEGRITY
+
+You are working on the Artio Mine Bot repository.
+
+Your task is to implement production-grade record creation and deduplication.
+
+CORE GOALS:
+- No duplicate entities (artist, artwork, exhibition, event, venue)
+- Deterministic + scalable deduplication
+- Safe merge logic
+- Full lineage tracking
+- Strict schema validation
+
+REQUIREMENTS:
+
+1. RECORD TYPE ENFORCEMENT
+- Replace freeform record_type with strict enum:
+  ARTIST, ARTWORK, EXHIBITION, EVENT, VENUE
+
+2. IDENTITY & DEDUPLICATION
+- Primary identity:
+  normalized_name + source_id (initial)
+- Add fingerprint:
+  hash(normalized_name + key attributes)
+- Before insert:
+  - check existing records via:
+    - exact match
+    - fuzzy match (if available)
+- Prevent duplicates at DB + application level
+
+3. MERGE SYSTEM (CRITICAL)
+- Implement merge_record(existing, incoming):
+  - Field-level merge rules:
+    - prefer higher confidence
+    - never overwrite non-null with null
+    - preserve arrays (union)
+- Track merge history
+
+4. CONFIDENCE-AWARE DATA
+- Each field must include confidence
+- Record has overall confidence score
+
+5. STRUCTURED DATA SCHEMA
+- Replace raw JSON blobs with validated schema (Pydantic)
+- Store as JSONB but validated
+
+6. LINEAGE TRACKING
+Each record must link to:
+- source_id
+- page_id
+- job_id
+
+7. IMAGE ASSOCIATION
+- Filter images:
+  - size threshold
+  - dedupe by hash
+- Attach to correct record with confidence
+
+8. DUPLICATE PREVENTION GUARANTEES
+- DB-level:
+  unique(record_type, normalized_name, source_id)
+- Application-level:
+  pre-insert lookup
+
+9. TESTS (MANDATORY)
+- duplicate insert prevention
+- merge correctness
+- multi-page same artist merge
+- conflicting data resolution
+
+CONSTRAINTS:
+- Do not break existing API contracts
+- Keep schema evolvable
+- Prefer correctness over performance
+
+OUTPUT:
+- Updated models + migrations (if needed)
+- Deduplication service
+- Merge logic implementation
+- Tests proving correctness
