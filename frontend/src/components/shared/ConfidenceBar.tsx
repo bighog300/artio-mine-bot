@@ -6,8 +6,9 @@ interface ConfidenceBarProps {
 }
 
 export function ConfidenceBar({ score, reasons = [] }: ConfidenceBarProps) {
+  const normalizedScore = Math.min(100, Math.max(0, score));
   const color =
-    score >= 70 ? "bg-green-500" : score >= 40 ? "bg-amber-500" : "bg-red-500";
+    normalizedScore > 85 ? "bg-green-500" : normalizedScore >= 60 ? "bg-amber-500" : "bg-red-500";
 
   return (
     <div className="space-y-1">
@@ -15,10 +16,10 @@ export function ConfidenceBar({ score, reasons = [] }: ConfidenceBarProps) {
         <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
           <div
             className={cn("h-full rounded-full transition-all", color)}
-            style={{ width: `${score}%` }}
+            style={{ width: `${normalizedScore}%` }}
           />
         </div>
-        <span className="text-sm font-medium w-10 text-right">{score}</span>
+        <span className="text-sm font-medium w-10 text-right">{normalizedScore}</span>
       </div>
       {reasons.length > 0 && (
         <ul className="text-xs text-gray-500 space-y-0.5">
