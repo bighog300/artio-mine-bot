@@ -1,4 +1,5 @@
 import json
+import asyncio
 from datetime import UTC, datetime
 from urllib.parse import urljoin, urlparse
 
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db import crud
+from app.db.database import AsyncSessionLocal
 from app.db.models import Source, SourceMappingSample, SourceMappingVersion
 from app.crawler.fetcher import fetch
 from app.source_mapper.page_clustering import cluster_pages
@@ -17,6 +19,24 @@ from app.source_mapper.preview import build_preview
 from app.source_mapper.types import DiscoveredPage
 
 logger = structlog.get_logger()
+
+
+async def _run_mapping_scan_async(source_id: str, draft_id: str) -> None:
+    async with AsyncSessionLocal() as db:
+        source = await crud.get_source(db, source_id)
+        if source is None:
+            logger.warning("source_mapper_scan_source_not_found", source_id=source_id, draft_id=draft_id)
+            return
+        draft = await crud.get_source_mapping_version(db, source_id, draft_id)
+        if draft is None:
+            logger.warning("source_mapper_scan_draft_not_found", source_id=source_id, draft_id=draft_id)
+            return
+        mapper = SourceMapperService(db)
+        await mapper.run_scan(source, draft)
+
+
+def process_mapping_scan_job(source_id: str, draft_id: str) -> None:
+    asyncio.run(_run_mapping_scan_async(source_id, draft_id))
 
 
 class SourceMapperService:

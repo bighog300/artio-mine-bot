@@ -134,20 +134,25 @@ async def test_publish_state_transition_and_version_clone_workflow(test_client: 
     source_id = source_resp.json()["id"]
     draft_resp = await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})
     draft_id = draft_resp.json()["id"]
-    row_id = (await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows")).json()["items"][0]["id"]
-
-    cannot_publish = await test_client.post(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/publish")
-    assert cannot_publish.status_code == 409
-
-    approve = await test_client.post(
-        f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows/actions",
-        json={"row_ids": [row_id], "action": "approve", "force_low_confidence": True},
-    )
-    assert approve.status_code == 200
 
     publish = await test_client.post(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/publish")
     assert publish.status_code == 200
     assert publish.json()["status"] == "published"
+    approved_row = await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows")
+    assert approved_row.status_code == 200
+    assert approved_row.json()["items"][0]["status"] == "approved"
+
+    refreshed_draft = await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})
+    refreshed_draft_id = refreshed_draft.json()["id"]
+    refreshed_row_id = (await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{refreshed_draft_id}/rows")).json()["items"][0]["id"]
+    reject = await test_client.post(
+        f"/api/sources/{source_id}/mapping-drafts/{refreshed_draft_id}/rows/actions",
+        json={"row_ids": [refreshed_row_id], "action": "reject"},
+    )
+    assert reject.status_code == 200
+    publish_blocked = await test_client.post(f"/api/sources/{source_id}/mapping-drafts/{refreshed_draft_id}/publish")
+    assert publish_blocked.status_code == 409
+    assert "No approved rows" in publish_blocked.json()["detail"]
 
     cloned_draft = await test_client.post(
         f"/api/sources/{source_id}/mapping-drafts",

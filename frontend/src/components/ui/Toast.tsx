@@ -33,7 +33,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     const id = generateId();
     setToasts((prev) => [...prev, { id, type, title, description }]);
     if (type !== "loading") {
-      window.setTimeout(() => dismiss(id), 3500);
+      window.setTimeout(() => dismiss(id), 4000);
     }
     return id;
   }, [dismiss]);
@@ -41,7 +41,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const update = useCallback((id: string, type: ToastType, title: string, description?: string) => {
     setToasts((prev) => prev.map((toast) => (toast.id === id ? { ...toast, type, title, description } : toast)));
     if (type !== "loading") {
-      window.setTimeout(() => dismiss(id), 3500);
+      window.setTimeout(() => dismiss(id), 4000);
     }
   }, [dismiss]);
 

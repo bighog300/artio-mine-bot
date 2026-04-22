@@ -89,8 +89,9 @@ export function Settings() {
         max_pages_per_source: maxPages,
         crawl_delay_ms: crawlDelay,
       }),
-    onMutate: () => toast.loading("Saving settings..."),
-    onSuccess: (updated) => {
+    onMutate: () => ({ toastId: toast.loading("Saving settings...") }),
+    onSuccess: (updated, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
       toast.success("Settings saved");
       queryClient.setQueryData(["settings"], updated);
       setArtioKeyDirty(false);
@@ -99,16 +100,24 @@ export function Settings() {
       setOpenaiKey(updated.openai_api_key_masked ?? "");
       setSavedAt(Date.now());
     },
-    onError: (error: Error) => toast.error("Failed to save settings", error.message),
+    onError: (error: Error, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
+      toast.error("Failed to save settings", error.message);
+    },
+    onSettled: (_data, _error, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
+    },
   });
 
   const testMutation = useMutation({
     onMutate: () => {
-      toast.loading("Testing Artio connection...");
+      const toastId = toast.loading("Testing Artio connection...");
       setConnStatus({ state: "testing" });
+      return { toastId };
     },
     mutationFn: testArtioConnection,
-    onSuccess: (result) => {
+    onSuccess: (result, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
       if (result.success) {
         toast.success("Connection successful", result.message);
       } else {
@@ -120,9 +129,13 @@ export function Settings() {
           : { state: "error", message: result.message }
       );
     },
-    onError: (e: Error) => {
+    onError: (e: Error, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
       setConnStatus({ state: "error", message: e.message });
       toast.error("Connection test failed", e.message);
+    },
+    onSettled: (_data, _error, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
     },
   });
 

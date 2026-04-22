@@ -73,7 +73,11 @@ export function Sources() {
       }
       return source;
     },
-    onSuccess: () => {
+    onMutate: ({ action }) => ({
+      toastId: toast.loading(action === "start-discovery" ? "Starting discovery..." : "Starting full mining..."),
+    }),
+    onSuccess: (_data, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
       toast.success("Mining started", "Source saved and job started.");
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       setShowDialog(false);
@@ -81,9 +85,13 @@ export function Sources() {
       setActionFeedback("Source saved and job started.");
       setForm({ url: "", name: "", crawl_intent: "site_root", enabled: true });
     },
-    onError: (e: Error) => {
+    onError: (e: Error, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
       setError(e.message);
       toast.error("Unable to start mining", e.message);
+    },
+    onSettled: (_data, _error, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
     },
   });
 
@@ -97,7 +105,9 @@ export function Sources() {
       });
       return { sourceId: source.id, draftId: draft.id };
     },
-    onSuccess: ({ sourceId, draftId }) => {
+    onMutate: () => ({ toastId: toast.loading("Creating mapping draft...") }),
+    onSuccess: ({ sourceId, draftId }, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
       toast.success("Mapping scan started", "Source saved and mapping scan started.");
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       setShowDialog(false);
@@ -106,24 +116,35 @@ export function Sources() {
       setForm({ url: "", name: "", crawl_intent: "site_root", enabled: true });
       navigate(`/sources/${sourceId}/mapping?draft=${draftId}`);
     },
-    onError: (e: Error) => {
+    onError: (e: Error, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
       setError(e.message);
       toast.error("Unable to open mapping", e.message);
+    },
+    onSettled: (_data, _error, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteSource,
-    onMutate: () => toast.loading("Deleting source..."),
-    onSuccess: () => {
+    onMutate: () => ({ toastId: toast.loading("Deleting source...") }),
+    onSuccess: (_data, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       toast.success("Source deleted");
     },
-    onError: (e: Error) => toast.error("Delete failed", e.message),
+    onError: (e: Error, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
+      toast.error("Delete failed", e.message);
+    },
+    onSettled: (_data, _error, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
+    },
   });
 
   const actionMutation = useMutation({
-    onMutate: ({ action }) => toast.loading(`Running ${action.replace("-", " ")}...`),
+    onMutate: ({ action }) => ({ toastId: toast.loading(`Running ${action.replace("-", " ")}...`) }),
     mutationFn: async ({ sourceId, action }: { sourceId: string; action: SourceAction }) => {
       switch (action) {
         case "start-discovery":
@@ -140,14 +161,19 @@ export function Sources() {
           return retryFailedSource(sourceId);
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
       setActionFeedback("Source action accepted.");
       queryClient.invalidateQueries({ queryKey: ["sources"] });
       toast.success("Source action accepted");
     },
-    onError: (e: Error) => {
+    onError: (e: Error, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
       setActionFeedback(e.message);
       toast.error("Source action failed", e.message);
+    },
+    onSettled: (_data, _error, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
     },
   });
 

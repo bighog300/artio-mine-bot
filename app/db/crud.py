@@ -815,17 +815,27 @@ async def publish_source_mapping_version(
     if draft.status == "published":
         return draft
 
-    approved_count = await db.execute(
-        select(func.count(SourceMappingRow.id)).where(
-            SourceMappingRow.mapping_version_id == draft_id,
-            SourceMappingRow.status == "approved",
-            SourceMappingRow.is_enabled.is_(True),
-        )
-    )
-    if int(approved_count.scalar_one() or 0) == 0:
-        raise RuntimeError("Cannot publish without approved mapping rows")
-
     now = datetime.now(UTC)
+    enabled_rows = (
+        await db.execute(
+            select(SourceMappingRow).where(
+                SourceMappingRow.mapping_version_id == draft_id,
+                SourceMappingRow.is_enabled.is_(True),
+            )
+        )
+    ).scalars().all()
+    approved_enabled_rows = [row for row in enabled_rows if row.status == "approved"]
+    if not approved_enabled_rows:
+        all_unreviewed = bool(enabled_rows) and all(
+            row.status in {"proposed", "needs_review"} for row in enabled_rows
+        )
+        if all_unreviewed:
+            for row in enabled_rows:
+                row.status = "approved"
+                row.updated_at = now
+        else:
+            raise RuntimeError("No approved rows — approve at least one mapping row before publishing")
+
     previous_active_id = source.active_mapping_version_id
     if previous_active_id:
         previous_active = await get_source_mapping_version(db, source_id, previous_active_id)

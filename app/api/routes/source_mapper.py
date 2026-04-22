@@ -2,6 +2,7 @@ import json
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
+from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
@@ -25,12 +26,34 @@ from app.api.schemas import (
     MappingVersionListItem,
     MappingVersionPublishResponse,
 )
+from app.config import settings
 from app.db import crud
+from app.queue import QueueUnavailableError, get_default_queue
 from app.source_mapper.service import SourceMapperService
 
 router = APIRouter(prefix="/sources/{source_id}/mapping-drafts", tags=["source-mapper"])
 logger = structlog.get_logger()
 LOW_CONFIDENCE_THRESHOLD = 0.65
+MAPPING_SCAN_JOB_TIMEOUT_SECONDS = 900
+
+
+def _enqueue_mapping_scan_job(source_id: str, draft_id: str) -> str:
+    rq_job = get_default_queue().enqueue(
+        "app.source_mapper.service.process_mapping_scan_job",
+        source_id,
+        draft_id,
+        job_timeout=MAPPING_SCAN_JOB_TIMEOUT_SECONDS,
+    )
+    return rq_job.id
+
+
+async def _dispatch_mapping_scan(db: AsyncSession, source, draft) -> tuple[str, str]:
+    if settings.environment == "test":
+        mapper = SourceMapperService(db)
+        result = await mapper.run_scan(source, draft)
+        return str(result.get("scan_status", draft.scan_status or "queued")), f"inline-{draft.id}"
+    rq_job_id = _enqueue_mapping_scan_job(source.id, draft.id)
+    return "queued", rq_job_id
 
 
 def _confidence_band(score: float) -> str:
@@ -160,15 +183,36 @@ async def create_mapping_draft(
     else:
         draft = await crud.create_source_mapping_version(db, source_id, scan_options=options, created_by="admin")
 
+    draft.scan_status = "queued"
+    draft.summary_json = json.dumps({"progress_percent": 0, "stage": "queued"})
+    await db.commit()
+    await db.refresh(draft)
+
+    try:
+        status, _ = await _dispatch_mapping_scan(db, source, draft)
+        draft.scan_status = status
+        await db.commit()
+    except (QueueUnavailableError, RedisError, OSError, RuntimeError) as exc:
+        if settings.environment in {"development", "docker", "test"}:
+            logger.warning(
+                "mapping_scan_queue_unavailable_running_inline",
+                source_id=source_id,
+                draft_id=draft.id,
+                error=str(exc),
+            )
+            mapper = SourceMapperService(db)
+            result = await mapper.run_scan(source, draft)
+            draft.scan_status = str(result.get("scan_status", draft.scan_status or "completed"))
+            await db.commit()
+        else:
+            logger.error("mapping_scan_enqueue_failed", source_id=source_id, draft_id=draft.id, error=str(exc))
+            draft.scan_status = "error"
+            draft.summary_json = json.dumps({"progress_percent": 100, "stage": "error"})
+            await db.commit()
+            raise HTTPException(status_code=503, detail="Failed to queue mapping scan job.") from exc
+
     page_types = await crud.list_source_mapping_page_types(db, draft.id)
     rows = await crud.list_source_mapping_rows(db, source_id, draft.id, skip=0, limit=2000)
-    if not page_types and not rows:
-        mapper = SourceMapperService(db)
-        scan_result = await mapper.run_scan(source, draft)
-        if scan_result.get("scan_status") == "error":
-            logger.warning("mapping_scan_error_on_create", source_id=source_id, draft_id=draft.id, result=scan_result)
-        page_types = await crud.list_source_mapping_page_types(db, draft.id)
-        rows = await crud.list_source_mapping_rows(db, source_id, draft.id, skip=0, limit=2000)
 
     await crud.create_audit_action(
         db,
@@ -191,11 +235,37 @@ async def start_or_restart_scan(
     source = await crud.get_source(db, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
-    mapper = SourceMapperService(db)
-    result = await mapper.run_scan(source, draft)
-    status = str(result.get("scan_status", "queued"))
-    message = "Mapping scan completed." if status == "completed" else "Mapping scan queued."
-    return MappingScanResponse(draft_id=draft_id, scan_status=status, job_id=f"scan-{draft_id}", message=message)
+    draft.scan_status = "queued"
+    draft.summary_json = json.dumps({"progress_percent": 0, "stage": "queued"})
+    await db.commit()
+    try:
+        status, rq_job_id = await _dispatch_mapping_scan(db, source, draft)
+    except (QueueUnavailableError, RedisError, OSError, RuntimeError) as exc:
+        if settings.environment in {"development", "docker", "test"}:
+            logger.warning(
+                "mapping_scan_queue_unavailable_running_inline",
+                source_id=source_id,
+                draft_id=draft_id,
+                error=str(exc),
+            )
+            mapper = SourceMapperService(db)
+            result = await mapper.run_scan(source, draft)
+            status = str(result.get("scan_status", draft.scan_status or "completed"))
+            rq_job_id = f"inline-{draft_id}"
+            draft.scan_status = status
+            await db.commit()
+        else:
+            logger.error("mapping_scan_enqueue_failed", source_id=source_id, draft_id=draft_id, error=str(exc))
+            draft.scan_status = "error"
+            draft.summary_json = json.dumps({"progress_percent": 100, "stage": "error"})
+            await db.commit()
+            raise HTTPException(status_code=503, detail="Failed to queue mapping scan job.") from exc
+    return MappingScanResponse(
+        draft_id=draft_id,
+        scan_status=status,
+        job_id=rq_job_id,
+        message="Mapping scan completed." if status == "completed" else "Mapping scan queued.",
+    )
 
 
 @router.get("/{draft_id}", response_model=MappingDraftSummary)

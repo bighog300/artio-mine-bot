@@ -36,12 +36,19 @@ async def create_mapping_preset(
 ):
     if not body.name.strip():
         raise HTTPException(status_code=400, detail="Preset name is required")
-    if not body.draft_id and not body.mapping_version_id:
-        raise HTTPException(status_code=400, detail="draft_id or mapping_version_id is required")
 
     source = await crud.get_source(db, source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
+
+    resolved_mapping_version_id = body.mapping_version_id
+    if not body.draft_id and not resolved_mapping_version_id:
+        resolved_mapping_version_id = source.active_mapping_version_id
+        if not resolved_mapping_version_id:
+            raise HTTPException(
+                status_code=422,
+                detail="Source has no published mapping version — provide draft_id",
+            )
 
     try:
         preset = await crud.create_source_mapping_preset_from_version(
@@ -51,7 +58,7 @@ async def create_mapping_preset(
             name=body.name.strip(),
             description=body.description,
             draft_id=body.draft_id,
-            mapping_version_id=body.mapping_version_id,
+            mapping_version_id=resolved_mapping_version_id,
             include_statuses=body.include_statuses,
             created_by="admin",
         )
