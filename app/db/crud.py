@@ -51,8 +51,9 @@ TERMINAL_CRAWL_RUN_STATUSES = {"completed", "failed", "cancelled"}
 FRONTIER_STATUS_TRANSITIONS: dict[str, set[str]] = {
     "discovered": {"queued", "skipped", "failed_terminal"},
     "queued": {"fetching", "skipped", "failed_retryable", "failed_terminal"},
-    "fetching": {"queued", "fetched", "extracted", "failed_retryable", "failed_terminal", "skipped"},
-    "fetched": {"extracted", "skipped", "failed_retryable", "failed_terminal"},
+    "fetching": {"queued", "fetched", "parsed", "extracted", "failed_retryable", "failed_terminal", "skipped"},
+    "fetched": {"parsed", "extracted", "skipped", "failed_retryable", "failed_terminal"},
+    "parsed": {"extracted", "queued", "failed_retryable", "failed_terminal", "skipped"},
     "extracted": {"queued", "fetching"},
     "skipped": {"queued", "fetching"},
     "failed_retryable": {"queued", "fetching", "failed_terminal", "skipped"},
@@ -1873,6 +1874,20 @@ async def get_or_create_page(db: AsyncSession, source_id: str, url: str) -> tupl
     return page, True
 
 
+async def get_page_by_url(db: AsyncSession, *, source_id: str, url: str) -> Page | None:
+    return (
+        await db.execute(select(Page).where(Page.source_id == source_id, Page.url == url))
+    ).scalar_one_or_none()
+
+
+async def get_page_by_content_hash(db: AsyncSession, *, source_id: str, content_hash: str) -> Page | None:
+    return (
+        await db.execute(
+            select(Page).where(Page.source_id == source_id, Page.content_hash == content_hash).order_by(Page.created_at.desc())
+        )
+    ).scalars().first()
+
+
 async def list_pages(
     db: AsyncSession,
     source_id: str | None = None,
@@ -3405,6 +3420,10 @@ async def claim_frontier_rows(
         .order_by(CrawlFrontier.priority.desc(), CrawlFrontier.depth.asc(), CrawlFrontier.created_at.asc())
         .limit(limit)
     )
+    bind = db.get_bind()
+    dialect_name = bind.dialect.name if bind is not None else ""
+    if dialect_name in {"postgresql", "mysql", "mariadb"}:
+        stmt = stmt.with_for_update(skip_locked=True)
     rows = list((await db.execute(stmt)).scalars().all())
     lease_expires_at = now + timedelta(seconds=lease_seconds)
     for row in rows:

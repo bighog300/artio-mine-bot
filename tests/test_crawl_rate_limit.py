@@ -133,3 +133,73 @@ async def test_robots_blocked_row_is_not_retryable(db_session):
         lease_seconds=30,
     )
     assert claimed == []
+
+
+@pytest.mark.asyncio
+async def test_durable_crawl_does_not_enqueue_external_domain_links(db_session):
+    source = await crud.create_source(db_session, url="https://scope.test")
+    robots_checker = AsyncMock()
+    robots_checker.is_allowed = AsyncMock(return_value=True)
+
+    with patch(
+        "app.crawler.durable_frontier.fetch",
+        new=AsyncMock(
+            return_value=FetchResult(
+                url=source.url,
+                final_url=source.url,
+                html="<html><body><a href='https://external.test/x'>offsite</a></body></html>",
+                status_code=200,
+                method="httpx",
+                error=None,
+            )
+        ),
+    ):
+        await run_durable_crawl(
+            db_session,
+            source_id=source.id,
+            seed_url=source.url,
+            job_id=None,
+            worker_id="worker-scope",
+            max_pages=1,
+            max_depth=2,
+            robots_checker=robots_checker,
+        )
+
+    run = await crud.get_active_crawl_run_for_source(db_session, source.id)
+    frontier = await crud.get_crawl_frontier_counts(db_session, run.id)
+    assert frontier.get("queued", 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_captcha_page_pauses_crawl(db_session):
+    source = await crud.create_source(db_session, url="https://captcha.test")
+    robots_checker = AsyncMock()
+    robots_checker.is_allowed = AsyncMock(return_value=True)
+
+    with patch(
+        "app.crawler.durable_frontier.fetch",
+        new=AsyncMock(
+            return_value=FetchResult(
+                url=source.url,
+                final_url=source.url,
+                html="<html><body><h1>Please complete CAPTCHA</h1></body></html>",
+                status_code=200,
+                method="httpx",
+                error=None,
+            )
+        ),
+    ):
+        await run_durable_crawl(
+            db_session,
+            source_id=source.id,
+            seed_url=source.url,
+            job_id=None,
+            worker_id="worker-captcha",
+            max_pages=1,
+            max_depth=1,
+            robots_checker=robots_checker,
+        )
+
+    run = await crud.get_active_crawl_run_for_source(db_session, source.id)
+    assert run is not None
+    assert run.status == "paused"
