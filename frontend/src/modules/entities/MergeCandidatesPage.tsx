@@ -35,7 +35,7 @@ export function MergeCandidatesPage() {
       </div>
 
       {visibleCandidates.length === 0 ? (
-        <div className="rounded border bg-card p-6 text-sm text-muted-foreground">No merge candidates available.</div>
+        <div className="rounded border bg-card p-6 text-sm text-muted-foreground">No merge candidates detected — entities currently look distinct.</div>
       ) : (
         <div className="overflow-hidden rounded-lg border bg-card">
           <table className="w-full text-sm">
@@ -45,7 +45,18 @@ export function MergeCandidatesPage() {
                 <tr key={candidate.id} className="border-t">
                   <td className="p-3">{candidate.entity_a.name} vs {candidate.entity_b.name}</td>
                   <td className="p-3">{Math.round(candidate.similarity_score * 100)}%</td>
-                  <td className="p-3">{candidate.matching_signals.join(", ") || "—"}</td>
+                  <td className="p-3">
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-muted-foreground">Matched on:</p>
+                      <ul className="list-inside list-disc space-y-0.5 text-xs">
+                        <li>Name similarity: {Math.round((candidate.signal_breakdown?.name_similarity ?? candidate.similarity_score) * 100)}%</li>
+                        <li>Shared relationships: {candidate.signal_breakdown?.shared_relationships ? "yes" : "no"}</li>
+                        <li>Overlapping fields: {candidate.signal_breakdown?.overlapping_fields?.length ?? 0}</li>
+                        <li>Conflicting fields: {(candidate.signal_breakdown?.conflicting_fields ?? []).join(", ") || "none"}</li>
+                      </ul>
+                      {candidate.matching_signals.length > 0 ? <p className="text-xs text-muted-foreground">Signals: {candidate.matching_signals.join(", ")}</p> : null}
+                    </div>
+                  </td>
                   <td className="p-3">
                     <div className="flex flex-wrap gap-2">
                       <Link className="text-sm text-primary underline" to={`/entities/compare/${candidate.entity_a.id}/${candidate.entity_b.id}?from=merge-candidates`}>Inspect</Link>

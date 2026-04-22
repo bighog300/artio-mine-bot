@@ -2,8 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useParams } from "react-router-dom";
 import { AlertTriangle } from "lucide-react";
 import { useEntityConflicts, useResolveConflict } from "@/api/entities";
-import { Button, EmptyState, Input, Select, Skeleton } from "@/components/ui";
+import { Button, EmptyState, Input, Modal, ModalContent, ModalFooter, Select, Skeleton } from "@/components/ui";
 import { FieldComparisonTable } from "@/modules/entities/components/FieldComparisonTable";
+import { deriveConflictSeverity } from "@/modules/entities/components/ConflictBadge";
+
+const isDevMode = import.meta.env.DEV;
 
 export function ConflictResolutionPage() {
   const { id } = useParams<{ id: string }>();
@@ -17,6 +20,7 @@ export function ConflictResolutionPage() {
   const [decision, setDecision] = useState<"keep_canonical" | "source" | "manual">("keep_canonical");
   const [sourceChoice, setSourceChoice] = useState("");
   const [manualValue, setManualValue] = useState("");
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
   useEffect(() => {
     const first = data?.conflicts?.[0]?.field ?? "";
@@ -65,7 +69,12 @@ export function ConflictResolutionPage() {
       source: decision === "source" ? sourceChoice : undefined,
     } as const;
 
+    if (isDevMode) {
+      console.debug("EntityAction", payload);
+    }
+
     await resolveMutation.mutateAsync(payload);
+    setIsConfirmOpen(false);
     await refetch();
   }
 
@@ -76,7 +85,18 @@ export function ConflictResolutionPage() {
       <section className="rounded-lg border bg-card p-4">
         <h2 className="text-lg font-semibold">Field Selector</h2>
         <div className="mt-2 max-w-md">
-          <Select value={selectedField} onChange={(e) => setSelectedField(e.target.value)} options={data.conflicts.map((conflict) => ({ value: conflict.field, label: `${conflict.field} (${conflict.severity})` }))} />
+          <Select
+            value={selectedField}
+            onChange={(e) => setSelectedField(e.target.value)}
+            options={data.conflicts.map((conflict) => ({
+              value: conflict.field,
+              label: `${conflict.field} (${deriveConflictSeverity({
+                sourceCount: conflict.options?.length,
+                confidenceValues: (conflict.options ?? []).map((option) => option.confidence),
+                values: (conflict.options ?? []).map((option) => option.value),
+              })})`,
+            }))}
+          />
         </div>
         {selectedConflict ? <p className="mt-2 text-sm text-muted-foreground">{selectedConflict.explanation}</p> : null}
       </section>
@@ -104,9 +124,30 @@ export function ConflictResolutionPage() {
         {resolveMutation.isSuccess ? <p className="mt-2 text-sm text-emerald-700">Conflict resolved successfully.</p> : null}
 
         <div className="mt-4">
-          <Button loading={resolveMutation.isPending} onClick={() => void handleResolve()}>Resolve conflict</Button>
+          <Button loading={resolveMutation.isPending} onClick={() => setIsConfirmOpen(true)}>Resolve conflict</Button>
         </div>
       </section>
+
+      <Modal open={isConfirmOpen} onClose={() => setIsConfirmOpen(false)} title="Confirm conflict resolution">
+        <ModalContent className="space-y-3">
+          <p className="text-sm">This will apply your selected value as the canonical value for this field.</p>
+          <p className="text-sm text-amber-700">This will update {impactCount} records.</p>
+          {selectedConflict ? (
+            <p className="text-sm text-muted-foreground">
+              Severity:{" "}
+              {deriveConflictSeverity({
+                sourceCount: selectedConflict.options?.length,
+                confidenceValues: (selectedConflict.options ?? []).map((option) => option.confidence),
+                values: (selectedConflict.options ?? []).map((option) => option.value),
+              })}
+            </p>
+          ) : null}
+        </ModalContent>
+        <ModalFooter>
+          <Button variant="outline" onClick={() => setIsConfirmOpen(false)}>Cancel</Button>
+          <Button loading={resolveMutation.isPending} onClick={() => void handleResolve()}>Confirm resolution</Button>
+        </ModalFooter>
+      </Modal>
     </div>
   );
 }
