@@ -1,30 +1,32 @@
 import { Link, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { getActivityFeed, getJobs, getOperationalMetrics, getQueues, getStats, getSources } from "@/lib/api";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { formatLogMessage, formatRelative } from "@/lib/utils";
 import { Button, EmptyState, Skeleton, SkeletonCardList, SkeletonStatCard, SkeletonTableRows } from "@/components/ui";
-import { Activity, BarChart3, CheckCircle2, CircleDot, Database, Globe, Layers3, PackageCheck, ScanSearch } from "lucide-react";
+import { Activity, BarChart3, CircleDot, Database, Globe, PackageCheck, ScanSearch } from "lucide-react";
+import { PrioritizedActionsPanel } from "@/features/control-center/components/PrioritizedActionsPanel";
+import { useControlCenterData } from "@/features/control-center/useControlCenterData";
 
 export function Dashboard() {
   const navigate = useNavigate();
-  const { data: stats, isLoading: isStatsLoading } = useQuery({ queryKey: ["stats"], queryFn: getStats });
-  const { data: sources, isLoading: isSourcesLoading } = useQuery({ queryKey: ["sources"], queryFn: getSources });
-  const { data: metrics, isLoading: isMetricsLoading } = useQuery({ queryKey: ["operational-metrics"], queryFn: getOperationalMetrics });
-  const { data: activity, isError: isActivityError, isLoading: isActivityLoading } = useQuery({
-    queryKey: ["activity-feed"],
-    queryFn: () => getActivityFeed({ limit: 20 }),
-    refetchInterval: (query) => (query.state.status === "success" ? 10000 : false),
-    retry: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    refetchOnMount: false,
-  });
-  const { data: jobs, isLoading: isJobsLoading } = useQuery({ queryKey: ["jobs", "dashboard"], queryFn: () => getJobs({ limit: 200 }) });
-  const { data: queues, isLoading: isQueuesLoading } = useQuery({ queryKey: ["queues"], queryFn: getQueues });
+  const {
+    statsQuery,
+    sourcesQuery,
+    metricsQuery,
+    jobsQuery,
+    queuesQuery,
+    activityQuery,
+    successRate,
+    prioritizedActions,
+  } = useControlCenterData();
+
+  const { data: stats, isLoading: isStatsLoading } = statsQuery;
+  const { data: sources, isLoading: isSourcesLoading } = sourcesQuery;
+  const { data: metrics, isLoading: isMetricsLoading } = metricsQuery;
+  const { data: jobs, isLoading: isJobsLoading } = jobsQuery;
+  const { data: queues, isLoading: isQueuesLoading } = queuesQuery;
+  const { data: activity, isError: isActivityError, isLoading: isActivityLoading } = activityQuery;
 
   const recentSources = sources?.items?.slice(0, 3) ?? [];
-  const successRate = jobs?.items.length ? Math.round(((jobs.items.filter((job) => job.status === "completed").length / jobs.items.length) * 100)) : 0;
 
   return (
     <div className="space-y-4 lg:space-y-6">
@@ -67,6 +69,11 @@ export function Dashboard() {
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 lg:gap-6">
         <div className="space-y-6">
+          <PrioritizedActionsPanel
+            isLoading={isStatsLoading || isJobsLoading || isQueuesLoading}
+            actions={prioritizedActions}
+          />
+
           <div className="bg-card rounded-lg border p-4">
             <h2 className="font-semibold text-foreground mb-3">Records by Type</h2>
             <div className="space-y-2" role="status" aria-live="polite">
