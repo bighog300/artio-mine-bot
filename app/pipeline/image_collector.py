@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import re
 from urllib.parse import urlparse
 
@@ -24,6 +25,8 @@ TRACKING_DOMAINS = {
     "analytics.",
     "pixel.",
 }
+
+MIN_IMAGE_BYTES = 8 * 1024
 
 
 def _classify_image(url: str, alt: str, context_text: str, img_tag, *, occurrence_count: int) -> tuple[str, int, str]:
@@ -157,14 +160,16 @@ async def collect_images(
             try:
                 resp = await client.head(url)
                 content_type = resp.headers.get("content-type", "")
+                content_length = int(resp.headers.get("content-length", "0") or "0")
                 is_valid = resp.status_code < 400 and content_type.startswith("image/")
                 mime_type = content_type.split(";")[0].strip() if is_valid else None
             except httpx.HTTPError as exc:
                 logger.debug("image_head_failed", url=url, error=str(exc))
                 is_valid = False
                 mime_type = None
+                content_length = 0
 
-            if not is_valid:
+            if not is_valid or (content_length and content_length < MIN_IMAGE_BYTES):
                 continue
 
             alt = img_data["alt"]
@@ -181,6 +186,7 @@ async def collect_images(
                     db,
                     source_id=source_id,
                     url=url,
+                    image_hash=hashlib.sha256(url.strip().lower().encode("utf-8")).hexdigest(),
                     record_id=record_id,
                     page_id=page_id,
                     alt_text=alt or None,

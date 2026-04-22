@@ -1,4 +1,5 @@
 import json
+import hashlib
 import re
 from asyncio import sleep
 from datetime import UTC, datetime, timedelta
@@ -49,6 +50,14 @@ from app.db.models import (
     WorkerState,
 )
 from app.crawler.url_utils import normalize_url
+from app.records.deduplication import (
+    build_merge_snapshot,
+    fuzzy_name_match,
+    merge_record,
+    normalize_name,
+    normalize_record_type,
+    prepare_record_payload,
+)
 
 logger = structlog.get_logger()
 TERMINAL_JOB_STATUSES = {"done", "completed", "failed", "cancelled"}
@@ -135,19 +144,25 @@ def _ordered_pair(left_record_id: str, right_record_id: str) -> tuple[str, str]:
 
 def serialize_record_snapshot(record: Record) -> dict[str, Any]:
     fields = [
-        "id", "source_id", "page_id", "record_type", "status", "title", "description", "source_url",
+        "id", "source_id", "page_id", "job_id", "record_type", "normalized_name", "fingerprint", "status", "title", "description", "source_url",
         "start_date", "end_date", "venue_name", "venue_address", "artist_names", "ticket_url", "is_free",
         "price_text", "curator", "bio", "nationality", "birth_year", "mediums", "collections", "website_url",
         "instagram_url", "email", "avatar_url", "address", "city", "country", "phone", "opening_hours",
-        "medium", "year", "dimensions", "price", "raw_data", "raw_error", "extraction_model",
+        "medium", "year", "dimensions", "price", "raw_data", "structured_data", "field_confidence", "raw_error", "extraction_model",
         "extraction_provider", "embedding_vector", "confidence_score", "confidence_band", "confidence_reasons",
         "completeness_score", "has_conflicts", "admin_notes", "primary_image_id", "exported_at",
     ]
     snapshot: dict[str, Any] = {}
+    json_fields = {"artist_names", "mediums", "collections", "confidence_reasons"}
     for field in fields:
         value = getattr(record, field)
         if isinstance(value, datetime):
             snapshot[field] = value.isoformat()
+        elif field in json_fields and isinstance(value, str):
+            try:
+                snapshot[field] = json.loads(value)
+            except json.JSONDecodeError:
+                snapshot[field] = []
         else:
             snapshot[field] = value
     return snapshot
@@ -2023,24 +2038,97 @@ async def count_pages_by_status(db: AsyncSession, source_id: str) -> dict[str, i
 async def create_record(
     db: AsyncSession, source_id: str, record_type: str, **kwargs: Any
 ) -> Record:
+    canonical_type = normalize_record_type(record_type)
     if "tenant_id" not in kwargs:
         source = await get_source(db, source_id)
         kwargs["tenant_id"] = source.tenant_id if source else "public"
-    embedding_payload = _build_embedding_payload(record_type, kwargs)
+    payload = prepare_record_payload(canonical_type, kwargs)
+    kwargs["normalized_name"] = payload.normalized_name
+    kwargs["fingerprint"] = payload.fingerprint
+    kwargs["field_confidence"] = payload.field_confidence
+    kwargs["structured_data"] = payload.data.model_dump(mode="json")
+
+    embedding_payload = _build_embedding_payload(canonical_type.value, kwargs)
     if embedding_payload is not None:
         kwargs["embedding_vector"] = embedding_payload
         kwargs["embedding_updated_at"] = datetime.now(UTC)
-    # Serialize list fields to JSON strings
-    for field in ("artist_names", "mediums", "collections", "confidence_reasons"):
-        if field in kwargs and isinstance(kwargs[field], list):
-            kwargs[field] = json.dumps(kwargs[field])
     if "raw_data" in kwargs:
         completeness, has_conflicts = _extract_completeness_and_conflicts(kwargs.get("raw_data"))
         kwargs.setdefault("completeness_score", completeness)
         kwargs.setdefault("has_conflicts", has_conflicts)
-    record = Record(source_id=source_id, record_type=record_type, **kwargs)
+
+    exact_result = await db.execute(
+        select(Record).where(
+            Record.source_id == source_id,
+            Record.record_type == canonical_type.value,
+            Record.normalized_name == payload.normalized_name,
+        )
+    )
+    existing = exact_result.scalar_one_or_none()
+
+    if existing is None and payload.normalized_name:
+        fuzzy_result = await db.execute(
+            select(Record).where(Record.source_id == source_id, Record.record_type == canonical_type.value)
+        )
+        candidates = list(fuzzy_result.scalars().all())
+        existing = next(
+            (
+                candidate
+                for candidate in candidates
+                if fuzzy_name_match(candidate.normalized_name or "", payload.normalized_name)
+            ),
+            None,
+        )
+
+    if existing is not None:
+        existing_snapshot = serialize_record_snapshot(existing)
+        merged_values, changes = merge_record(existing_snapshot, kwargs)
+        merged_values.pop("id", None)
+        merged_values.pop("source_id", None)
+        merged_values.pop("record_type", None)
+        merged_values.pop("created_at", None)
+        merged_values.pop("updated_at", None)
+        for key, value in merged_values.items():
+            if hasattr(existing, key):
+                if key in {"artist_names", "mediums", "collections", "confidence_reasons"} and isinstance(value, list):
+                    value = json.dumps(value)
+                setattr(existing, key, value)
+        existing.updated_at = datetime.now(UTC)
+        db.add(
+            MergeHistory(
+                primary_record_id=existing.id,
+                secondary_record_id=f"incoming:{payload.fingerprint}",
+                source_id=source_id,
+                primary_snapshot=build_merge_snapshot(existing_snapshot, kwargs, changes),
+                secondary_snapshot=json.dumps(kwargs, default=str),
+                relationships_snapshot=json.dumps([]),
+            )
+        )
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+
+    insert_values = dict(kwargs)
+    for field in ("artist_names", "mediums", "collections", "confidence_reasons"):
+        if field in insert_values and isinstance(insert_values[field], list):
+            insert_values[field] = json.dumps(insert_values[field])
+    record = Record(source_id=source_id, record_type=canonical_type.value, **insert_values)
     db.add(record)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        result = await db.execute(
+            select(Record).where(
+                Record.source_id == source_id,
+                Record.record_type == canonical_type.value,
+                Record.normalized_name == payload.normalized_name,
+            )
+        )
+        existing = result.scalar_one_or_none()
+        if existing is None:
+            raise
+        return existing
     await db.refresh(record)
     return record
 
@@ -2056,7 +2144,7 @@ async def get_record_by_page_and_type(
         select(Record).where(
             Record.source_id == source_id,
             Record.page_id == page_id,
-            Record.record_type == record_type,
+            Record.record_type == normalize_record_type(record_type).value,
         )
     )
     return result.scalar_one_or_none()
@@ -2071,7 +2159,7 @@ async def get_artist_record_by_family_key(
     result = await db.execute(
         select(Record).where(
             Record.source_id == source_id,
-            Record.record_type == "artist",
+            Record.record_type == normalize_record_type("artist").value,
             Record.raw_data.is_not(None),
             Record.raw_data.contains(f'"artist_family_key": "{family_key}"'),
         )
@@ -2089,7 +2177,7 @@ async def get_record_by_item_fingerprint(
 ) -> Record | None:
     stmt = select(Record).where(
         Record.source_id == source_id,
-        Record.record_type == record_type,
+        Record.record_type == normalize_record_type(record_type).value,
         Record.raw_data.is_not(None),
         Record.raw_data.contains(f'"item_fingerprint": "{item_fingerprint}"'),
     )
@@ -2121,7 +2209,7 @@ async def list_records(
     if source_id:
         stmt = stmt.where(Record.source_id == source_id)
     if record_type:
-        stmt = stmt.where(Record.record_type == record_type)
+        stmt = stmt.where(Record.record_type == normalize_record_type(record_type).value)
     if status:
         stmt = stmt.where(Record.status == status)
     if confidence_band:
@@ -2147,7 +2235,7 @@ async def search_records(
     skip: int = 0,
     limit: int = 50,
 ) -> list[Record]:
-    stmt = select(Record).where(Record.record_type == record_type)
+    stmt = select(Record).where(Record.record_type == normalize_record_type(record_type).value)
     if query:
         query_filter = f"%{query}%"
         stmt = stmt.where(
@@ -2202,7 +2290,7 @@ async def count_search_records(
     has_articles: bool | None = None,
     has_conflicts: bool | None = None,
 ) -> int:
-    stmt = select(func.count(Record.id)).where(Record.record_type == record_type)
+    stmt = select(func.count(Record.id)).where(Record.record_type == normalize_record_type(record_type).value)
     if query:
         query_filter = f"%{query}%"
         stmt = stmt.where(
@@ -2249,6 +2337,11 @@ async def update_record(db: AsyncSession, record_id: str, **kwargs: Any) -> Reco
             value = json.dumps(value)
         setattr(record, key, value)
         updated_values[key] = value
+    payload = prepare_record_payload(record.record_type, {**record.__dict__, **updated_values})
+    record.normalized_name = payload.normalized_name
+    record.fingerprint = payload.fingerprint
+    record.field_confidence = payload.field_confidence
+    record.structured_data = payload.data.model_dump(mode="json")
     embedding_payload = _build_embedding_payload(record.record_type, {**record.__dict__, **updated_values})
     if embedding_payload is not None:
         record.embedding_vector = embedding_payload
@@ -2303,7 +2396,7 @@ async def count_records(
     if status:
         stmt = stmt.where(Record.status == status)
     if record_type:
-        stmt = stmt.where(Record.record_type == record_type)
+        stmt = stmt.where(Record.record_type == normalize_record_type(record_type).value)
     if search:
         query_filter = f"%{search}%"
         stmt = stmt.where(
@@ -2336,6 +2429,17 @@ async def create_image(db: AsyncSession, source_id: str, url: str, **kwargs: Any
     if "tenant_id" not in kwargs:
         source = await get_source(db, source_id)
         kwargs["tenant_id"] = source.tenant_id if source else "public"
+    image_hash = kwargs.get("image_hash") or hashlib.sha256(url.strip().lower().encode("utf-8")).hexdigest()
+    kwargs["image_hash"] = image_hash
+    existing_result = await db.execute(
+        select(Image).where(
+            Image.source_id == source_id,
+            Image.image_hash == image_hash,
+        )
+    )
+    existing = existing_result.scalar_one_or_none()
+    if existing is not None:
+        return existing
     image = Image(source_id=source_id, url=url, **kwargs)
     db.add(image)
     await db.commit()
