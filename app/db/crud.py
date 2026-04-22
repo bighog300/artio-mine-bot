@@ -1,4 +1,5 @@
 import json
+import re
 from asyncio import sleep
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -63,6 +64,7 @@ MAPPING_ALLOWED_FIELDS: dict[str, set[str]] = {
     "exhibition": {"title", "description", "start_date", "end_date", "venue_name", "venue_address", "curator"},
     "venue": {"title", "description", "address", "city", "country", "phone", "opening_hours"},
     "artwork": {"title", "description", "medium", "year", "dimensions", "price"},
+    "organization": {"title", "description", "website_url", "url", "address", "city", "country"},
 }
 DRIFT_SIGNAL_STATUSES = {"open", "acknowledged", "resolved", "dismissed"}
 DRIFT_SIGNAL_SEVERITIES = {"low", "medium", "high"}
@@ -855,6 +857,49 @@ async def publish_source_mapping_version(
     source.runtime_ai_enabled = False
     source.mapping_stale = False
     source.last_mapping_published_at = now
+    page_types = await list_source_mapping_page_types(db, draft.id)
+    page_type_lookup = {page_type.id: page_type for page_type in page_types}
+    runtime_rows: list[SourceMappingPresetRow] = []
+    for row in enabled_rows:
+        page_type = page_type_lookup.get(row.page_type_id)
+        runtime_rows.append(
+            SourceMappingPresetRow(
+                preset_id="published-runtime",
+                page_type_key=page_type.key if page_type else "unknown",
+                page_type_label=page_type.label if page_type else "Unknown",
+                selector=row.selector,
+                pattern_type=row.pattern_type,
+                extraction_mode=row.extraction_mode,
+                attribute_name=row.attribute_name,
+                destination_entity=row.destination_entity,
+                destination_field=row.destination_field,
+                category_target=row.category_target,
+                transforms_json=row.transforms_json,
+                confidence_score=row.confidence_score,
+                is_required=row.is_required,
+                is_enabled=row.is_enabled,
+                sort_order=row.sort_order,
+                rationale_json=row.confidence_reasons_json,
+            )
+        )
+    existing_runtime_map: dict[str, Any] | None = None
+    if source.structure_map:
+        try:
+            parsed = json.loads(source.structure_map)
+            if isinstance(parsed, dict):
+                existing_runtime_map = parsed
+        except json.JSONDecodeError:
+            existing_runtime_map = None
+    runtime_map = build_runtime_map_from_preset_rows(
+        SourceMappingPreset(source_id=source_id, tenant_id=source.tenant_id, name="published-mapping-runtime"),
+        runtime_rows,
+        base_runtime_map=existing_runtime_map,
+        source_url=source.url,
+    )
+    runtime_map["runtime_map_source"] = "published_mapping"
+    runtime_map["published_mapping_version_id"] = draft.id
+    source.structure_map = json.dumps(runtime_map)
+    source.runtime_mapping_updated_at = now
     source.updated_at = now
     await db.commit()
     await db.refresh(draft)
@@ -1450,12 +1495,16 @@ def build_runtime_map_from_preset_rows(
             page_type_key,
             {
                 "page_type_label": row.page_type_label or page_type_key,
+                "page_role": page_type_key,
                 "destination_entities": [],
+                "target_record_types": [],
                 "required_fields": [],
             },
         )
         if row.destination_entity and row.destination_entity not in type_rule["destination_entities"]:
             type_rule["destination_entities"].append(row.destination_entity)
+        if row.destination_entity and row.destination_entity not in type_rule["target_record_types"]:
+            type_rule["target_record_types"].append(row.destination_entity)
         if row.is_required and destination_field not in type_rule["required_fields"]:
             type_rule["required_fields"].append(destination_field)
 
@@ -1485,6 +1534,17 @@ def build_runtime_map_from_preset_rows(
     if synthesized_phases:
         crawl_plan["phases"] = synthesized_phases
 
+    record_type_rules: dict[str, dict[str, Any]] = runtime_map.get("record_type_rules") if isinstance(runtime_map.get("record_type_rules"), dict) else {}
+    for page_type_key, rule in page_type_rules.items():
+        for record_type in rule.get("target_record_types", []) or []:
+            entry = record_type_rules.setdefault(record_type, {"page_roles": [], "fields": []})
+            if page_type_key not in entry["page_roles"]:
+                entry["page_roles"].append(page_type_key)
+            for field in (extraction_rules.get(page_type_key, {}).get("css_selectors", {}) or {}).keys():
+                if field not in entry["fields"]:
+                    entry["fields"].append(field)
+    runtime_map["record_type_rules"] = record_type_rules
+
     runtime_map["runtime_map_source"] = "applied_preset"
     runtime_map["applied_preset_id"] = preset.id
     runtime_map["applied_preset_name"] = preset.name
@@ -1492,27 +1552,44 @@ def build_runtime_map_from_preset_rows(
 
 
 def _default_identifiers_for_page_type(page_type_key: str) -> list[str]:
-    mapping: dict[str, list[str]] = {
-        "artist_directory_root": ["/artists", "/artists/"],
-        "artist_directory_letter": ["/artists/[letter]", "/artists/[letter]/"],
-        "artist_profile_hub": ["/[name]/"],
-        "artist_biography": ["/[name]/about.php"],
-        "artist_related_page": ["/[name]/art-classes.php"],
-        "event_detail": ["/events/[name]"],
-        "exhibition_detail": ["/exhibitions/[name]"],
-        "venue_detail": ["/galleries/[name]"],
-        "artwork_detail": ["/artworks/[name]"],
-    }
-    return mapping.get(page_type_key, [])
+    key = (page_type_key or "").lower()
+    if "event" in key:
+        return ["/events/", "/event/"]
+    if any(token in key for token in ("artist", "profile", "person")):
+        return ["/artists/", "/people/"]
+    if any(token in key for token in ("venue", "gallery", "location")):
+        return ["/venues/", "/locations/", "/galleries/"]
+    if "exhibition" in key:
+        return ["/exhibitions/"]
+    if "artwork" in key:
+        return ["/artworks/", "/works/"]
+    if "listing" in key or "directory" in key:
+        return ["/", "/index", "/list"]
+    return ["/"]
+
+
+def _phase_name_for_page_type(page_type_key: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "_", (page_type_key or "generic").lower()).strip("_")
+    return f"crawl_{normalized or 'generic'}"
+
+
+def _phase_pattern_for_page_type(page_type_key: str, identifiers: list[str]) -> str:
+    for identifier in identifiers:
+        if isinstance(identifier, str) and identifier.strip():
+            return identifier.strip()
+    key = (page_type_key or "").lower()
+    if "root" in key:
+        return "/"
+    if "directory" in key or "listing" in key:
+        return "/[name]"
+    return "/[name]"
 
 
 def _phases_for_page_types(source_url: str | None, page_type_keys: set[str]) -> list[dict[str, Any]]:
     if not source_url:
         return []
     base = source_url.rstrip("/")
-    phases: list[dict[str, Any]] = []
-
-    phases.append(
+    phases: list[dict[str, Any]] = [
         {
             "phase_name": "root",
             "base_url": base,
@@ -1520,107 +1597,20 @@ def _phases_for_page_types(source_url: str | None, page_type_keys: set[str]) -> 
             "pagination_type": "none",
             "num_pages": 1,
         }
-    )
+    ]
 
-    if "artist_directory_root" in page_type_keys or "artist_directory_letter" in page_type_keys:
+    for page_type_key in sorted(page_type_keys):
+        if page_type_key in {"root_page", "unknown"}:
+            continue
+        identifiers = _default_identifiers_for_page_type(page_type_key)
         phases.append(
             {
-                "phase_name": "artist_directory",
-                "base_url": f"{base}/artists",
-                "url_pattern": "/artists",
-                "pagination_type": "none",
-                "num_pages": 1,
-            }
-        )
-        phases.append(
-            {
-                "phase_name": "artist_directory_letters",
-                "base_url": f"{base}/artists/",
-                "url_pattern": "/artists/[letter]/",
-                "pagination_type": "alpha",
-                "num_pages": 26,
-            }
-        )
-
-    if (
-        "artist_profile_hub" in page_type_keys
-        or "artist_biography" in page_type_keys
-        or "artist_related_page" in page_type_keys
-    ):
-        phases.append(
-            {
-                "phase_name": "artist_profiles",
+                "phase_name": _phase_name_for_page_type(page_type_key),
                 "base_url": base,
-                "url_pattern": "/[name]/",
-                "pagination_type": "follow_links",
-                "num_pages": 500,
-                "follow_from_phase": "artist_directory_letters",
-            }
-        )
-
-    if "event_detail" in page_type_keys:
-        phases.append(
-            {
-                "phase_name": "events",
-                "base_url": f"{base}/events",
-                "url_pattern": "/events/[name]",
-                "pagination_type": "none",
-                "num_pages": 1,
-            }
-        )
-
-    if "exhibition_detail" in page_type_keys:
-        phases.append(
-            {
-                "phase_name": "exhibitions",
-                "base_url": f"{base}/exhibitions",
-                "url_pattern": "/exhibitions/[name]",
-                "pagination_type": "none",
-                "num_pages": 1,
-            }
-        )
-
-    if "venue_detail" in page_type_keys:
-        phases.append(
-            {
-                "phase_name": "venues",
-                "base_url": f"{base}/galleries",
-                "url_pattern": "/galleries/[name]",
-                "pagination_type": "none",
-                "num_pages": 1,
-            }
-        )
-
-    if "artwork_detail" in page_type_keys:
-        phases.append(
-            {
-                "phase_name": "artworks",
-                "base_url": f"{base}/artworks",
-                "url_pattern": "/artworks/[name]",
-                "pagination_type": "none",
-                "num_pages": 1,
-            }
-        )
-
-    known = {
-        "artist_directory_root",
-        "artist_directory_letter",
-        "artist_profile_hub",
-        "artist_biography",
-        "artist_related_page",
-        "event_detail",
-        "exhibition_detail",
-        "venue_detail",
-        "artwork_detail",
-    }
-    if page_type_keys - known:
-        phases.append(
-            {
-                "phase_name": "generic_crawl",
-                "base_url": base,
-                "url_pattern": "/[name]",
-                "pagination_type": "none",
-                "num_pages": 50,
+                "url_pattern": _phase_pattern_for_page_type(page_type_key, identifiers),
+                "pagination_type": "follow_links" if "detail" in page_type_key else "none",
+                "num_pages": 100 if "detail" in page_type_key else 25,
+                "page_role": page_type_key,
             }
         )
 

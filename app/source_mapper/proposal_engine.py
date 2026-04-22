@@ -1,61 +1,52 @@
 from app.source_mapper.types import MappingProposal, PageCluster
 
 
-BASE_DESTINATIONS: dict[str, list[tuple[str, str, str]]] = {
-    "event_detail": [
-        ("title", "event", "title"),
-        (".event-date", "event", "start_date"),
-        (".event-venue", "event", "venue_name"),
+SCHEMA_BLUEPRINTS: dict[str, list[tuple[str, str, str]]] = {
+    "detail_event": [
+        ("h1", "event", "title"),
+        ("time, .date", "event", "start_date"),
+        (".description, article p", "event", "description"),
     ],
-    "artist_detail": [
-        ("title", "artist", "title"),
-        (".bio", "artist", "bio"),
-        (".website", "artist", "website_url"),
+    "detail_profile": [
+        ("h1", "artist", "title"),
+        (".bio, .about, article p", "artist", "bio"),
+        ("a[href^='http']", "artist", "website_url"),
     ],
-    "exhibition_detail": [
-        ("title", "exhibition", "title"),
-        (".dates", "exhibition", "start_date"),
+    "detail_content": [
+        ("h1", "organization", "title"),
+        ("article p, .content p", "organization", "description"),
+        ("a[href^='http']", "organization", "website_url"),
     ],
-    "venue_detail": [
-        ("title", "venue", "title"),
-        (".address", "venue", "address"),
+    "listing_page": [
+        ("main a[href]", "event", "url"),
+        ("main h2, main h3", "event", "title"),
     ],
-    "artwork_detail": [
-        ("title", "artwork", "title"),
-        (".medium", "artwork", "medium"),
-        (".year", "artwork", "year"),
+    "directory_index": [
+        ("a[href]", "organization", "url"),
+        ("a[href]", "organization", "title"),
     ],
-    "generic_detail": [
-        ("title", "event", "title"),
-        ("meta[name='description']", "event", "description"),
+    "section_landing": [
+        ("h1", "organization", "title"),
+        ("p", "organization", "description"),
     ],
-    "artist_directory_root": [
-        ("a[href*='/artists/']", "artist", "directory_link"),
+    "root_page": [
+        ("title", "organization", "title"),
+        ("meta[name='description']", "organization", "description"),
     ],
-    "artist_directory_letter": [
-        ("a[href^='/']", "artist", "profile_url"),
+    "detail_page": [
+        ("h1", "organization", "title"),
+        ("article p, .content", "organization", "description"),
     ],
-    "artist_profile_hub": [
-        ("h1", "artist", "name"),
-        (".bio, .about", "artist", "bio_about"),
-        ("a[href^='tel:']", "artist", "contact_phone"),
-        ("img", "artist", "avatar_profile_image"),
-        ("img.artwork, .gallery img", "artist", "artwork_image_groups"),
-    ],
-    "artist_biography": [
-        ("h1", "artist", "name"),
-        (".bio, .content p", "artist", "bio_full"),
-        ("a[href*='exhibition'], .exhibitions a", "artist", "exhibition_links"),
-    ],
-    "artist_related_page": [
-        ("h1", "artist", "name"),
-        (".classes, .workshop, .content", "artist", "art_classes"),
+    "generic_page": [
+        ("title", "organization", "title"),
+        ("meta[name='description']", "organization", "description"),
     ],
 }
 
 
+
 def build_proposals(cluster: PageCluster, source_name: str | None = None) -> list[MappingProposal]:
-    candidates = BASE_DESTINATIONS.get(cluster.key, BASE_DESTINATIONS["generic_detail"])
+    candidates = SCHEMA_BLUEPRINTS.get(cluster.key, SCHEMA_BLUEPRINTS["generic_page"])
     proposals: list[MappingProposal] = []
     for idx, (selector, entity, field) in enumerate(candidates):
         sample_value = source_name if selector == "title" else f"sample_{field}"
@@ -65,11 +56,11 @@ def build_proposals(cluster: PageCluster, source_name: str | None = None) -> lis
                 sample_value=sample_value,
                 destination_entity=entity,
                 destination_field=field,
-                category_target="live-events" if entity == "event" else None,
+                category_target=None,
                 confidence_score=max(0.45, round(cluster.confidence_score - (idx * 0.05), 2)),
                 rationale=[
-                    f"Cluster '{cluster.label}' matched URL pattern",
-                    f"Selector '{selector}' is common for {field}",
+                    f"Cluster '{cluster.label}' mapped to schema blueprint '{cluster.key}'",
+                    f"Selector '{selector}' commonly captures '{field}'",
                 ],
             )
         )

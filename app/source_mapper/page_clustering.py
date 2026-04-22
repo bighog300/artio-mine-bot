@@ -4,42 +4,46 @@ from urllib.parse import urlparse
 from app.source_mapper.types import DiscoveredPage, PageCluster
 
 
-KEYWORDS: tuple[tuple[str, str], ...] = (
-    ("event", "Event Detail"),
-    ("artist", "Artist Detail"),
-    ("exhibition", "Exhibition Detail"),
-    ("venue", "Venue Detail"),
-    ("artwork", "Artwork Detail"),
+ROLE_HINTS: tuple[tuple[str, str], ...] = (
+    ("directory", "directory_index"),
+    ("listing", "listing_page"),
+    ("calendar", "listing_page"),
+    ("event", "detail_event"),
+    ("artist", "detail_profile"),
+    ("venue", "detail_profile"),
+    ("gallery", "detail_profile"),
+    ("exhibit", "detail_content"),
+    ("collection", "detail_content"),
+    ("article", "detail_content"),
 )
+
+
+def _is_slug_detail(path: str) -> bool:
+    parts = [part for part in path.split("/") if part]
+    return len(parts) >= 2 and "." not in parts[-1]
 
 
 def cluster_pages(pages: list[DiscoveredPage]) -> list[PageCluster]:
     buckets: dict[str, list[DiscoveredPage]] = defaultdict(list)
     for page in pages:
-        path = urlparse(page.url).path.lower()
-        key = "generic_detail"
-        if path.rstrip("/") == "/artists":
-            key = "artist_directory_root"
-        elif path.startswith("/artists/") and len([part for part in path.split("/") if part]) == 2:
-            key = "artist_directory_letter"
-        elif path.endswith("/about.php"):
-            key = "artist_biography"
-        elif path.endswith("/art-classes.php"):
-            key = "artist_related_page"
-        elif len([part for part in path.split("/") if part]) == 1 and "." not in path:
-            key = "artist_profile_hub"
-        if key == "generic_detail":
-            for token, cluster_label in KEYWORDS:
-                if token in path:
-                    key = cluster_label.lower().replace(" ", "_")
-                    break
+        path = urlparse(page.url).path.lower().rstrip("/") or "/"
+        key = "generic_page"
+        parts = [part for part in path.split("/") if part]
+        if path == "/":
+            key = "root_page"
+        elif len(parts) == 1 and "." not in parts[0]:
+            key = "section_landing"
+        elif _is_slug_detail(path):
+            key = "detail_page"
+        for token, role in ROLE_HINTS:
+            if token in path:
+                key = role
+                break
         buckets[key].append(page)
 
     clusters: list[PageCluster] = []
     for key, bucket in buckets.items():
         label = key.replace("_", " ").title()
-        if key == "generic_detail":
-            label = "Generic Detail"
         confidence = min(0.95, 0.5 + (len(bucket) / max(len(pages), 1)) * 0.5)
         clusters.append(
             PageCluster(

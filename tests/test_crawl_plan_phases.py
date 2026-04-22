@@ -6,32 +6,19 @@ from app.db import crud
 from app.db.models import SourceMappingPresetRow
 
 
-def test_phases_for_page_types_art_co_za_shape():
+def test_phases_for_page_types_generic_shape():
     page_types = {
-        "artist_directory_root",
-        "artist_directory_letter",
-        "artist_profile_hub",
-        "artist_biography",
-        "artist_related_page",
-        "event_detail",
-        "exhibition_detail",
-        "venue_detail",
-        "artwork_detail",
+        "listing_page",
+        "detail_profile",
+        "detail_event",
     }
 
-    phases = crud._phases_for_page_types("https://art.co.za", page_types)
+    phases = crud._phases_for_page_types("https://generic.test", page_types)
     phase_names = [phase["phase_name"] for phase in phases]
 
-    assert phase_names == [
-        "root",
-        "artist_directory",
-        "artist_directory_letters",
-        "artist_profiles",
-        "events",
-        "exhibitions",
-        "venues",
-        "artworks",
-    ]
+    assert phase_names[0] == "root"
+    assert "crawl_detail_event" in phase_names
+    assert "crawl_detail_profile" in phase_names
     assert all(isinstance(phase.get("num_pages"), int) and phase["num_pages"] > 0 for phase in phases)
 
 
@@ -60,21 +47,21 @@ def test_build_runtime_map_from_preset_rows_generates_non_empty_phases():
     assert phases[0]["base_url"] == "https://art.co.za"
 
 
-def test_build_runtime_map_from_preset_rows_adds_identifier_rules_for_art_co_za_profiles():
+def test_build_runtime_map_from_preset_rows_adds_generic_identifier_rules():
     preset = crud.SourceMappingPreset(source_id="source-1", tenant_id="public", name="preset-a")
     rows = [
         SourceMappingPresetRow(
             preset_id="preset-1",
-            page_type_key="artist_profile_hub",
-            page_type_label="Artist Profile Hub",
+            page_type_key="detail_profile",
+            page_type_label="Detail Profile",
             selector="h1",
             destination_field="name",
             is_enabled=True,
         ),
         SourceMappingPresetRow(
             preset_id="preset-1",
-            page_type_key="artist_biography",
-            page_type_label="Artist Biography",
+            page_type_key="detail_event",
+            page_type_label="Detail Event",
             selector=".bio",
             destination_field="bio_full",
             is_enabled=True,
@@ -84,12 +71,12 @@ def test_build_runtime_map_from_preset_rows_adds_identifier_rules_for_art_co_za_
     runtime_map = crud.build_runtime_map_from_preset_rows(
         preset,
         rows,
-        source_url="https://art.co.za",
+        source_url="https://generic.test",
     )
 
     extraction_rules = runtime_map.get("extraction_rules", {})
-    assert extraction_rules["artist_profile_hub"]["identifiers"] == ["/[name]/"]
-    assert extraction_rules["artist_biography"]["identifiers"] == ["/[name]/about.php"]
+    assert "/artists/" in extraction_rules["detail_profile"]["identifiers"]
+    assert "/events/" in extraction_rules["detail_event"]["identifiers"]
 
 
 def test_has_usable_runtime_map_payload_requires_non_empty_crawl_phases():
@@ -99,7 +86,7 @@ def test_has_usable_runtime_map_payload_requires_non_empty_crawl_phases():
             {
                 "crawl_plan": {
                     "phases": [
-                        {"phase_name": "root", "base_url": "https://art.co.za", "url_pattern": "/", "pagination_type": "none", "num_pages": 1}
+                        {"phase_name": "root", "base_url": "https://generic.test", "url_pattern": "/", "pagination_type": "none", "num_pages": 1}
                     ]
                 }
             }
@@ -110,7 +97,7 @@ def test_has_usable_runtime_map_payload_requires_non_empty_crawl_phases():
 
 @pytest.mark.asyncio
 async def test_apply_source_mapping_preset_to_source_persists_runtime_map_phases(db_session):
-    source = await crud.create_source(db_session, url="https://art.co.za", name="Art")
+    source = await crud.create_source(db_session, url="https://generic.test", name="Generic")
     preset = await crud.create_source_mapping_preset(
         db_session,
         source_id=source.id,
@@ -125,8 +112,8 @@ async def test_apply_source_mapping_preset_to_source_persists_runtime_map_phases
     db_session.add(
         SourceMappingPresetRow(
             preset_id=preset.id,
-            page_type_key="artist_directory_letter",
-            page_type_label="Artist Directory Letter",
+            page_type_key="detail_event",
+            page_type_label="Detail Event",
             selector=".directory a",
             destination_field="source_url",
             is_enabled=True,
@@ -145,4 +132,4 @@ async def test_apply_source_mapping_preset_to_source_persists_runtime_map_phases
     runtime_map = json.loads(updated_source.structure_map or "{}")
     phases = runtime_map.get("crawl_plan", {}).get("phases", [])
     assert phases
-    assert any(phase["phase_name"] == "artist_directory_letters" for phase in phases)
+    assert any(phase["phase_name"] == "crawl_detail_event" for phase in phases)
