@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { MappingMatrix } from "@/components/source-mapper/MappingMatrix";
 import { MappingPreviewPanel } from "@/components/source-mapper/MappingPreviewPanel";
+import { PageTypeSidebar } from "@/components/source-mapper/PageTypeSidebar";
 import { SampleRunReview } from "@/components/source-mapper/SampleRunReview";
 import { VersionHistoryPanel } from "@/components/source-mapper/VersionHistoryPanel";
 import type {
@@ -162,4 +163,23 @@ describe("Source mapper critical flows", () => {
     await user.click(screen.getByRole("button", { name: "Rollback" }));
     expect(onRollback).toHaveBeenCalledWith("v1");
   });
+
+  it("supports page-role to target-type assignment", async () => {
+    const user = userEvent.setup();
+    const onAssign = vi.fn();
+
+    render(
+      <PageTypeSidebar
+        pageTypes={[
+          { id: "pt-1", key: "detail_profile", label: "Detail Profile", sample_count: 3, confidence_score: 0.8 },
+        ]}
+        onAssignTargetType={onAssign}
+      />
+    );
+
+    await user.selectOptions(screen.getByLabelText("target-type-pt-1"), "venue");
+    await user.click(screen.getByRole("button", { name: "Assign target" }));
+    expect(onAssign).toHaveBeenCalledWith("pt-1", "venue");
+  });
+
 });

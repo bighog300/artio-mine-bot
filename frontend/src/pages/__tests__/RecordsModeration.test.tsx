@@ -34,8 +34,24 @@ const recordsPayload = {
       primary_image_url: null,
       created_at: "2026-04-20T00:00:00Z",
     },
+    {
+      id: "rec-2",
+      source_id: "src-1",
+      record_type: "event",
+      status: "pending",
+      title: "Opening Night",
+      description: "",
+      confidence_score: 0.79,
+      confidence_band: "MEDIUM",
+      confidence_reasons: ["selector match"],
+      source_url: "https://example.test/event-1",
+      image_count: 0,
+      primary_image_url: null,
+      created_at: "2026-04-20T00:00:00Z",
+
+    },
   ],
-  total: 1,
+  total: 2,
   skip: 0,
   limit: 25,
 };
@@ -67,7 +83,7 @@ describe("Records moderation actions", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Artist One")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "✕" }));
+    await user.click(screen.getAllByRole("button", { name: "✕" })[0]);
 
     await waitFor(() => expect(api.rejectRecord).toHaveBeenCalledWith("rec-1", "Not relevant"));
   });
@@ -77,9 +93,26 @@ describe("Records moderation actions", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Artist One")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: "✓" }));
+    await user.click(screen.getAllByRole("button", { name: "✓" })[0]);
 
     await waitFor(() => expect(api.approveRecord).toHaveBeenCalled());
     expect(vi.mocked(api.approveRecord).mock.calls[0][0]).toBe("rec-1");
   });
+
+  it("renders and filters across multiple record types", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText("Artist One")).toBeInTheDocument();
+      expect(screen.getByText("Opening Night")).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getAllByRole("combobox")[1], "event");
+
+    await waitFor(() => {
+      expect(api.getRecords).toHaveBeenLastCalledWith(expect.objectContaining({ record_type: "event" }));
+    });
+  });
+
 });

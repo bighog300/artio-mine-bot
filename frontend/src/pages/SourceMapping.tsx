@@ -287,6 +287,24 @@ export function SourceMapping() {
   });
 
   const rowItems = rows?.items ?? [];
+  const assignTargetTypeToPageRole = async (pageTypeId: string, targetType: string) => {
+    if (!draftId || !rowItems.length) return;
+    const matchingRows = rowItems.filter((row) => row.page_type_id === pageTypeId);
+    if (!matchingRows.length) return;
+    await Promise.all(
+      matchingRows.map((row) =>
+        updateRowMutation.mutateAsync({
+          rowId: row.id,
+          updates: {
+            destination_entity: targetType,
+            destination_field: "title",
+            status: "needs_review",
+          },
+        })
+      )
+    );
+    setMessage(`Assigned '${targetType}' target type to ${matchingRows.length} row(s).`);
+  };
   const selectedCount = selectedRowIds.length;
   const hasDraft = Boolean(draftId && draft);
   const approvedRowsCount = draft?.approved_count ?? 0;
@@ -409,7 +427,10 @@ export function SourceMapping() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <PageTypeSidebar pageTypes={pageTypes?.items ?? []} />
+        <PageTypeSidebar
+          pageTypes={pageTypes?.items ?? []}
+          onAssignTargetType={assignTargetTypeToPageRole}
+        />
         <MappingPreviewPanel preview={preview} />
         <SampleRunReview
           sampleRun={sampleRun}

@@ -67,7 +67,13 @@ async def list_records(
         skip=skip,
         limit=limit,
     )
-    total = await crud.count_records(db, source_id=source_id, status=status)
+    total = await crud.count_records(
+        db,
+        source_id=source_id,
+        status=status,
+        record_type=record_type,
+        search=search,
+    )
 
     items = []
     for record in records:

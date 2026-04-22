@@ -98,3 +98,88 @@ async def test_published_runtime_unmapped_pages_are_reviewed_and_mark_stale(db_s
     assert result["queued_for_review"] >= 2
     assert updated is not None and updated.mapping_stale is True
     assert all(page.review_status == "queued" for page in pages)
+
+
+@pytest.mark.asyncio
+async def test_runtime_map_target_record_type_propagates_to_records_for_multiple_page_roles(db_session, monkeypatch):
+    source = await crud.create_source(db_session, url="https://source-agnostic.test", name="Source Agnostic")
+    await crud.update_source(
+        db_session,
+        source.id,
+        structure_map=json.dumps(
+            {
+                "crawl_plan": {
+                    "phases": [
+                        {"phase_name": "profiles", "base_url": "https://source-agnostic.test", "url_pattern": "/profiles/alex", "pagination_type": "none", "num_pages": 1},
+                        {"phase_name": "events", "base_url": "https://source-agnostic.test", "url_pattern": "/calendar/opening-night", "pagination_type": "none", "num_pages": 1},
+                    ]
+                },
+                "extraction_rules": {
+                    "profile_detail": {"identifiers": ["/profiles/"], "css_selectors": {"title": "h1", "description": ".bio"}},
+                    "calendar_entry": {"identifiers": ["/calendar/"], "css_selectors": {"title": "h1", "description": ".summary"}},
+                },
+                "page_type_rules": {
+                    "profile_detail": {"target_record_types": ["artist"]},
+                    "calendar_entry": {"target_record_types": ["event"]},
+                },
+            }
+        ),
+        published_mapping_version_id="map-generic-v1",
+        runtime_mode="deterministic_runtime",
+        runtime_ai_enabled=False,
+    )
+
+    async def _fetch(url: str):
+        if "/profiles/" in url:
+            html = "<html><body><h1>Alex Doe</h1><div class='bio'>Painter</div></body></html>"
+        else:
+            html = "<html><body><h1>Opening Night</h1><div class='summary'>Downtown venue</div></body></html>"
+        return FetchResult(url=url, final_url=url, html=html, status_code=200, method="httpx")
+
+    monkeypatch.setattr("app.crawler.automated_crawler.fetch", _fetch)
+
+    runner = PipelineRunner(db=db_session, ai_client=None)
+    result = await runner.run_deterministic_mine(source.id)
+    records = await crud.list_records(db_session, source_id=source.id, limit=10)
+
+    assert result["deterministic_hits"] == 2
+    assert sorted(record.record_type for record in records) == ["artist", "event"]
+
+
+@pytest.mark.asyncio
+async def test_runtime_map_generic_patterns_do_not_require_art_site_inference(db_session, monkeypatch):
+    source = await crud.create_source(db_session, url="https://generic-patterns.test", name="Generic Patterns")
+    await crud.update_source(
+        db_session,
+        source.id,
+        structure_map=json.dumps(
+            {
+                "crawl_plan": {
+                    "phases": [
+                        {"phase_name": "root", "base_url": "https://generic-patterns.test", "url_pattern": "/people/jamie", "pagination_type": "none", "num_pages": 1}
+                    ]
+                },
+                "extraction_rules": {
+                    "person_detail": {"identifiers": ["/people/"], "css_selectors": {"title": "h1"}}
+                },
+                "page_type_rules": {
+                    "person_detail": {"target_record_types": ["organization"]}
+                },
+            }
+        ),
+        published_mapping_version_id="map-generic-v2",
+        runtime_mode="deterministic_runtime",
+        runtime_ai_enabled=False,
+    )
+
+    async def _fetch(url: str):
+        return FetchResult(url=url, final_url=url, html="<html><body><h1>Jamie Team</h1></body></html>", status_code=200, method="httpx")
+
+    monkeypatch.setattr("app.crawler.automated_crawler.fetch", _fetch)
+
+    runner = PipelineRunner(db=db_session, ai_client=None)
+    await runner.run_deterministic_mine(source.id)
+    records = await crud.list_records(db_session, source_id=source.id, limit=10)
+
+    assert len(records) == 1
+    assert records[0].record_type == "organization"

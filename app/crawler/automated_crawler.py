@@ -521,7 +521,7 @@ class AutomatedCrawler:
             "artwork_detail": ArtworkExtractor,
             "artwork": ArtworkExtractor,
         }
-        extractor_cls = mapping.get(page_type, ArtistExtractor)
+        extractor_cls = mapping.get(page_type, EventExtractor if "event" in page_type else ArtistExtractor)
         return extractor_cls(self.ai_client)
 
     def _get_ai_context(self, page_type: str) -> str:
@@ -532,6 +532,41 @@ class AutomatedCrawler:
         fields = ", ".join((rules.get("css_selectors", {}) or {}).keys())
 
         return f"Page type: {expected_type}\n{hint}\nExpected fields: {fields}"
+
+    def _resolve_record_type(self, page_type: str) -> str:
+        type_rules = self.structure_map.get("page_type_rules", {}) or {}
+        page_rule = type_rules.get(page_type, {}) or {}
+        explicit = page_rule.get("target_record_type")
+        if isinstance(explicit, str) and explicit.strip():
+            return explicit.strip().lower()
+        targets = page_rule.get("target_record_types") or page_rule.get("destination_entities") or []
+        if isinstance(targets, list):
+            for target in targets:
+                if isinstance(target, str) and target.strip():
+                    return target.strip().lower()
+
+        mining_map = self.structure_map.get("mining_map", {}) or {}
+        config = mining_map.get(page_type, {}) or {}
+        for key in ("target_record_type", "record_type", "entity"):
+            value = config.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip().lower()
+
+        legacy = {
+            "artist_profile": "artist",
+            "artist": "artist",
+            "event_detail": "event",
+            "event": "event",
+            "exhibition_detail": "exhibition",
+            "exhibition": "exhibition",
+            "venue_profile": "venue",
+            "venue": "venue",
+            "artwork_detail": "artwork",
+            "artwork": "artwork",
+        }
+        if page_type in legacy:
+            return legacy[page_type]
+        return "organization"
 
     async def _save_record(
         self,
@@ -545,18 +580,7 @@ class AutomatedCrawler:
         payload = data.get("data", {}) if isinstance(data.get("data"), dict) else {}
         title = payload.get("name") or payload.get("title")
         description = payload.get("bio") or payload.get("description")
-        record_type = {
-            "artist_profile": "artist",
-            "artist": "artist",
-            "event_detail": "event",
-            "event": "event",
-            "exhibition_detail": "exhibition",
-            "exhibition": "exhibition",
-            "venue_profile": "venue",
-            "venue": "venue",
-            "artwork_detail": "artwork",
-            "artwork": "artwork",
-        }.get(page_type, "artist")
+        record_type = self._resolve_record_type(page_type)
 
         if page_id is not None:
             existing = await crud.get_record_by_page_and_type(

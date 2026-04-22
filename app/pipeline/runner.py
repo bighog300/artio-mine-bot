@@ -56,7 +56,7 @@ DETAIL_PAGE_TYPES = {
     "venue_profile": "venue",
     "artwork_detail": "artwork",
 }
-ART_CO_ZA_SECTION_SLUGS = {
+DEFAULT_RESERVED_SECTION_SLUGS = {
     "artists",
     "galleries",
     "events",
@@ -736,7 +736,7 @@ class PipelineRunner:
             await crud.update_page(self.db, page.id, status="skipped")
             return {}, None
 
-        inferred_page_type = self._infer_page_role(page.url)
+        inferred_page_type = self._infer_page_role(page.url, source_hints)
         forced_page_type = self._get_page_role_override(page.url, source_hints)
         selected_forced_type = forced_page_type or inferred_page_type
         expected_fields: list[str] | None = None
@@ -833,7 +833,7 @@ class PipelineRunner:
                 "entity_links_created": 0,
             }, "updated" if artist_record is not None else None
 
-        record_type = DETAIL_PAGE_TYPES.get(classify_result.page_type)
+        record_type = self._resolve_record_type_for_page_type(classify_result.page_type, structure_map)
         if record_type is None:
             # Not a detail page — skip extraction
             await crud.update_page(self.db, page.id, status="skipped")
@@ -1500,6 +1500,30 @@ class PipelineRunner:
                 return {"page_type": page_type, "expected_fields": config.get("expected_fields", [])}
         return None
 
+    def _resolve_record_type_for_page_type(
+        self,
+        page_type: str,
+        structure_map: dict[str, Any] | None,
+    ) -> str | None:
+        if structure_map:
+            page_type_rules = structure_map.get("page_type_rules", {}) or {}
+            page_rule = page_type_rules.get(page_type, {}) or {}
+            explicit = page_rule.get("target_record_type")
+            if isinstance(explicit, str) and explicit.strip():
+                return explicit.strip().lower()
+            targets = page_rule.get("target_record_types") or page_rule.get("destination_entities") or []
+            if isinstance(targets, list):
+                for target in targets:
+                    if isinstance(target, str) and target.strip():
+                        return target.strip().lower()
+            mining_map = structure_map.get("mining_map", {}) or {}
+            config = mining_map.get(page_type, {}) or {}
+            for key in ("target_record_type", "record_type", "entity"):
+                value = config.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip().lower()
+        return DETAIL_PAGE_TYPES.get(page_type)
+
     def _matches_pattern_url(self, url: str, pattern: str) -> bool:
         parsed_url = urlparse(url)
         escaped = re.escape(pattern)
@@ -1605,23 +1629,22 @@ class PipelineRunner:
             suffixes.append(child)
         return list(dict.fromkeys(suffixes))
 
-    def _infer_page_role(self, url: str) -> str | None:
+    def _infer_page_role(self, url: str, hints: dict[str, Any] | None = None) -> str | None:
+        hints = hints or {}
+        domain_rules = hints.get("domain_rules") if isinstance(hints, dict) else {}
+        if not isinstance(domain_rules, dict):
+            return None
         parsed = urlparse(url)
-        if parsed.netloc.lower() not in {"art.co.za", "www.art.co.za"}:
+        domain_hint = domain_rules.get(parsed.netloc) or domain_rules.get(parsed.netloc.lower()) or {}
+        if not isinstance(domain_hint, dict):
+            return None
+        role_patterns = domain_hint.get("role_patterns") or {}
+        if not isinstance(role_patterns, dict):
             return None
         path = parsed.path
-        if path.rstrip("/") == "/artists":
-            return "artist_directory_root"
-        if re.fullmatch(r"/artists/[A-Za-z]/?", path):
-            return "artist_directory_letter"
-        if re.fullmatch(r"/[^/]+/about\.php/?", path):
-            return "artist_biography"
-        if re.fullmatch(r"/[^/]+/art-classes\.php/?", path):
-            return "artist_related_page"
-        if re.fullmatch(r"/[^/]+/?", path):
-            slug = [segment for segment in path.split("/") if segment][0].lower()
-            if slug not in ART_CO_ZA_SECTION_SLUGS:
-                return "artist_profile_hub"
+        for regex, role in role_patterns.items():
+            if isinstance(regex, str) and isinstance(role, str) and re.search(regex, path):
+                return role
         return None
 
     def _is_artist_profile_candidate_url(self, url: str) -> bool:
@@ -1632,8 +1655,6 @@ class PipelineRunner:
         slug = segments[0]
         if "." in slug:
             return False
-        if parsed.netloc.lower() in {"art.co.za", "www.art.co.za"}:
-            return slug.lower() not in ART_CO_ZA_SECTION_SLUGS
         return True
 
     def _should_ignore_url(self, url: str, hints: dict[str, Any]) -> bool:
@@ -1642,20 +1663,6 @@ class PipelineRunner:
             patterns = []
         if any(isinstance(pattern, str) and pattern in url for pattern in patterns):
             return True
-        parsed = urlparse(url)
-        if parsed.netloc.lower() in {"art.co.za", "www.art.co.za"}:
-            path = parsed.path.lower()
-            non_artist_prefixes = (
-                "/watchlist",
-                "/my",
-                "/auctions",
-                "/training",
-                "/galleries",
-            )
-            if any(path.startswith(prefix) for prefix in non_artist_prefixes):
-                return True
-            if any(token in url.lower() for token in ("facebook", "instagram", "mailchimp")):
-                return True
         return False
 
 

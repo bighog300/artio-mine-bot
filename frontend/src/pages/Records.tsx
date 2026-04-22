@@ -153,7 +153,7 @@ export function Records() {
           className="w-full"
           options={[
             { value: "", label: "All types" },
-            ...["artist", "event", "exhibition", "venue", "artwork"].map((t) => ({ value: t, label: t })),
+            ...["artist", "event", "exhibition", "venue", "artwork", "organization"].map((t) => ({ value: t, label: t })),
           ]}
         />
         <Select

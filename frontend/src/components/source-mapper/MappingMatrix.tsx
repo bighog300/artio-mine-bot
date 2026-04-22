@@ -16,6 +16,7 @@ interface Props {
 }
 
 const DESTINATION_FIELDS: Record<string, string[]> = {
+  organization: ["title", "description", "website_url", "url"],
   event: ["title", "description", "start_date", "end_date", "venue_name", "location", "url"],
   exhibition: ["title", "description", "start_date", "end_date", "venue_name", "curator", "url"],
   artist: ["title", "bio", "website_url", "nationality", "birth_year", "death_year", "url"],
@@ -56,6 +57,7 @@ export function MappingMatrix({ rows, statusFilter, onStatusFilterChange, select
   return (
     <section className="rounded border bg-card p-4">
       <h2 className="font-semibold mb-3">Mapping Matrix</h2>
+      <p className="text-xs text-muted-foreground mb-3">Discovery is generic; choose domain-specific target record types during mapping review.</p>
       <label className="space-y-1 text-sm block mb-3">
         <span>Status filter</span>
         <select className="w-full border rounded px-2 py-1" value={statusFilter} onChange={(e) => onStatusFilterChange(e.target.value)}>
