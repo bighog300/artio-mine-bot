@@ -24,6 +24,8 @@ async def lifespan(app: FastAPI):
     validate_env()
 
     if not is_serverless_environment() and settings.environment != "docker":
+        # Runtime startup should never create/alter tables; Alembic migrations
+        # are the sole schema-management path.
         await init_db()
 
     if not settings.openai_api_key:
