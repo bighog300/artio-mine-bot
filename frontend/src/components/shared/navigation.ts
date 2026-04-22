@@ -1,6 +1,7 @@
 import {
   ActivitySquare,
   Compass,
+  Network,
   Database,
   FileText,
   GitMerge,
@@ -50,6 +51,8 @@ const baseNavSections: NavSection[] = [
       { to: "/mappings", label: "Mappings", icon: FileText },
       { to: "/admin-review", label: "Admin Review", icon: SearchCheck },
       { to: "/duplicates", label: "Duplicates", icon: GitMerge },
+      { to: "/entities", label: "Entities", icon: Network },
+      { to: "/entities/merge", label: "Entity Merge", icon: GitMerge },
       { to: "/semantic", label: "Semantic", icon: Compass },
       { to: "/audit", label: "Audit Trail", icon: History },
     ],
