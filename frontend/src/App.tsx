@@ -27,6 +27,11 @@ import { Backfill } from "@/pages/Backfill";
 import { JobDetail } from "@/pages/JobDetail";
 import { Workers } from "@/pages/Workers";
 import { MobileTest } from "@/pages/MobileTest";
+import { Entities } from "@/pages/Entities";
+import { EntityDetail } from "@/pages/EntityDetail";
+import { EntityConflicts } from "@/pages/EntityConflicts";
+import { EntityMergeCandidates } from "@/pages/EntityMergeCandidates";
+import { EntityCompare } from "@/pages/EntityCompare";
 import { ToastProvider } from "@/components/ui";
 import { ApiAuthNotice } from "@/components/shared/ApiAuthNotice";
 
@@ -52,6 +57,11 @@ export default function App() {
           <Route path="/semantic" element={<SemanticExplorer />} />
           <Route path="/audit" element={<AuditTrail />} />
           <Route path="/records/:id" element={<RecordDetail />} />
+          <Route path="/entities" element={<Entities />} />
+          <Route path="/entities/:id" element={<EntityDetail />} />
+          <Route path="/entities/:id/conflicts" element={<EntityConflicts />} />
+          <Route path="/entities/merge" element={<EntityMergeCandidates />} />
+          <Route path="/entities/compare/:a/:b" element={<EntityCompare />} />
           <Route path="/pages" element={<Pages />} />
           <Route path="/jobs" element={<Jobs />} />
           <Route path="/jobs/:id" element={<JobDetail />} />
