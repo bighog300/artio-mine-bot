@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import pytest
@@ -6,6 +7,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import SourceMappingPreset, SourceMappingPresetRow, SourceMappingSampleResult, SourceMappingVersion
+
+
+async def wait_for_scan_complete(client: AsyncClient, source_id: str, draft_id: str, timeout: float = 10) -> dict:
+    deadline = asyncio.get_event_loop().time() + timeout
+    while asyncio.get_event_loop().time() < deadline:
+        draft_resp = await client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}")
+        assert draft_resp.status_code == 200
+        payload = draft_resp.json()
+        if payload.get("scan_status") == "completed":
+            return payload
+        if payload.get("scan_status") == "error":
+            raise AssertionError(f"Scan failed for draft {draft_id}: {payload}")
+        await asyncio.sleep(0.1)
+    raise AssertionError(f"Timed out waiting for mapping scan to complete for draft {draft_id}")
 
 
 @pytest.mark.asyncio
@@ -21,6 +36,9 @@ async def test_create_source_scan_creates_draft_and_seed_rows(test_client: Async
     payload = resp.json()
     assert payload["source_id"] == source_id
     assert payload["status"] == "draft"
+    assert payload["scan_status"] in {"queued", "completed"}
+    if payload["scan_status"] != "completed":
+        payload = await wait_for_scan_complete(test_client, source_id, payload["id"])
     assert payload["mapping_count"] >= 1
 
 
@@ -30,6 +48,7 @@ async def test_mapping_rows_list_update_and_actions(test_client: AsyncClient):
     source_id = source_resp.json()["id"]
     draft_resp = await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})
     draft_id = draft_resp.json()["id"]
+    await wait_for_scan_complete(test_client, source_id, draft_id)
 
     rows_resp = await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows")
     assert rows_resp.status_code == 200
@@ -65,6 +84,7 @@ async def test_mapping_row_validation_error_on_invalid_destination(test_client: 
     source_id = source_resp.json()["id"]
     draft_resp = await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})
     draft_id = draft_resp.json()["id"]
+    await wait_for_scan_complete(test_client, source_id, draft_id)
 
     rows_resp = await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows")
     row_id = rows_resp.json()["items"][0]["id"]
@@ -82,6 +102,7 @@ async def test_preview_generation_contract_and_persistence(test_client: AsyncCli
     source_id = source_resp.json()["id"]
     draft_resp = await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})
     draft_id = draft_resp.json()["id"]
+    await wait_for_scan_complete(test_client, source_id, draft_id)
 
     preview_resp = await test_client.post(
         f"/api/sources/{source_id}/mapping-drafts/{draft_id}/preview",
@@ -112,6 +133,7 @@ async def test_low_confidence_requires_force_on_approve(test_client: AsyncClient
     source_id = source_resp.json()["id"]
     draft_resp = await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})
     draft_id = draft_resp.json()["id"]
+    await wait_for_scan_complete(test_client, source_id, draft_id)
     row_id = (await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows")).json()["items"][0]["id"]
 
     blocked = await test_client.post(
@@ -134,6 +156,7 @@ async def test_publish_state_transition_and_version_clone_workflow(test_client: 
     source_id = source_resp.json()["id"]
     draft_resp = await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})
     draft_id = draft_resp.json()["id"]
+    await wait_for_scan_complete(test_client, source_id, draft_id)
 
     publish = await test_client.post(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/publish")
     assert publish.status_code == 200
@@ -144,6 +167,7 @@ async def test_publish_state_transition_and_version_clone_workflow(test_client: 
 
     refreshed_draft = await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})
     refreshed_draft_id = refreshed_draft.json()["id"]
+    await wait_for_scan_complete(test_client, source_id, refreshed_draft_id)
     refreshed_row_id = (await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{refreshed_draft_id}/rows")).json()["items"][0]["id"]
     reject = await test_client.post(
         f"/api/sources/{source_id}/mapping-drafts/{refreshed_draft_id}/rows/actions",
@@ -171,6 +195,7 @@ async def test_preview_regression_includes_snippet_categories_and_warnings(test_
     source_resp = await test_client.post("/api/sources", json={"url": "https://mapper-preview-regression.test", "name": "Preview Regression"})
     source_id = source_resp.json()["id"]
     draft_id = (await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})).json()["id"]
+    await wait_for_scan_complete(test_client, source_id, draft_id)
     row = (await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows")).json()["items"][0]
 
     await test_client.patch(
@@ -251,6 +276,7 @@ async def test_scan_supports_discovery_roots_for_artists_index(test_client: Asyn
     )
     assert draft_resp.status_code == 201
     draft_id = draft_resp.json()["id"]
+    await wait_for_scan_complete(test_client, source_id, draft_id)
     page_types = await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/page-types")
     assert page_types.status_code == 200
     keys = {item["key"] for item in page_types.json()["items"]}
@@ -262,6 +288,7 @@ async def test_rollback_published_mapping_version(test_client: AsyncClient):
     source_resp = await test_client.post("/api/sources", json={"url": "https://mapper-rollback.test"})
     source_id = source_resp.json()["id"]
     draft_id = (await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})).json()["id"]
+    await wait_for_scan_complete(test_client, source_id, draft_id)
     row_id = (await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows")).json()["items"][0]["id"]
     await test_client.post(
         f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows/actions",
@@ -280,6 +307,7 @@ async def test_rollback_published_mapping_version(test_client: AsyncClient):
 async def test_mapping_presets_create_list_delete_and_row_snapshot(test_client: AsyncClient, db_session: AsyncSession):
     source_id = (await test_client.post("/api/sources", json={"url": "https://mapper-presets.test"})).json()["id"]
     draft_id = (await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})).json()["id"]
+    await wait_for_scan_complete(test_client, source_id, draft_id)
     row_id = (await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows")).json()["items"][0]["id"]
     await test_client.post(
         f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows/actions",
