@@ -87,7 +87,7 @@ echo ""
 
 # Check tables exist
 echo "🗃️  Verifying database tables..."
-TABLES=$(docker-compose exec -T db psql -U postgres -d artio -t -c "SELECT COUNT(*) FROM pg_tables WHERE schemaname='public';" 2>/dev/null | tr -d ' ')
+TABLES=$(docker-compose exec -T postgres psql -U postgres -d artio -t -c "SELECT COUNT(*) FROM pg_tables WHERE schemaname='public';" 2>/dev/null | tr -d ' ')
 if [ "$TABLES" -gt 15 ]; then
     echo -e "${GREEN}✅ Database has $TABLES tables${NC}"
 else
