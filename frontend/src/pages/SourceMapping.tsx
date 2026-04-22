@@ -31,7 +31,7 @@ import { SampleRunReview } from "@/components/source-mapper/SampleRunReview";
 import { ScanSetupForm } from "@/components/source-mapper/ScanSetupForm";
 import { VersionHistoryPanel } from "@/components/source-mapper/VersionHistoryPanel";
 import { CreatePresetDialog } from "@/components/source-mapper/CreatePresetDialog";
-import { Button } from "@/components/ui";
+import { Button, useToast } from "@/components/ui";
 import { useIsMobile } from "@/lib/mobile-utils";
 
 export function SourceMapping() {
@@ -40,6 +40,7 @@ export function SourceMapping() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const toast = useToast();
   const [draftId, setDraftId] = useState<string | null>(null);
   const [sampleRunId, setSampleRunId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -108,14 +109,24 @@ export function SourceMapping() {
 
   const createDraftMutation = useMutation({
     mutationFn: () => createSourceMappingDraft(id!, { scan_mode: "standard", ...settings }),
-    onSuccess: (payload) => {
+    onMutate: () => ({ toastId: toast.loading("Creating mapping draft...") }),
+    onSuccess: (payload, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
+      toast.success("Mapping draft queued", "Scan has been queued and will run in the background.");
       setDraftId(payload.id);
       setMessage("Scan draft created.");
       qc.invalidateQueries({ queryKey: ["source-mapping-draft", id, payload.id] });
       qc.invalidateQueries({ queryKey: ["source-mapping-rows", id, payload.id] });
       qc.invalidateQueries({ queryKey: ["source-mapping-page-types", id, payload.id] });
     },
-    onError: (e: Error) => setMessage(e.message),
+    onError: (e: Error, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
+      toast.error("Failed to create mapping draft", e.message);
+      setMessage(e.message);
+    },
+    onSettled: (_data, _error, _variables, context) => {
+      if (context?.toastId) toast.dismiss(context.toastId);
+    },
   });
 
   const scanMutation = useMutation({
