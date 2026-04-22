@@ -56,13 +56,14 @@ TERMINAL_CRAWL_RUN_STATUSES = {"completed", "failed", "cancelled"}
 FRONTIER_STATUS_TRANSITIONS: dict[str, set[str]] = {
     "discovered": {"queued", "skipped", "failed_terminal"},
     "queued": {"fetching", "skipped", "failed_retryable", "failed_terminal"},
-    "fetching": {"queued", "fetched", "parsed", "extracted", "failed_retryable", "failed_terminal", "skipped"},
-    "fetched": {"parsed", "extracted", "skipped", "failed_retryable", "failed_terminal"},
-    "parsed": {"extracted", "queued", "failed_retryable", "failed_terminal", "skipped"},
-    "extracted": {"queued", "fetching"},
+    "fetching": {"queued", "fetched", "parsed", "extracted", "completed", "failed_retryable", "failed_terminal", "skipped"},
+    "fetched": {"parsed", "extracted", "completed", "skipped", "failed_retryable", "failed_terminal"},
+    "parsed": {"extracted", "completed", "queued", "failed_retryable", "failed_terminal", "skipped"},
+    "extracted": set(),
+    "completed": set(),
     "skipped": {"queued", "fetching"},
     "failed_retryable": {"queued", "fetching", "failed_terminal", "skipped"},
-    "failed_terminal": {"queued", "fetching"},
+    "failed_terminal": {"queued"},
 }
 
 MAPPING_ALLOWED_FIELDS: dict[str, set[str]] = {
@@ -3422,6 +3423,7 @@ async def upsert_crawl_frontier_rows(
             discovery_reason=row.get("discovery_reason"),
             status=row.get("status", "discovered"),
             skip_reason=row.get("skip_reason"),
+            retry_after=row.get("retry_after"),
             next_retry_at=row.get("next_retry_at"),
             next_eligible_fetch_at=row.get("next_eligible_fetch_at"),
             last_fetched_at=row.get("last_fetched_at"),
@@ -3499,7 +3501,11 @@ async def claim_frontier_rows(
         .where(
             CrawlFrontier.crawl_run_id == crawl_run_id,
             CrawlFrontier.status.in_(["queued", "failed_retryable"]),
-            or_(CrawlFrontier.next_retry_at.is_(None), CrawlFrontier.next_retry_at <= now),
+            or_(
+                and_(CrawlFrontier.retry_after.is_(None), CrawlFrontier.next_retry_at.is_(None)),
+                CrawlFrontier.retry_after <= now,
+                CrawlFrontier.next_retry_at <= now,
+            ),
             or_(CrawlFrontier.next_eligible_fetch_at.is_(None), CrawlFrontier.next_eligible_fetch_at <= now),
         )
         .order_by(CrawlFrontier.priority.desc(), CrawlFrontier.depth.asc(), CrawlFrontier.created_at.asc())
@@ -3515,6 +3521,8 @@ async def claim_frontier_rows(
             row.worker_id = worker_id
             row.started_at = now
             row.lease_expires_at = lease_expires_at
+            row.retry_after = None
+            row.lease_version = int(row.lease_version or 0) + 1
             row.updated_at = now
         if rows:
             await db.commit()
@@ -3529,7 +3537,11 @@ async def claim_frontier_rows(
         .where(
             CrawlFrontier.id.in_(candidate_ids),
             CrawlFrontier.status.in_(["queued", "failed_retryable"]),
-            or_(CrawlFrontier.next_retry_at.is_(None), CrawlFrontier.next_retry_at <= now),
+            or_(
+                and_(CrawlFrontier.retry_after.is_(None), CrawlFrontier.next_retry_at.is_(None)),
+                CrawlFrontier.retry_after <= now,
+                CrawlFrontier.next_retry_at <= now,
+            ),
             or_(CrawlFrontier.next_eligible_fetch_at.is_(None), CrawlFrontier.next_eligible_fetch_at <= now),
         )
         .values(
@@ -3538,13 +3550,14 @@ async def claim_frontier_rows(
             worker_id=worker_id,
             started_at=now,
             lease_expires_at=lease_expires_at,
+            retry_after=None,
+            lease_version=CrawlFrontier.lease_version + 1,
             updated_at=now,
         )
         .returning(CrawlFrontier.id)
     )
     claimed_ids = list(updated.scalars().all())
     if not claimed_ids:
-        await db.rollback()
         return []
     await db.commit()
     rows = list(
@@ -3582,6 +3595,44 @@ async def update_frontier_row(db: AsyncSession, frontier_id: str, **kwargs: Any)
     return row
 
 
+async def complete_frontier_row_atomic(
+    db: AsyncSession,
+    *,
+    frontier_id: str,
+    worker_id: str,
+    lease_version: int,
+    page_id: str | None,
+    page_updates: dict[str, Any] | None,
+    frontier_updates: dict[str, Any],
+) -> bool:
+    now = datetime.now(UTC)
+    frontier = (
+        await db.execute(
+            select(CrawlFrontier).where(
+                CrawlFrontier.id == frontier_id,
+                CrawlFrontier.status == "fetching",
+                CrawlFrontier.leased_by_worker == worker_id,
+                CrawlFrontier.lease_version == lease_version,
+            )
+        )
+    ).scalar_one_or_none()
+    if frontier is None:
+        return False
+    if page_id and page_updates:
+        result = await db.execute(
+            update(Page)
+            .where(Page.id == page_id, Page.status != "completed")
+            .values(**page_updates)
+        )
+        if result.rowcount == 0:
+            return False
+    for key, value in frontier_updates.items():
+        setattr(frontier, key, value)
+    frontier.updated_at = now
+    await db.commit()
+    return True
+
+
 async def reclaim_expired_frontier_leases(
     db: AsyncSession,
     *,
@@ -3600,17 +3651,33 @@ async def reclaim_expired_frontier_leases(
             )
         ).scalars().all()
     )
+    reclaimed = 0
     for row in rows:
-        row.status = "queued"
-        row.leased_by_worker = None
-        row.worker_id = None
-        row.started_at = None
-        row.lease_expires_at = None
-        row.last_error = "lease_expired_reset_to_queue"
-        row.updated_at = now
-    if rows:
+        result = await db.execute(
+            update(CrawlFrontier)
+            .execution_options(synchronize_session=False)
+            .where(
+                CrawlFrontier.id == row.id,
+                CrawlFrontier.status == "fetching",
+                CrawlFrontier.lease_version == row.lease_version,
+                CrawlFrontier.lease_expires_at.is_not(None),
+                CrawlFrontier.lease_expires_at < now,
+            )
+            .values(
+                status="queued",
+                leased_by_worker=None,
+                worker_id=None,
+                started_at=None,
+                lease_expires_at=None,
+                lease_version=CrawlFrontier.lease_version + 1,
+                last_error="lease_expired_reset_to_queue",
+                updated_at=now,
+            )
+        )
+        reclaimed += int(result.rowcount or 0)
+    if reclaimed:
         await db.commit()
-    return len(rows)
+    return reclaimed
 
 
 async def recover_stale_in_progress_pages(
@@ -3677,9 +3744,9 @@ async def acquire_domain_rate_limit_slot(
     result = (await db.execute(stmt)).scalar_one_or_none()
     await db.commit()
     if result is not None:
-        return True, now
+        return True, _ensure_utc(now) or now
     current = await db.get(DomainRateLimit, domain)
-    return False, (current.next_allowed_at if current else now)
+    return False, (_ensure_utc(current.next_allowed_at) if current else _ensure_utc(now) or now)
 
 
 async def get_crawl_frontier_counts(db: AsyncSession, crawl_run_id: str) -> dict[str, int]:
