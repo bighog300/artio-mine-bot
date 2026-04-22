@@ -207,6 +207,7 @@ class Page(Base):
     source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
     crawl_run_id: Mapped[str | None] = mapped_column(String, ForeignKey("crawl_runs.id"), nullable=True)
     url: Mapped[str] = mapped_column(String, nullable=False)
+    normalized_url: Mapped[str] = mapped_column(String, nullable=False)
     original_url: Mapped[str] = mapped_column(String, nullable=False)
     page_type: Mapped[str] = mapped_column(String, default="unknown", nullable=False)
     status: Mapped[str] = mapped_column(String, default="pending", nullable=False)
@@ -230,6 +231,8 @@ class Page(Base):
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    worker_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
     source: Mapped["Source"] = relationship("Source", back_populates="pages")
     records: Mapped[list["Record"]] = relationship("Record", back_populates="page")
@@ -237,6 +240,7 @@ class Page(Base):
 
     __table_args__ = (
         UniqueConstraint("source_id", "url"),
+        UniqueConstraint("source_id", "normalized_url", name="uq_pages_source_normalized_url"),
         Index("ix_pages_tenant_id", "tenant_id"),
         Index("ix_pages_source_id", "source_id"),
         Index("ix_pages_crawl_run_id", "crawl_run_id"),
@@ -473,6 +477,8 @@ class CrawlFrontier(Base):
     discovered_from_page_type: Mapped[str | None] = mapped_column(String, nullable=True)
     discovery_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, default="discovered", nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
+    worker_id: Mapped[str | None] = mapped_column(String, nullable=True)
     skip_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)
     leased_by_worker: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -496,15 +502,22 @@ class CrawlFrontier(Base):
     __table_args__ = (
         UniqueConstraint(
             "source_id",
-            "mapping_version_id",
             "normalized_url",
-            name="uq_crawl_frontier_source_mapping_normalized_url",
+            name="uq_crawl_frontier_source_normalized_url",
         ),
         Index("ix_crawl_frontier_crawl_run_id_status", "crawl_run_id", "status"),
         Index("ix_crawl_frontier_crawl_run_priority_depth_created", "crawl_run_id", "priority", "depth", "created_at"),
         Index("ix_crawl_frontier_lease_expires_at", "lease_expires_at"),
         Index("ix_crawl_frontier_next_retry_at", "next_retry_at"),
     )
+
+
+class DomainRateLimit(Base):
+    __tablename__ = "domain_rate_limits"
+
+    domain: Mapped[str] = mapped_column(String, primary_key=True)
+    next_allowed_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
 
 
 class CrawlRunCheckpoint(Base):

@@ -5,7 +5,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
-from sqlalchemy import Select, delete, func, or_, select
+from sqlalchemy import Select, and_, delete, func, or_, select, text, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +19,7 @@ from app.db.models import (
     CrawlFrontier,
     CrawlRun,
     CrawlRunCheckpoint,
+    DomainRateLimit,
     AuditAction,
     AuditEvent,
     DuplicateReview,
@@ -44,6 +48,7 @@ from app.db.models import (
     UrlFamily,
     WorkerState,
 )
+from app.crawler.url_utils import normalize_url
 
 logger = structlog.get_logger()
 TERMINAL_JOB_STATUSES = {"done", "completed", "failed", "cancelled"}
@@ -1850,11 +1855,50 @@ async def create_page(db: AsyncSession, source_id: str, url: str, **kwargs: Any)
         source = await get_source(db, source_id)
         kwargs["tenant_id"] = source.tenant_id if source else "public"
     original_url = kwargs.pop("original_url", url)
+    normalized_url = kwargs.pop("normalized_url", normalize_url(url))
     kwargs.setdefault("status", "fetched")
-    page = Page(source_id=source_id, url=url, original_url=original_url, **kwargs)
-    db.add(page)
-    await db.commit()
-    await db.refresh(page)
+    bind = db.get_bind()
+    dialect_name = bind.dialect.name if bind is not None else ""
+    payload = {
+        "source_id": source_id,
+        "url": url,
+        "normalized_url": normalized_url,
+        "original_url": original_url,
+        **kwargs,
+    }
+    if dialect_name == "postgresql":
+        stmt = (
+            pg_insert(Page)
+            .values(**payload)
+            .on_conflict_do_nothing(index_elements=["source_id", "normalized_url"])
+            .returning(Page.id)
+        )
+        inserted_id = (await db.execute(stmt)).scalar_one_or_none()
+        if inserted_id is not None:
+            await db.commit()
+            page = await get_page(db, inserted_id)
+            assert page is not None
+            return page
+    elif dialect_name == "sqlite":
+        stmt = (
+            sqlite_insert(Page)
+            .values(**payload)
+            .on_conflict_do_nothing(index_elements=["source_id", "normalized_url"])
+            .returning(Page.id)
+        )
+        inserted_id = (await db.execute(stmt)).scalar_one_or_none()
+        if inserted_id is not None:
+            await db.commit()
+            page = await get_page(db, inserted_id)
+            assert page is not None
+            return page
+    page = await get_page_by_normalized_url(db, source_id=source_id, normalized_url=normalized_url)
+    if page is None:
+        page = Page(**payload)
+        db.add(page)
+        await db.commit()
+        await db.refresh(page)
+        return page
     return page
 
 
@@ -1864,19 +1908,30 @@ async def get_page(db: AsyncSession, page_id: str) -> Page | None:
 
 
 async def get_or_create_page(db: AsyncSession, source_id: str, url: str) -> tuple[Page, bool]:
-    result = await db.execute(
-        select(Page).where(Page.source_id == source_id, Page.url == url)
-    )
-    page = result.scalar_one_or_none()
+    normalized = normalize_url(url)
+    page = await get_page_by_normalized_url(db, source_id=source_id, normalized_url=normalized)
     if page is not None:
         return page, False
-    page = await create_page(db, source_id=source_id, url=url)
-    return page, True
+    try:
+        page = await create_page(db, source_id=source_id, url=url, normalized_url=normalized)
+        return page, True
+    except IntegrityError:
+        await db.rollback()
+        page = await get_page_by_normalized_url(db, source_id=source_id, normalized_url=normalized)
+        if page is None:
+            raise
+        return page, False
 
 
 async def get_page_by_url(db: AsyncSession, *, source_id: str, url: str) -> Page | None:
     return (
         await db.execute(select(Page).where(Page.source_id == source_id, Page.url == url))
+    ).scalar_one_or_none()
+
+
+async def get_page_by_normalized_url(db: AsyncSession, *, source_id: str, normalized_url: str) -> Page | None:
+    return (
+        await db.execute(select(Page).where(Page.source_id == source_id, Page.normalized_url == normalized_url))
     ).scalar_one_or_none()
 
 
@@ -3347,30 +3402,14 @@ async def upsert_crawl_frontier_rows(
     rows: list[dict[str, Any]],
 ) -> int:
     inserted = 0
+    bind = db.get_bind()
+    dialect_name = bind.dialect.name if bind is not None else ""
     for row in rows:
         normalized_url = row["normalized_url"]
-        mapping_version_id = row.get("mapping_version_id")
-        existing = (
-            await db.execute(
-                select(CrawlFrontier).where(
-                    CrawlFrontier.source_id == source_id,
-                    CrawlFrontier.mapping_version_id == mapping_version_id,
-                    CrawlFrontier.normalized_url == normalized_url,
-                )
-            )
-        ).scalar_one_or_none()
-        if existing:
-            existing.priority = max(existing.priority, int(row.get("priority", existing.priority or 0)))
-            if row.get("next_eligible_fetch_at") is not None:
-                existing.next_eligible_fetch_at = row.get("next_eligible_fetch_at")
-            if row.get("family_key"):
-                existing.family_key = row.get("family_key")
-            existing.updated_at = datetime.now(UTC)
-            continue
-        frontier = CrawlFrontier(
+        payload = dict(
             crawl_run_id=crawl_run_id,
             source_id=source_id,
-            mapping_version_id=mapping_version_id,
+            mapping_version_id=row.get("mapping_version_id"),
             url=row["url"],
             normalized_url=normalized_url,
             canonical_url=row.get("canonical_url"),
@@ -3394,8 +3433,52 @@ async def upsert_crawl_frontier_rows(
             last_refresh_outcome=row.get("last_refresh_outcome"),
             diagnostics_json=json.dumps(row.get("diagnostics", {})),
         )
-        db.add(frontier)
-        inserted += 1
+        if dialect_name == "postgresql":
+            stmt = pg_insert(CrawlFrontier).values(**payload).on_conflict_do_nothing(
+                index_elements=["source_id", "normalized_url"]
+            )
+            result = await db.execute(stmt)
+            inserted += int(result.rowcount or 0)
+        elif dialect_name == "sqlite":
+            stmt = sqlite_insert(CrawlFrontier).values(**payload).on_conflict_do_nothing(
+                index_elements=["source_id", "normalized_url"]
+            )
+            result = await db.execute(stmt)
+            inserted += int(result.rowcount or 0)
+        else:
+            existing = (
+                await db.execute(
+                    select(CrawlFrontier).where(
+                        CrawlFrontier.source_id == source_id,
+                        CrawlFrontier.normalized_url == normalized_url,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing is None:
+                db.add(CrawlFrontier(**payload))
+                inserted += 1
+            else:
+                existing.priority = max(existing.priority, int(row.get("priority", existing.priority or 0)))
+                if row.get("next_eligible_fetch_at") is not None:
+                    existing.next_eligible_fetch_at = row.get("next_eligible_fetch_at")
+                if row.get("family_key"):
+                    existing.family_key = row.get("family_key")
+                existing.updated_at = datetime.now(UTC)
+                continue
+        existing = (
+            await db.execute(
+                select(CrawlFrontier).where(
+                    CrawlFrontier.source_id == source_id,
+                    CrawlFrontier.normalized_url == normalized_url,
+                )
+            )
+        ).scalar_one()
+        existing.priority = max(existing.priority, int(row.get("priority", existing.priority or 0)))
+        if row.get("next_eligible_fetch_at") is not None:
+            existing.next_eligible_fetch_at = row.get("next_eligible_fetch_at")
+        if row.get("family_key"):
+            existing.family_key = row.get("family_key")
+        existing.updated_at = datetime.now(UTC)
     await db.commit()
     return inserted
 
@@ -3409,6 +3492,8 @@ async def claim_frontier_rows(
     lease_seconds: int = 120,
 ) -> list[CrawlFrontier]:
     now = datetime.now(UTC)
+    bind = db.get_bind()
+    dialect_name = bind.dialect.name if bind is not None else ""
     stmt = (
         select(CrawlFrontier)
         .where(
@@ -3420,19 +3505,57 @@ async def claim_frontier_rows(
         .order_by(CrawlFrontier.priority.desc(), CrawlFrontier.depth.asc(), CrawlFrontier.created_at.asc())
         .limit(limit)
     )
-    bind = db.get_bind()
-    dialect_name = bind.dialect.name if bind is not None else ""
+    lease_expires_at = now + timedelta(seconds=lease_seconds)
     if dialect_name in {"postgresql", "mysql", "mariadb"}:
         stmt = stmt.with_for_update(skip_locked=True)
-    rows = list((await db.execute(stmt)).scalars().all())
-    lease_expires_at = now + timedelta(seconds=lease_seconds)
-    for row in rows:
-        row.status = "fetching"
-        row.leased_by_worker = worker_id
-        row.lease_expires_at = lease_expires_at
-        row.updated_at = now
-    if rows:
-        await db.commit()
+        rows = list((await db.execute(stmt)).scalars().all())
+        for row in rows:
+            row.status = "fetching"
+            row.leased_by_worker = worker_id
+            row.worker_id = worker_id
+            row.started_at = now
+            row.lease_expires_at = lease_expires_at
+            row.updated_at = now
+        if rows:
+            await db.commit()
+        return rows
+
+    # App-level atomic claim path for engines without SKIP LOCKED.
+    candidate_ids = list((await db.execute(stmt.with_only_columns(CrawlFrontier.id))).scalars().all())
+    if not candidate_ids:
+        return []
+    updated = await db.execute(
+        update(CrawlFrontier)
+        .where(
+            CrawlFrontier.id.in_(candidate_ids),
+            CrawlFrontier.status.in_(["queued", "failed_retryable"]),
+            or_(CrawlFrontier.next_retry_at.is_(None), CrawlFrontier.next_retry_at <= now),
+            or_(CrawlFrontier.next_eligible_fetch_at.is_(None), CrawlFrontier.next_eligible_fetch_at <= now),
+        )
+        .values(
+            status="fetching",
+            leased_by_worker=worker_id,
+            worker_id=worker_id,
+            started_at=now,
+            lease_expires_at=lease_expires_at,
+            updated_at=now,
+        )
+        .returning(CrawlFrontier.id)
+    )
+    claimed_ids = list(updated.scalars().all())
+    if not claimed_ids:
+        await db.rollback()
+        return []
+    await db.commit()
+    rows = list(
+        (
+            await db.execute(
+                select(CrawlFrontier)
+                .where(CrawlFrontier.id.in_(claimed_ids))
+                .order_by(CrawlFrontier.priority.desc(), CrawlFrontier.depth.asc(), CrawlFrontier.created_at.asc())
+            )
+        ).scalars().all()
+    )
     return rows
 
 
@@ -3444,6 +3567,12 @@ async def update_frontier_row(db: AsyncSession, frontier_id: str, **kwargs: Any)
     if new_status is not None and row.status != new_status:
         allowed_next = FRONTIER_STATUS_TRANSITIONS.get(row.status, set())
         if new_status not in allowed_next:
+            logger.warning(
+                "invalid_frontier_transition",
+                frontier_id=frontier_id,
+                from_status=row.status,
+                to_status=new_status,
+            )
             raise ValueError(f"Invalid frontier status transition: {row.status} -> {new_status}")
     for key, value in kwargs.items():
         setattr(row, key, value)
@@ -3472,16 +3601,85 @@ async def reclaim_expired_frontier_leases(
         ).scalars().all()
     )
     for row in rows:
-        row.status = "failed_retryable"
+        row.status = "queued"
         row.leased_by_worker = None
+        row.worker_id = None
+        row.started_at = None
         row.lease_expires_at = None
-        row.retry_count = int(row.retry_count or 0) + 1
-        row.last_error = "lease_expired"
-        row.next_retry_at = now
+        row.last_error = "lease_expired_reset_to_queue"
         row.updated_at = now
     if rows:
         await db.commit()
     return len(rows)
+
+
+async def recover_stale_in_progress_pages(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    stale_after_seconds: int,
+) -> int:
+    threshold = datetime.now(UTC) - timedelta(seconds=stale_after_seconds)
+    rows = list(
+        (
+            await db.execute(
+                select(Page).where(
+                    Page.source_id == source_id,
+                    Page.status == "in_progress",
+                    Page.started_at.is_not(None),
+                    Page.started_at < threshold,
+                )
+            )
+        ).scalars().all()
+    )
+    for row in rows:
+        row.status = "pending"
+        row.worker_id = None
+        row.started_at = None
+        row.error_message = "recovered_from_stale_in_progress"
+    if rows:
+        await db.commit()
+    return len(rows)
+
+
+async def acquire_domain_rate_limit_slot(
+    db: AsyncSession,
+    *,
+    domain: str,
+    min_interval_ms: int,
+) -> tuple[bool, datetime]:
+    now = datetime.now(UTC)
+    next_allowed = now + timedelta(milliseconds=min_interval_ms)
+    bind = db.get_bind()
+    dialect_name = bind.dialect.name if bind is not None else ""
+    if dialect_name == "postgresql":
+        stmt = (
+            pg_insert(DomainRateLimit)
+            .values(domain=domain, next_allowed_at=next_allowed)
+            .on_conflict_do_update(
+                index_elements=["domain"],
+                set_={"next_allowed_at": next_allowed, "updated_at": now},
+                where=DomainRateLimit.next_allowed_at <= now,
+            )
+            .returning(DomainRateLimit.next_allowed_at)
+        )
+    else:
+        stmt = (
+            sqlite_insert(DomainRateLimit)
+            .values(domain=domain, next_allowed_at=next_allowed)
+            .on_conflict_do_update(
+                index_elements=["domain"],
+                set_={"next_allowed_at": next_allowed, "updated_at": now},
+                where=DomainRateLimit.next_allowed_at <= now,
+            )
+            .returning(DomainRateLimit.next_allowed_at)
+        )
+    result = (await db.execute(stmt)).scalar_one_or_none()
+    await db.commit()
+    if result is not None:
+        return True, now
+    current = await db.get(DomainRateLimit, domain)
+    return False, (current.next_allowed_at if current else now)
 
 
 async def get_crawl_frontier_counts(db: AsyncSession, crawl_run_id: str) -> dict[str, int]:
