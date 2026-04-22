@@ -8,6 +8,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -825,6 +826,26 @@ class SourceMappingPresetRow(Base):
 
     __table_args__ = (
         Index("ix_source_mapping_preset_rows_preset_id_sort_order", "preset_id", "sort_order"),
+    )
+
+
+class MappingTemplate(Base):
+    __tablename__ = "mapping_templates"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    template_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, default=_now, onupdate=_now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_mapping_templates_name"),
+        Index("ix_mapping_templates_created_at", "created_at"),
+        Index("ix_mapping_templates_is_system", "is_system"),
     )
 
 

@@ -53,6 +53,11 @@ vi.mock("@/lib/api", async () => {
     getSourceMappingPresets: vi.fn(),
     getSourceMappingSampleRun: vi.fn(),
     getSourceRuntimeMap: vi.fn(),
+    listMappingTemplates: vi.fn(),
+    importMappingTemplateFromText: vi.fn(),
+    importMappingTemplateFromFile: vi.fn(),
+    applyMappingTemplateToSource: vi.fn(),
+    exportSourceMappingPreset: vi.fn(),
     createSourceMappingDraft: vi.fn(),
     startSourceMappingScan: vi.fn(),
     updateSourceMappingRow: vi.fn(),
@@ -140,6 +145,7 @@ describe("SourceMapping workflow gating", () => {
       runtime_mapping_updated_at: null,
       runtime_map: { crawl_plan: { phases: [{ name: "seed" }] } },
     });
+    vi.mocked(api.listMappingTemplates).mockResolvedValue({ items: [], total: 0 });
   });
 
   it("disables start mining when runtime map has no extraction payload", async () => {

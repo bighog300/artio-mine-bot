@@ -463,6 +463,31 @@ class SourceMappingPresetCreateRequest(BaseModel):
     include_statuses: list[str] = Field(default_factory=lambda: ["approved"])
 
 
+class MappingTemplateSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    name: str
+    description: str | None = None
+    schema_version: int
+    is_system: bool
+    created_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MappingTemplateCreateRequest(BaseModel):
+    name: str
+    description: str | None = None
+    schema_version: int = 1
+    template_json: dict[str, Any]
+
+
+class MappingTemplateImportRequest(BaseModel):
+    name: str
+    description: str | None = None
+    content: str
+
+
 # ---------------------------------------------------------------------------
 # Mining
 # ---------------------------------------------------------------------------

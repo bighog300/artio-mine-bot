@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
+  applyMappingTemplateToSource,
   applySourceMappingPreset,
   applySourceMappingAction,
   createSourceMappingPreset,
@@ -17,6 +18,9 @@ import {
   getSourceMappingSampleRun,
   getSourceMappingVersions,
   getSourceRuntimeMap,
+  importMappingTemplateFromFile,
+  importMappingTemplateFromText,
+  listMappingTemplates,
   publishSourceMappingDraft,
   rollbackSourceMappingVersion,
   startMining,
@@ -24,6 +28,7 @@ import {
   startSourceMappingScan,
   updateSourceMappingSampleRunResult,
   updateSourceMappingRow,
+  exportSourceMappingPreset,
 } from "@/lib/api";
 import { MappingMatrix } from "@/components/source-mapper/MappingMatrix";
 import { MappingPresetPanel } from "@/components/source-mapper/MappingPresetPanel";
@@ -60,6 +65,7 @@ export function SourceMapping() {
   const [createPresetOpen, setCreatePresetOpen] = useState(false);
   const [deletingPresetId, setDeletingPresetId] = useState<string | null>(null);
   const [applyingPresetId, setApplyingPresetId] = useState<string | null>(null);
+  const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(null);
 
   const { data: source } = useQuery({ queryKey: ["source", id], queryFn: () => getSource(id!), enabled: !!id });
   const { data: draft } = useQuery({
@@ -107,6 +113,10 @@ export function SourceMapping() {
     queryKey: ["source-runtime-map", id],
     queryFn: () => getSourceRuntimeMap(id!),
     enabled: !!id,
+  });
+  const { data: templates, isLoading: templatesLoading } = useQuery({
+    queryKey: ["mapping-templates"],
+    queryFn: () => listMappingTemplates(),
   });
 
   const createDraftMutation = useMutation({
@@ -265,12 +275,57 @@ export function SourceMapping() {
       setMessage("Preset applied to runtime map.");
       qc.invalidateQueries({ queryKey: ["source", id] });
       qc.invalidateQueries({ queryKey: ["source-mapping-presets", id] });
+      qc.invalidateQueries({ queryKey: ["source-runtime-map", id] });
     },
     onError: (e: Error) => {
       toast.error("Failed to apply preset", e.message);
       setMessage(e.message);
     },
     onSettled: () => setApplyingPresetId(null),
+  });
+
+  const exportPresetMutation = useMutation({
+    mutationFn: (presetId: string) => exportSourceMappingPreset(presetId),
+    onSuccess: (payload) => {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = `${payload.name || "mapping-template"}.json`;
+      anchor.click();
+      URL.revokeObjectURL(objectUrl);
+      setMessage(`Preset '${payload.name}' exported.`);
+    },
+    onError: (e: Error) => setMessage(e.message),
+  });
+
+  const importTemplateTextMutation = useMutation({
+    mutationFn: (payload: { name: string; description?: string; content: string }) => importMappingTemplateFromText(payload),
+    onSuccess: (payload) => {
+      setMessage(`Template '${payload.name}' imported.`);
+      qc.invalidateQueries({ queryKey: ["mapping-templates"] });
+    },
+    onError: (e: Error) => setMessage(e.message),
+  });
+
+  const importTemplateFileMutation = useMutation({
+    mutationFn: (payload: { name: string; description?: string; file: File }) => importMappingTemplateFromFile(payload),
+    onSuccess: (payload) => {
+      setMessage(`Template '${payload.name}' imported from file.`);
+      qc.invalidateQueries({ queryKey: ["mapping-templates"] });
+    },
+    onError: (e: Error) => setMessage(e.message),
+  });
+
+  const applyTemplateMutation = useMutation({
+    mutationFn: (templateId: string) => applyMappingTemplateToSource(templateId, id!),
+    onSuccess: () => {
+      setMessage("Template applied to source runtime map.");
+      qc.invalidateQueries({ queryKey: ["source", id] });
+      qc.invalidateQueries({ queryKey: ["source-runtime-map", id] });
+    },
+    onError: (e: Error) => setMessage(e.message),
+    onSettled: () => setApplyingTemplateId(null),
   });
 
   const startMiningMutation = useMutation({
@@ -447,8 +502,18 @@ export function SourceMapping() {
         loading={presetsLoading}
         deletingPresetId={deletingPresetId}
         applyingPresetId={applyingPresetId}
+        templates={templates?.items ?? []}
+        templatesLoading={templatesLoading}
+        applyingTemplateId={applyingTemplateId}
         canCreate={!!draftId}
         onOpenCreate={() => setCreatePresetOpen(true)}
+        onExport={(presetId) => exportPresetMutation.mutate(presetId)}
+        onImportText={(payload) => importTemplateTextMutation.mutate(payload)}
+        onImportFile={(payload) => importTemplateFileMutation.mutate(payload)}
+        onApplyTemplate={(templateId) => {
+          setApplyingTemplateId(templateId);
+          applyTemplateMutation.mutate(templateId);
+        }}
         onApply={(presetId) => {
           setApplyingPresetId(presetId);
           applyPresetMutation.mutate(presetId);
