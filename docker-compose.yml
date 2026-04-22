@@ -1,35 +1,39 @@
 services:
-  db:
+  postgres:
     image: postgres:16
     pull_policy: if_not_present
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: artio
-    ports:
-      - "5433:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-artio}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d artio"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-artio}"]
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 10s
+    networks:
+      - app_network
 
   redis:
     image: redis:7
     pull_policy: if_not_present
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    expose:
+      - "6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 20
       start_period: 5s
+    networks:
+      - app_network
 
   api:
     build: .
@@ -38,15 +42,15 @@ services:
     stop_grace_period: 20s
     command: ["./scripts/start.sh", "uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
-      - "8765:8000"
+      - "${API_HOST_PORT:-8765}:8000"
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/artio
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-artio}
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: ${ENVIRONMENT:-development}
       PYTHONUNBUFFERED: "1"
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -56,6 +60,8 @@ services:
       timeout: 10s
       start_period: 20s
       retries: 5
+    networks:
+      - app_network
 
   worker-1: &worker-template
     build: .
@@ -65,22 +71,24 @@ services:
     stop_grace_period: 20s
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/artio
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-artio}
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: ${ENVIRONMENT:-development}
       PYTHONUNBUFFERED: "1"
       MAX_CONCURRENT_JOBS: "5"
       WORKER_ID: worker-1
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - app_network
 
   worker-2:
     <<: *worker-template
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/artio
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-artio}
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: ${ENVIRONMENT:-development}
       PYTHONUNBUFFERED: "1"
@@ -90,7 +98,7 @@ services:
   worker-3:
     <<: *worker-template
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/artio
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-artio}
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: ${ENVIRONMENT:-development}
       PYTHONUNBUFFERED: "1"
@@ -100,7 +108,7 @@ services:
   worker-4:
     <<: *worker-template
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/artio
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-artio}
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: ${ENVIRONMENT:-development}
       PYTHONUNBUFFERED: "1"
@@ -110,7 +118,7 @@ services:
   worker-5:
     <<: *worker-template
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/artio
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-artio}
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: ${ENVIRONMENT:-development}
       PYTHONUNBUFFERED: "1"
@@ -125,40 +133,43 @@ services:
     command: ["alembic", "upgrade", "head"]
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/artio
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-artio}
       REDIS_URL: redis://redis:6379/0
       ENVIRONMENT: ${ENVIRONMENT:-development}
       PYTHONUNBUFFERED: "1"
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - app_network
 
   frontend:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-
     ports:
-      - "5173:80"
-
+      - "${FRONTEND_HOST_PORT:-5173}:80"
     environment:
-      - VITE_API_BASE_URL=http://192.168.88.214:8765
-
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:${API_HOST_PORT:-8765}}
     restart: unless-stopped
     init: true
     stop_grace_period: 15s
-
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 5
-
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
+    networks:
+      - app_network
 
 volumes:
   postgres_data:
+
+networks:
+  app_network:
+    driver: bridge
