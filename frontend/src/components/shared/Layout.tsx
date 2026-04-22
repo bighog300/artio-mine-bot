@@ -20,6 +20,8 @@ export function Layout({ children }: LayoutProps) {
       { path: /^\/sources\/[^/]+\/operations$/, title: "Source Operations" },
       { path: /^\/sources\/[^/]+\/mapping$/, title: "Source Mapping" },
       { path: /^\/sources\/[^/]+\/drift$/, title: "Mapping Drift" },
+      { path: /^\/mappings$/, title: "Mappings" },
+      { path: /^\/mappings\/[^/]+$/, title: "Mapping Details" },
       { path: /^\/pages$/, title: "Pages" },
       { path: /^\/jobs$/, title: "Jobs" },
       { path: /^\/jobs\/[^/]+$/, title: "Job Details" },
