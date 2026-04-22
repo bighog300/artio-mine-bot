@@ -147,6 +147,17 @@ async def _create_and_enqueue_job(
     return _enqueue_pipeline_job(persisted_job.id, source_id, job_type, payload)
 
 
+async def _assert_source_mapping_ready(db: AsyncSession, source_id: str) -> None:
+    source = await crud.get_source(db, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    if not source.active_mapping_preset_id and not source.published_mapping_version_id:
+        raise HTTPException(
+            status_code=422,
+            detail="Source has no active mapping — publish a draft or apply a preset before mining",
+        )
+
+
 @router.post("/{source_id}/start", response_model=MineStartResponse, status_code=200)
 async def start_mining(
     source_id: str,
@@ -155,6 +166,7 @@ async def start_mining(
 ):
     _ensure_worker_runtime()
     _assert_queue_available(require_worker=False)
+    await _assert_source_mapping_ready(db, source_id)
 
     payload = body.model_dump() if body else {}
     try:

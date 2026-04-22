@@ -112,6 +112,8 @@ export interface Source {
   queue_paused?: boolean;
   crawl_hints?: Record<string, unknown> | null;
   extraction_rules?: Record<string, unknown> | null;
+  active_mapping_preset_id?: string | null;
+  published_mapping_version_id?: string | null;
   stats?: SourceStats;
 }
 
