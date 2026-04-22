@@ -17,6 +17,8 @@ export function Dashboard() {
     activityQuery,
     successRate,
     prioritizedActions,
+    prioritizedActionsError,
+    retryPrioritizedActions,
   } = useControlCenterData();
 
   const { data: stats, isLoading: isStatsLoading } = statsQuery;
@@ -33,6 +35,31 @@ export function Dashboard() {
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Dashboard</h1>
         <Button variant="secondary" onClick={() => navigate("/sources")}>Add Source</Button>
+      </div>
+
+      <PrioritizedActionsPanel
+        isLoading={isStatsLoading || isJobsLoading || isQueuesLoading || isSourcesLoading}
+        isError={prioritizedActionsError}
+        onRetry={retryPrioritizedActions}
+        actions={prioritizedActions}
+      />
+
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3" role="status" aria-live="polite">
+        <div className="rounded-lg border bg-card p-4">
+          <h2 className="text-sm font-semibold text-foreground">Drift summary</h2>
+          <p className="mt-1 text-2xl font-bold text-foreground">{stats?.records.pending ?? 0}</p>
+          <p className="text-xs text-muted-foreground">Records pending moderation and prone to downstream drift.</p>
+        </div>
+        <div className="rounded-lg border bg-card p-4">
+          <h2 className="text-sm font-semibold text-foreground">Source status</h2>
+          <p className="mt-1 text-2xl font-bold text-foreground">{sources?.items.filter((s) => s.status !== "active").length ?? 0}</p>
+          <p className="text-xs text-muted-foreground">Sources currently not in an active state.</p>
+        </div>
+        <div className="rounded-lg border bg-card p-4">
+          <h2 className="text-sm font-semibold text-foreground">Repair queue</h2>
+          <p className="mt-1 text-2xl font-bold text-foreground">{jobs?.items.filter((j) => j.status === "failed").length ?? 0}</p>
+          <p className="text-xs text-muted-foreground">Failed jobs waiting for retry or intervention.</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-12" role="status" aria-live="polite">
@@ -69,11 +96,6 @@ export function Dashboard() {
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 lg:gap-6">
         <div className="space-y-6">
-          <PrioritizedActionsPanel
-            isLoading={isStatsLoading || isJobsLoading || isQueuesLoading}
-            actions={prioritizedActions}
-          />
-
           <div className="bg-card rounded-lg border p-4">
             <h2 className="font-semibold text-foreground mb-3">Records by Type</h2>
             <div className="space-y-2" role="status" aria-live="polite">
