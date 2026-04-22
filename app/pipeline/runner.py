@@ -39,6 +39,8 @@ from app.extraction.artist_merge import (
     merge_artist_payload,
 )
 from app.extraction.artist_related import extract_artist_related_items
+from app.entities.relationship_builder import EntityRelationshipBuilder
+from app.entities.resolver import EntityResolver
 from app.metrics import metrics
 from app.pipeline.image_collector import collect_images
 from app.pipeline.drift_detection import DriftDetectionService
@@ -1049,7 +1051,10 @@ class PipelineRunner:
         except Exception as exc:
             logger.warning("image_collection_error", record_id=record.id, error=str(exc))
 
-        entity_links_created = await self._assemble_entity_relationships(record)
+        resolver = EntityResolver(self.db)
+        await resolver.resolve_record(record)
+        relationship_builder = EntityRelationshipBuilder(self.db)
+        entity_links_created = await relationship_builder.build_for_record(record)
         return {
             "deterministic_hit": 1 if deterministic_hit else 0,
             "deterministic_miss": 0 if deterministic_hit else 1,
@@ -1058,64 +1063,8 @@ class PipelineRunner:
         }, action
 
     async def _assemble_entity_relationships(self, record: Record) -> int:
-        created_links = 0
-        if record.record_type in {"event", "exhibition"}:
-            venue_name = (record.venue_name or "").strip()
-            if venue_name:
-                target = await self._find_record_by_title(
-                    source_id=record.source_id,
-                    record_type="venue",
-                    title=venue_name,
-                )
-                if target is not None:
-                    if await crud.ensure_entity_relationship(
-                        self.db,
-                        source_id=record.source_id,
-                        from_record_id=record.id,
-                        to_record_id=target.id,
-                        relationship_type="event_venue",
-                        metadata={"venue_name": venue_name},
-                    ):
-                        created_links += 1
-            artist_names = self._parse_list_field(record.artist_names)
-            for artist_name in artist_names:
-                target = await self._find_record_by_title(
-                    source_id=record.source_id,
-                    record_type="artist",
-                    title=artist_name,
-                )
-                if target is None:
-                    continue
-                if await crud.ensure_entity_relationship(
-                    self.db,
-                    source_id=record.source_id,
-                    from_record_id=target.id,
-                    to_record_id=record.id,
-                    relationship_type="artist_event",
-                    metadata={"artist_name": artist_name},
-                ):
-                    created_links += 1
-        elif record.record_type == "venue":
-            events = await crud.list_records(
-                self.db,
-                source_id=record.source_id,
-                record_type="event",
-                skip=0,
-                limit=5000,
-            )
-            for event in events:
-                if (event.venue_name or "").strip().lower() != (record.title or "").strip().lower():
-                    continue
-                if await crud.ensure_entity_relationship(
-                    self.db,
-                    source_id=record.source_id,
-                    from_record_id=event.id,
-                    to_record_id=record.id,
-                    relationship_type="event_venue",
-                    metadata={"venue_name": event.venue_name},
-                ):
-                    created_links += 1
-        return created_links
+        relationship_builder = EntityRelationshipBuilder(self.db)
+        return await relationship_builder.build_for_record(record)
 
     async def _find_record_by_title(self, *, source_id: str, record_type: str, title: str) -> Record | None:
         candidates = await crud.list_records(

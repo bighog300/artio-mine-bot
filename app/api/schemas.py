@@ -910,3 +910,25 @@ class ArtistReviewResponse(BaseModel):
     provenance: dict[str, Any] = {}
     conflicts: dict[str, Any] = {}
     related: dict[str, list[dict[str, Any]]] = {}
+
+
+class EntityResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    entity_type: str
+    canonical_name: str
+    canonical_data: dict[str, Any] = {}
+    confidence_score: float
+    created_at: datetime
+    updated_at: datetime
+
+
+class EntityRelationshipResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    from_entity_id: str | None = None
+    to_entity_id: str | None = None
+    relationship_type: str
+    confidence_score: float = 0.0
+    source_record_id: str | None = None
+    created_at: datetime

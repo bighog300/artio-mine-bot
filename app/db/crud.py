@@ -25,6 +25,8 @@ from app.db.models import (
     AuditAction,
     AuditEvent,
     DuplicateReview,
+    Entity,
+    EntityLink,
     EntityRelationship,
     Image,
     Job,
@@ -3260,6 +3262,80 @@ async def list_relationships_for_record(
         )
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def list_entities(
+    db: AsyncSession,
+    *,
+    entity_type: str | None = None,
+    skip: int = 0,
+    limit: int = 100,
+) -> list[Entity]:
+    stmt = select(Entity).order_by(Entity.updated_at.desc())
+    if entity_type:
+        stmt = stmt.where(Entity.entity_type == entity_type)
+    result = await db.execute(stmt.offset(skip).limit(limit))
+    return list(result.scalars().all())
+
+
+async def count_entities(db: AsyncSession, *, entity_type: str | None = None) -> int:
+    stmt = select(func.count(Entity.id))
+    if entity_type:
+        stmt = stmt.where(Entity.entity_type == entity_type)
+    result = await db.execute(stmt)
+    return int(result.scalar_one() or 0)
+
+
+async def get_entity(db: AsyncSession, entity_id: str) -> Entity | None:
+    result = await db.execute(select(Entity).where(Entity.id == entity_id))
+    return result.scalar_one_or_none()
+
+
+async def get_entity_link_for_record(db: AsyncSession, record_id: str) -> EntityLink | None:
+    result = await db.execute(select(EntityLink).where(EntityLink.record_id == record_id))
+    return result.scalar_one_or_none()
+
+
+async def list_records_for_entity(db: AsyncSession, entity_id: str) -> list[Record]:
+    stmt = (
+        select(Record)
+        .join(EntityLink, EntityLink.record_id == Record.id)
+        .where(EntityLink.entity_id == entity_id)
+        .order_by(Record.updated_at.desc())
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def list_relationships_for_entity(db: AsyncSession, entity_id: str) -> list[EntityRelationship]:
+    stmt = select(EntityRelationship).where(
+        or_(
+            EntityRelationship.from_entity_id == entity_id,
+            EntityRelationship.to_entity_id == entity_id,
+        )
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def list_entity_conflicts(db: AsyncSession, *, limit: int = 100) -> list[dict[str, Any]]:
+    stmt = select(Entity).order_by(Entity.updated_at.desc()).limit(limit)
+    result = await db.execute(stmt)
+    conflicts: list[dict[str, Any]] = []
+    for entity in result.scalars().all():
+        canonical_data = entity.canonical_data or {}
+        items = canonical_data.get("conflicts", [])
+        if not isinstance(items, list) or not items:
+            continue
+        conflicts.append(
+            {
+                "entity_id": entity.id,
+                "entity_type": entity.entity_type,
+                "canonical_name": entity.canonical_name,
+                "conflicts": items,
+            }
+        )
+    return conflicts
 
 
 async def upsert_duplicate_review(
