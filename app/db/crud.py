@@ -1377,7 +1377,8 @@ async def create_source_mapping_preset_from_version(
 def has_usable_runtime_map_payload(runtime_map: dict[str, Any] | None) -> bool:
     if not isinstance(runtime_map, dict):
         return False
-    if isinstance(runtime_map.get("crawl_plan"), dict) and runtime_map.get("crawl_plan"):
+    crawl_plan = runtime_map.get("crawl_plan")
+    if isinstance(crawl_plan, dict) and isinstance(crawl_plan.get("phases"), list) and crawl_plan["phases"]:
         return True
     if isinstance(runtime_map.get("mining_map"), dict) and runtime_map.get("mining_map"):
         return True
@@ -1391,6 +1392,7 @@ def build_runtime_map_from_preset_rows(
     rows: list[SourceMappingPresetRow],
     *,
     base_runtime_map: dict[str, Any] | None = None,
+    source_url: str | None = None,
 ) -> dict[str, Any]:
     runtime_map: dict[str, Any] = dict(base_runtime_map or {})
     extraction_rules = runtime_map.get("extraction_rules")
@@ -1463,13 +1465,135 @@ def build_runtime_map_from_preset_rows(
             if row.selector not in follow["selectors"] and ("href" in selector_l or attr_l == "href"):
                 follow["selectors"].append(row.selector)
 
-    if page_type_seen and not crawl_plan.get("phases"):
-        crawl_plan["phases"] = []
+    synthesized_phases = _phases_for_page_types(source_url, page_type_seen)
+    if synthesized_phases:
+        crawl_plan["phases"] = synthesized_phases
 
     runtime_map["runtime_map_source"] = "applied_preset"
     runtime_map["applied_preset_id"] = preset.id
     runtime_map["applied_preset_name"] = preset.name
     return runtime_map
+
+
+def _phases_for_page_types(source_url: str | None, page_type_keys: set[str]) -> list[dict[str, Any]]:
+    if not source_url:
+        return []
+    base = source_url.rstrip("/")
+    phases: list[dict[str, Any]] = []
+
+    phases.append(
+        {
+            "phase_name": "root",
+            "base_url": base,
+            "url_pattern": "/",
+            "pagination_type": "none",
+            "num_pages": 1,
+        }
+    )
+
+    if "artist_directory_root" in page_type_keys or "artist_directory_letter" in page_type_keys:
+        phases.append(
+            {
+                "phase_name": "artist_directory",
+                "base_url": f"{base}/artists",
+                "url_pattern": "/artists",
+                "pagination_type": "none",
+                "num_pages": 1,
+            }
+        )
+        phases.append(
+            {
+                "phase_name": "artist_directory_letters",
+                "base_url": f"{base}/artists/",
+                "url_pattern": "/artists/[letter]/",
+                "pagination_type": "alpha",
+                "num_pages": 26,
+            }
+        )
+
+    if (
+        "artist_profile_hub" in page_type_keys
+        or "artist_biography" in page_type_keys
+        or "artist_related_page" in page_type_keys
+    ):
+        phases.append(
+            {
+                "phase_name": "artist_profiles",
+                "base_url": base,
+                "url_pattern": "/[name]/",
+                "pagination_type": "follow_links",
+                "num_pages": 500,
+                "follow_from_phase": "artist_directory_letters",
+            }
+        )
+
+    if "event_detail" in page_type_keys:
+        phases.append(
+            {
+                "phase_name": "events",
+                "base_url": f"{base}/events",
+                "url_pattern": "/events/[name]",
+                "pagination_type": "none",
+                "num_pages": 1,
+            }
+        )
+
+    if "exhibition_detail" in page_type_keys:
+        phases.append(
+            {
+                "phase_name": "exhibitions",
+                "base_url": f"{base}/exhibitions",
+                "url_pattern": "/exhibitions/[name]",
+                "pagination_type": "none",
+                "num_pages": 1,
+            }
+        )
+
+    if "venue_detail" in page_type_keys:
+        phases.append(
+            {
+                "phase_name": "venues",
+                "base_url": f"{base}/galleries",
+                "url_pattern": "/galleries/[name]",
+                "pagination_type": "none",
+                "num_pages": 1,
+            }
+        )
+
+    if "artwork_detail" in page_type_keys:
+        phases.append(
+            {
+                "phase_name": "artworks",
+                "base_url": f"{base}/artworks",
+                "url_pattern": "/artworks/[name]",
+                "pagination_type": "none",
+                "num_pages": 1,
+            }
+        )
+
+    known = {
+        "artist_directory_root",
+        "artist_directory_letter",
+        "artist_profile_hub",
+        "artist_biography",
+        "artist_related_page",
+        "event_detail",
+        "exhibition_detail",
+        "venue_detail",
+        "artwork_detail",
+    }
+    if page_type_keys - known:
+        phases.append(
+            {
+                "phase_name": "generic_crawl",
+                "base_url": base,
+                "url_pattern": "/[name]",
+                "pagination_type": "none",
+                "num_pages": 50,
+            }
+        )
+
+    return phases
 
 
 async def get_active_runtime_map(
@@ -1529,6 +1653,7 @@ async def apply_source_mapping_preset_to_source(
         preset,
         rows,
         base_runtime_map=base_runtime_map,
+        source_url=source.url,
     )
     source.structure_map = json.dumps(runtime_map)
     source.active_mapping_preset_id = preset.id

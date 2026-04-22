@@ -62,9 +62,11 @@ class AutomatedCrawler:
             "tokens_used": 0,
             "cost": 0.0,
             "media_assets_captured": 0,
+            "phase_stats": {},
         }
         self._ai_fallback_used = 0
         self._seen_urls: set[str] = set()
+        self._phase_urls: dict[str, set[str]] = {}
 
     async def execute_crawl_plan(self, source_id: str) -> dict[str, Any]:
         """Execute the AI-generated crawl plan."""
@@ -113,10 +115,93 @@ class AutomatedCrawler:
         pattern = phase.get("url_pattern", "")
         pagination = phase.get("pagination_type", "none")
         num_pages = int(phase.get("num_pages", 1))
+        follow_from_phase = phase.get("follow_from_phase")
+        before = int(self.stats.get("pages_crawled", 0))
+        attempted = 0
 
-        urls = self._generate_urls(base_url, pattern, pagination, num_pages)
-        for url in urls:
-            await self._crawl_and_extract(source_id, url, depth=0)
+        if pagination == "alpha":
+            letters = "abcdefghijklmnopqrstuvwxyz"
+            discovered: set[str] = set()
+            for letter in letters:
+                letter_url = urljoin(base_url, pattern.replace("[letter]", letter))
+                attempted += 1
+                await self._crawl_and_extract(source_id, letter_url, depth=0)
+                self._phase_urls.setdefault(phase_name, set()).add(letter_url)
+                discovered.update(await self._discover_links_from_url(letter_url, pattern))
+            for url in sorted(discovered):
+                attempted += 1
+                await self._crawl_and_extract(source_id, url, depth=0)
+                self._phase_urls.setdefault(phase_name, set()).add(url)
+        elif pagination == "follow_links":
+            discovered = await self._discover_links_for_follow_phase(
+                source_id=source_id,
+                pattern=pattern,
+                follow_from_phase=follow_from_phase if isinstance(follow_from_phase, str) else None,
+                fallback_url=base_url,
+            )
+            for url in sorted(discovered):
+                attempted += 1
+                await self._crawl_and_extract(source_id, url, depth=0)
+                self._phase_urls.setdefault(phase_name, set()).add(url)
+        else:
+            urls = self._generate_urls(base_url, pattern, pagination, num_pages)
+            for url in urls:
+                attempted += 1
+                await self._crawl_and_extract(source_id, url, depth=0)
+                self._phase_urls.setdefault(phase_name, set()).add(url)
+
+        pages_crawled = int(self.stats.get("pages_crawled", 0)) - before
+        phase_stats = self.stats.setdefault("phase_stats", {})
+        phase_stats[phase_name] = {
+            "pages_crawled": max(0, pages_crawled),
+            "urls_attempted": attempted,
+        }
+        logger.info("phase_complete", phase=phase_name, pages_crawled=max(0, pages_crawled), urls_attempted=attempted)
+
+    async def _discover_links_for_follow_phase(
+        self,
+        *,
+        source_id: str,
+        pattern: str,
+        follow_from_phase: str | None,
+        fallback_url: str,
+    ) -> set[str]:
+        discovered: set[str] = set()
+        source_urls = self._phase_urls.get(follow_from_phase or "", set())
+        if source_urls:
+            pages = await crud.list_pages(self.db, source_id=source_id, limit=settings.max_pages_per_source)
+            for page in pages:
+                if page.url not in source_urls or not page.html:
+                    continue
+                discovered.update(self._extract_internal_links_from_html(page.html, page.url, pattern))
+        if discovered:
+            return discovered
+        if not fallback_url:
+            return set()
+        return await self._discover_links_from_url(fallback_url, pattern)
+
+    async def _discover_links_from_url(self, url: str, pattern: str) -> set[str]:
+        result = await fetch(url)
+        if not result.html:
+            return set()
+        return self._extract_internal_links_from_html(result.html, url, pattern)
+
+    def _extract_internal_links_from_html(self, html: str, current_url: str, pattern: str) -> set[str]:
+        soup = BeautifulSoup(html or "", "lxml")
+        current_netloc = urlparse(current_url).netloc
+        discovered: set[str] = set()
+        for node in soup.select("a[href]"):
+            href = (node.get("href") or "").strip()
+            if not href or href.startswith("#") or href.startswith("javascript:"):
+                continue
+            full_url = urljoin(current_url, href).split("#")[0]
+            parsed = urlparse(full_url)
+            if parsed.netloc != current_netloc:
+                continue
+            if pattern and not self._matches_pattern(parsed.path, pattern):
+                continue
+            discovered.add(full_url)
+        return discovered
 
     async def _crawl_and_extract(self, source_id: str, url: str, *, depth: int = 0) -> None:
         """Crawl URL and extract data deterministically."""
