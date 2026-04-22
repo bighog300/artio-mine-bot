@@ -80,8 +80,16 @@ def upgrade() -> None:
     op.create_index("ix_crawl_run_checkpoints_status", "crawl_run_checkpoints", ["status"], unique=False)
     op.create_index("ix_crawl_run_checkpoints_last_checkpoint_at", "crawl_run_checkpoints", ["last_checkpoint_at"], unique=False)
 
+    op.create_index(
+        "ix_crawl_frontier_source_mapping_next_eligible",
+        "crawl_frontier",
+        ["source_id", "mapping_version_id", "next_eligible_fetch_at"],
+        unique=False,
+    )
+
 
 def downgrade() -> None:
+    op.drop_index("ix_crawl_frontier_source_mapping_next_eligible", table_name="crawl_frontier")
     op.drop_index("ix_crawl_run_checkpoints_last_checkpoint_at", table_name="crawl_run_checkpoints")
     op.drop_index("ix_crawl_run_checkpoints_status", table_name="crawl_run_checkpoints")
     op.drop_index("ix_crawl_run_checkpoints_crawl_run_id", table_name="crawl_run_checkpoints")

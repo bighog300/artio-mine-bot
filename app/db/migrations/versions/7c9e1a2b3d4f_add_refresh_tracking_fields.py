@@ -19,15 +19,8 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.add_column("crawl_frontier", sa.Column("last_change_detected_at", sa.DateTime(timezone=True), nullable=True))
     op.add_column("crawl_frontier", sa.Column("last_refresh_outcome", sa.String(), nullable=True))
-    op.create_index(
-        "ix_crawl_frontier_source_mapping_next_eligible",
-        "crawl_frontier",
-        ["source_id", "mapping_version_id", "next_eligible_fetch_at"],
-        unique=False,
-    )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_crawl_frontier_source_mapping_next_eligible", table_name="crawl_frontier")
     op.drop_column("crawl_frontier", "last_refresh_outcome")
     op.drop_column("crawl_frontier", "last_change_detected_at")
