@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
+from app.api.rbac import require_permission
 from app.api.schemas import (
     ApproveResponse,
     BulkApproveRequest,
@@ -54,6 +55,7 @@ async def list_records(
     skip: int = 0,
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
 ):
     records = await crud.list_records(
         db,
@@ -82,7 +84,11 @@ async def list_records(
 
 
 @router.get("/{record_id}")
-async def get_record(record_id: str, db: AsyncSession = Depends(get_db)):
+async def get_record(
+    record_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
     record = await crud.get_record(db, record_id)
     if not record:
         raise HTTPException(status_code=404, detail="Record not found")
@@ -117,6 +123,7 @@ async def get_adjacent_records(
     source_id: str | None = None,
     status: str | None = None,
     db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
 ):
     # NOTE: O(n) lookup over the filtered record list.
     # This is intentionally simple for current dataset sizes.
@@ -140,7 +147,10 @@ async def get_adjacent_records(
 
 @router.patch("/{record_id}")
 async def update_record(
-    record_id: str, body: RecordUpdate, db: AsyncSession = Depends(get_db)
+    record_id: str,
+    body: RecordUpdate,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
 ):
     record = await crud.get_record(db, record_id)
     if not record:
@@ -161,7 +171,11 @@ async def update_record(
 
 
 @router.post("/{record_id}/approve", response_model=ApproveResponse)
-async def approve_record(record_id: str, db: AsyncSession = Depends(get_db)):
+async def approve_record(
+    record_id: str,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
     record = await crud.get_record(db, record_id)
     if not record:
         raise HTTPException(status_code=404, detail="Record not found")
@@ -178,7 +192,10 @@ async def approve_record(record_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{record_id}/reject", response_model=ApproveResponse)
 async def reject_record(
-    record_id: str, body: RejectRequest | None = None, db: AsyncSession = Depends(get_db)
+    record_id: str,
+    body: RejectRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
 ):
     record = await crud.get_record(db, record_id)
     if not record:
@@ -201,14 +218,21 @@ async def reject_record(
 
 
 @router.post("/bulk-approve", response_model=BulkApproveResponse)
-async def bulk_approve(body: BulkApproveRequest, db: AsyncSession = Depends(get_db)):
+async def bulk_approve(
+    body: BulkApproveRequest,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
+):
     count = await crud.bulk_approve(db, body.source_id, min_confidence=body.min_confidence)
     return BulkApproveResponse(approved_count=count)
 
 
 @router.post("/{record_id}/set-primary-image")
 async def set_primary_image(
-    record_id: str, body: SetPrimaryImageRequest, db: AsyncSession = Depends(get_db)
+    record_id: str,
+    body: SetPrimaryImageRequest,
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("write")),
 ):
     record = await crud.get_record(db, record_id)
     if not record:

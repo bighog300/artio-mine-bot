@@ -21,6 +21,7 @@ export function RecordDetail() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState<Partial<ArtRecord>>({});
+  const [rejectReason, setRejectReason] = useState("");
 
   const params = useMemo(() => {
     const search = new URLSearchParams(location.search);
@@ -75,10 +76,11 @@ export function RecordDetail() {
   });
 
   const rejectMutation = useMutation({
-    mutationFn: () => rejectRecord(id!),
+    mutationFn: () => rejectRecord(id!, rejectReason.trim() || undefined),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["record", id] });
       queryClient.invalidateQueries({ queryKey: ["records"] });
+      setRejectReason("");
       goToAdjacent(adjacent?.next_id ?? null);
     },
   });
@@ -227,6 +229,7 @@ export function RecordDetail() {
               onClick={() => rejectMutation.mutate()}
               className="flex-1"
               variant="danger"
+              title="Reject with optional reason below"
             >
               Reject (r)
             </Button>
@@ -240,6 +243,15 @@ export function RecordDetail() {
                 Source →
               </a>
             )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-muted-foreground mb-1">Reject reason (optional)</label>
+            <TextArea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              className="h-20"
+              placeholder="Explain why this record was rejected"
+            />
           </div>
 
           {dirty && (

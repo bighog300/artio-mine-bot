@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 import structlog
 from redis.exceptions import RedisError
@@ -155,6 +157,38 @@ async def _assert_source_mapping_ready(db: AsyncSession, source_id: str) -> None
         raise HTTPException(
             status_code=422,
             detail="Source has no active mapping — publish a draft or apply a preset before mining",
+        )
+    if not source.structure_map:
+        raise HTTPException(
+            status_code=422,
+            detail="Source runtime mapping is missing — apply a preset or publish a mapping draft before mining",
+        )
+
+    try:
+        runtime_map = json.loads(source.structure_map)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Source runtime mapping is invalid JSON — re-apply mapping before mining",
+        ) from exc
+
+    if not isinstance(runtime_map, dict) or not runtime_map:
+        raise HTTPException(
+            status_code=422,
+            detail="Source runtime mapping is empty — apply a mapping preset or publish a draft before mining",
+        )
+
+    crawl_plan = runtime_map.get("crawl_plan")
+    if not isinstance(crawl_plan, dict) or not isinstance(crawl_plan.get("phases"), list) or not crawl_plan["phases"]:
+        raise HTTPException(
+            status_code=422,
+            detail="Source runtime mapping is incomplete: crawl_plan.phases must be a non-empty list before mining",
+        )
+
+    if not crud.has_usable_runtime_map_payload(runtime_map):
+        raise HTTPException(
+            status_code=422,
+            detail="Source runtime mapping has no usable extraction/mining rules — apply a complete mapping before mining",
         )
 
 

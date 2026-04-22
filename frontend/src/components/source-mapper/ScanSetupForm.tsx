@@ -14,9 +14,21 @@ interface Props {
   onRunScan?: () => void;
   loading?: boolean;
   scanLoading?: boolean;
+  disableRunScan?: boolean;
+  runScanDisabledReason?: string | null;
 }
 
-export function ScanSetupForm({ sourceUrl, settings, onSettingsChange, onCreateDraft, onRunScan, loading, scanLoading }: Props) {
+export function ScanSetupForm({
+  sourceUrl,
+  settings,
+  onSettingsChange,
+  onCreateDraft,
+  onRunScan,
+  loading,
+  scanLoading,
+  disableRunScan,
+  runScanDisabledReason,
+}: Props) {
   const discoveryRoot = settings.discovery_roots[0] ?? "";
   const blockedPaths = settings.blocked_paths.join(", ");
   return (
@@ -65,11 +77,17 @@ export function ScanSetupForm({ sourceUrl, settings, onSettingsChange, onCreateD
           {loading ? "Creating..." : "Create Source Scan"}
         </button>
         {onRunScan && (
-          <button className="px-3 py-2 bg-primary text-white rounded disabled:opacity-60" onClick={onRunScan} disabled={scanLoading}>
+          <button
+            className="px-3 py-2 bg-primary text-white rounded disabled:opacity-60"
+            onClick={onRunScan}
+            disabled={scanLoading || disableRunScan}
+            title={runScanDisabledReason ?? undefined}
+          >
             {scanLoading ? "Running scan..." : "Re-scan"}
           </button>
         )}
       </div>
+      {runScanDisabledReason ? <p className="text-xs text-muted-foreground">{runScanDisabledReason}</p> : null}
     </section>
   );
 }
