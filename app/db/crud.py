@@ -69,7 +69,7 @@ TERMINAL_JOB_STATUSES = {"done", "completed", "failed", "cancelled"}
 TERMINAL_CRAWL_RUN_STATUSES = {"completed", "failed", "cancelled"}
 FRONTIER_STATUS_TRANSITIONS: dict[str, set[str]] = {
     "discovered": {"queued", "skipped", "failed_terminal"},
-    "queued": {"fetching", "skipped", "failed_retryable", "failed_terminal"},
+    "queued": {"fetching", "completed", "skipped", "failed_retryable", "failed_terminal"},
     "fetching": {"queued", "fetched", "parsed", "extracted", "completed", "failed_retryable", "failed_terminal", "skipped"},
     "fetched": {"parsed", "extracted", "completed", "skipped", "failed_retryable", "failed_terminal"},
     "parsed": {"extracted", "completed", "queued", "failed_retryable", "failed_terminal", "skipped"},
@@ -2193,32 +2193,30 @@ async def create_page(db: AsyncSession, source_id: str, url: str, **kwargs: Any)
         "original_url": original_url,
         **kwargs,
     }
-    if dialect_name == "postgresql":
-        stmt = (
-            pg_insert(Page)
-            .values(**payload)
-            .on_conflict_do_nothing(index_elements=["source_id", "normalized_url"])
-            .returning(Page.id)
-        )
-        inserted_id = (await db.execute(stmt)).scalar_one_or_none()
-        if inserted_id is not None:
-            await db.commit()
-            page = await get_page(db, inserted_id)
-            assert page is not None
-            return page
-    elif dialect_name == "sqlite":
-        stmt = (
-            sqlite_insert(Page)
-            .values(**payload)
-            .on_conflict_do_nothing(index_elements=["source_id", "normalized_url"])
-            .returning(Page.id)
-        )
-        inserted_id = (await db.execute(stmt)).scalar_one_or_none()
-        if inserted_id is not None:
-            await db.commit()
-            page = await get_page(db, inserted_id)
-            assert page is not None
-            return page
+    try:
+        if dialect_name == "postgresql":
+            stmt = (
+                pg_insert(Page)
+                .values(**payload)
+                .on_conflict_do_nothing(index_elements=["source_id", "normalized_url"])
+                .returning(Page.id)
+            )
+            inserted_id = (await db.execute(stmt)).scalar_one_or_none()
+            if inserted_id is not None:
+                await db.commit()
+                page = await get_page(db, inserted_id)
+                assert page is not None
+                return page
+        elif dialect_name == "sqlite":
+            stmt = sqlite_insert(Page).values(**payload).on_conflict_do_nothing().returning(Page.id)
+            inserted_id = (await db.execute(stmt)).scalar_one_or_none()
+            if inserted_id is not None:
+                await db.commit()
+                page = await get_page(db, inserted_id)
+                assert page is not None
+                return page
+    except IntegrityError:
+        await db.rollback()
     page = await get_page_by_normalized_url(db, source_id=source_id, normalized_url=normalized_url)
     if page is None:
         page = Page(**payload)
@@ -2236,6 +2234,9 @@ async def get_page(db: AsyncSession, page_id: str) -> Page | None:
 
 async def get_or_create_page(db: AsyncSession, source_id: str, url: str) -> tuple[Page, bool]:
     normalized = normalize_url(url)
+    page = await get_page_by_url(db, source_id=source_id, url=url)
+    if page is not None:
+        return page, False
     page = await get_page_by_normalized_url(db, source_id=source_id, normalized_url=normalized)
     if page is not None:
         return page, False
@@ -4110,6 +4111,7 @@ async def claim_frontier_rows(
             lease_version=CrawlFrontier.lease_version + 1,
             updated_at=now,
         )
+        .execution_options(synchronize_session=False)
         .returning(CrawlFrontier.id)
     )
     claimed_ids = list(updated.scalars().all())
