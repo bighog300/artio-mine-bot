@@ -388,8 +388,10 @@ async def test_settings_openai_api_key_flow(test_client: AsyncClient):
     assert "openai_configured" in read_resp.json()
 
     save_resp = await test_client.post("/api/settings", json={"openai_api_key": "sk-test-openai-1234"})
-    assert save_resp.status_code == 400
-    assert "deployment-managed" in save_resp.json()["detail"]
+    assert save_resp.status_code == 200
+    payload = save_resp.json()
+    assert payload["openai_configured"] is True
+    assert payload["openai_api_key_masked"].endswith("1234")
 
 
 @pytest.mark.asyncio
