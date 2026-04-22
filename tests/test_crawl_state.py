@@ -63,6 +63,27 @@ async def test_claim_and_reclaim_expired_leases(db_session):
 
 
 @pytest.mark.asyncio
+async def test_lease_reclaim_race_only_one_reclaimer_wins(db_session):
+    source = await crud.create_source(db_session, url="https://lease-race.test")
+    crawl_run = await crud.create_crawl_run(db_session, source_id=source.id, seed_url=source.url, status="running")
+    await crud.upsert_crawl_frontier_rows(
+        db_session,
+        crawl_run_id=crawl_run.id,
+        source_id=source.id,
+        rows=[{"url": "https://lease-race.test/a", "normalized_url": "https://lease-race.test/a", "depth": 0, "status": "queued"}],
+    )
+    claimed = await crud.claim_frontier_rows(db_session, crawl_run_id=crawl_run.id, worker_id="worker-a", limit=1, lease_seconds=1)
+    await crud.update_frontier_row(db_session, claimed[0].id, lease_expires_at=datetime.now(UTC) - timedelta(seconds=1))
+
+    async def _reclaim() -> int:
+        async with TestSessionLocal() as session:
+            return await crud.reclaim_expired_frontier_leases(session, crawl_run_id=crawl_run.id)
+
+    reclaimed_a, reclaimed_b = await asyncio.gather(_reclaim(), _reclaim())
+    assert reclaimed_a + reclaimed_b == 1
+
+
+@pytest.mark.asyncio
 async def test_claim_frontier_prefers_priority_then_depth_then_age(db_session):
     source = await crud.create_source(db_session, url="https://priority-order.test")
     crawl_run = await crud.create_crawl_run(db_session, source_id=source.id, seed_url=source.url, status="running")
@@ -164,6 +185,48 @@ async def test_multi_worker_claim_does_not_double_claim_rows(db_session):
     claimed_b = await crud.claim_frontier_rows(db_session, crawl_run_id=crawl_run.id, worker_id="worker-b", limit=5, lease_seconds=30)
     claimed_ids = {row.id for row in claimed_a}.intersection({row.id for row in claimed_b})
     assert not claimed_ids
+
+
+@pytest.mark.asyncio
+async def test_atomic_completion_prevents_double_processing_after_reclaim(db_session):
+    source = await crud.create_source(db_session, url="https://atomic-complete.test")
+    crawl_run = await crud.create_crawl_run(db_session, source_id=source.id, seed_url=source.url, status="running")
+    page = await crud.create_page(db_session, source_id=source.id, url="https://atomic-complete.test/a", status="in_progress")
+    await crud.upsert_crawl_frontier_rows(
+        db_session,
+        crawl_run_id=crawl_run.id,
+        source_id=source.id,
+        rows=[{"url": page.url, "normalized_url": page.normalized_url, "depth": 0, "status": "queued"}],
+    )
+
+    first_claim = await crud.claim_frontier_rows(db_session, crawl_run_id=crawl_run.id, worker_id="worker-a", limit=1, lease_seconds=1)
+    row = first_claim[0]
+    await crud.update_frontier_row(db_session, row.id, lease_expires_at=datetime.now(UTC) - timedelta(seconds=1))
+    await crud.reclaim_expired_frontier_leases(db_session, crawl_run_id=crawl_run.id)
+    second_claim = await crud.claim_frontier_rows(db_session, crawl_run_id=crawl_run.id, worker_id="worker-b", limit=1, lease_seconds=60)
+    assert len(second_claim) == 1
+
+    async with TestSessionLocal() as session_a:
+        first_completion = await crud.complete_frontier_row_atomic(
+            session_a,
+            frontier_id=row.id,
+            worker_id="worker-a",
+            lease_version=int(row.lease_version or 0),
+            page_id=page.id,
+            page_updates={"status": "completed"},
+            frontier_updates={"status": "completed", "leased_by_worker": None, "lease_expires_at": None},
+        )
+    assert first_completion is False
+
+    async with TestSessionLocal() as verify_session:
+        refreshed = await crud.claim_frontier_rows(
+            verify_session,
+            crawl_run_id=crawl_run.id,
+            worker_id="worker-c",
+            limit=1,
+            lease_seconds=60,
+        )
+    assert refreshed == []
 
 
 @pytest.mark.asyncio

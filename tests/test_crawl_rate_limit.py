@@ -203,3 +203,20 @@ async def test_captcha_page_pauses_crawl(db_session):
     run = await crud.get_active_crawl_run_for_source(db_session, source.id)
     assert run is not None
     assert run.status == "paused"
+
+
+@pytest.mark.asyncio
+async def test_global_domain_rate_limit_prevents_multi_worker_burst(db_session):
+    granted_a, retry_a = await crud.acquire_domain_rate_limit_slot(
+        db_session,
+        domain="burst-control.test",
+        min_interval_ms=500,
+    )
+    granted_b, retry_b = await crud.acquire_domain_rate_limit_slot(
+        db_session,
+        domain="burst-control.test",
+        min_interval_ms=500,
+    )
+    assert granted_a is True
+    assert granted_b is False
+    assert retry_b >= retry_a
