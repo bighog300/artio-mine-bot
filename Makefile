@@ -13,10 +13,10 @@ logs-migrate:
 	docker compose logs migrate --tail=200
 
 migrate:
-	docker compose run --rm migrate
+	docker compose --profile ops run --rm migrate
 
 up-core:
-	docker compose up -d db redis
+	docker compose up -d postgres redis
 
 up-app:
 	docker compose up -d api worker frontend
