@@ -1,0 +1,131 @@
+You are working in the Artio Mine Bot repository.
+
+Implement a focused architecture evolution so the platform becomes source-agnostic by default and domain-specific only through the mapping workflow.
+
+Do not stop at analysis. Make code changes, add/update tests, run them, and summarize exactly what changed.
+
+## Product goal
+The desired behavior is:
+1. user enters a source URL,
+2. system scans it generically for structure and content,
+3. AI proposes structure, selectors, follow rules, and candidate record mappings,
+4. admin approves/edits that mapping,
+5. approved mapping becomes the runtime extraction contract,
+6. mining produces records such as artists, venues, and events from the approved mapping.
+
+The platform must not be configured specifically for art-related sources in core discovery/mining logic. Domain specificity should be chosen during mapping.
+
+## Core principle
+Make the system:
+- generic in discovery
+- configurable in mapping
+- deterministic in mining
+
+## Main tasks
+
+### 1. Remove or isolate art-specific assumptions from generic discovery/mining paths
+Inspect at least:
+- `app/source_mapper/service.py`
+- `app/source_mapper/page_clustering.py`
+- `app/source_mapper/proposal_engine.py`
+- `app/crawler/automated_crawler.py`
+- `app/crawler/durable_frontier.py`
+- `app/pipeline/runner.py`
+
+Implement:
+- audit for art-specific path logic, artist-specific slug logic, or art.co.za-specific assumptions in generic paths
+- remove, isolate, or demote these into optional heuristics/fallbacks
+- do not let them remain required for successful mining when a runtime map exists
+
+### 2. Separate structural page roles from target record types
+Implement a clearer model where mapping rows/runtime map can express both:
+- generic page role / cluster type
+- target record type
+
+Examples of target record types:
+- `artist`
+- `venue`
+- `event`
+- optionally `exhibition`, `artwork`, `organization`
+
+Do not require the scanner to hardcode these as the only page semantics.
+
+### 3. Make mapping authoritative for mining
+Inspect at least:
+- `app/db/crud.py`
+- `app/pipeline/runner.py`
+- `app/crawler/automated_crawler.py`
+- `app/api/routes/mine.py`
+
+Implement:
+- ensure approved mapping/runtime map provides enough classification and extraction information to drive mining
+- reduce dependence on source-specific inference in the success path
+- preserve backward compatibility where practical
+
+### 4. Update Source Mapping UI to support cluster-to-record assignment
+Inspect at least:
+- `frontend/src/pages/SourceMapping.tsx`
+- `frontend/src/components/source-mapper/*`
+- `frontend/src/lib/api.ts`
+
+Implement:
+- let admins assign target record types during mapping review
+- preserve row moderation, sample run, publish, preset apply, and mining workflow
+- make the UI communicate that domain specificity is chosen during mapping
+
+### 5. Make proposal generation schema-aware, not site-aware
+Inspect:
+- `app/source_mapper/proposal_engine.py`
+- related schemas/helpers
+
+Implement:
+- proposals should be framed around likely record schemas/page structures, not one known site
+- keep proposals editable and reviewable
+
+### 6. Support one source producing multiple record types
+Inspect:
+- runtime-map generation
+- extraction/mining pipeline
+- records persistence/moderation
+
+Implement:
+- ensure a single source can produce artists, venues, and events from separate approved mappings/clusters
+- preserve target type into the record pipeline
+
+### 7. Keep records moderation aligned with mapping-defined target types
+Inspect:
+- `frontend/src/pages/Records.tsx`
+- `frontend/src/pages/RecordDetail.tsx`
+- `app/api/routes/records.py`
+
+Implement:
+- records should remain browsable/moderatable by target type
+- no code path should implicitly assume only artist-like records matter
+
+## Constraints
+- Make focused, incremental changes
+- Preserve current working flows where possible
+- Do not add DB migrations unless absolutely necessary
+- Avoid speculative rewrite of the whole platform
+- Prefer compatibility shims when renaming or generalizing existing art-specific terms
+- Be explicit about transitional architecture vs final architecture
+
+## Tests
+Add/update tests for:
+- generic runtime-map classification without art.co.za-specific inference
+- multi-entity runtime maps for one source
+- target record type propagation from mapping to mining to records
+- Source Mapping UI support for target record assignment
+- records moderation working across multiple record types
+
+Run and report:
+- relevant backend tests
+- relevant frontend tests
+- `npm -C frontend run build`
+
+## Deliverable format
+After implementation, provide:
+1. Root causes addressed
+2. Files changed with one-line purpose each
+3. Tests run and results
+4. Remaining risks / follow-up recommendations
