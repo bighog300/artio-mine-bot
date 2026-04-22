@@ -408,9 +408,17 @@ class MappingDriftSignalResponse(BaseModel):
     id: str
     source_id: str
     mapping_version_id: str | None = None
+    page_id: str | None = None
+    page_url: str | None = None
+    record_id: str | None = None
+    field_name: str | None = None
+    drift_type: str | None = None
     family_key: str | None = None
     signal_type: str
     severity: str
+    confidence: float | None = None
+    previous_value: str | None = None
+    current_value: str | None = None
     detected_at: datetime
     status: str
     metrics: dict[str, Any] = {}
@@ -441,6 +449,22 @@ class DriftRemapDraftResponse(BaseModel):
     draft_mapping_version_id: str
     based_on_mapping_version_id: str | None = None
     status: str
+
+
+class DriftSummaryResponse(BaseModel):
+    source_id: str
+    mapping_version_id: str | None = None
+    total_pages_checked: int
+    pages_with_drift: int
+    drift_rate: float
+    top_failing_fields: list[dict[str, Any]] = []
+    severity_distribution: dict[str, int] = {}
+    alert_level: str
+
+
+class DriftFieldsResponse(BaseModel):
+    source_id: str
+    fields: list[dict[str, Any]]
 
 
 class SourceMappingPresetSummary(BaseModel):
