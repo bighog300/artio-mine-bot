@@ -1,8 +1,12 @@
+import asyncio
+import time
 from collections.abc import AsyncGenerator
 
 import structlog
+import sqlalchemy
 from sqlalchemy import inspect
 from sqlalchemy import event
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -35,10 +39,20 @@ def _build_engine() -> AsyncEngine:
         # Serverless Postgres providers typically require short-lived connections.
         engine_kwargs["poolclass"] = NullPool
         engine_kwargs["pool_pre_ping"] = True
+        engine_kwargs["connect_args"] = {
+            "timeout": settings.db_connect_timeout_seconds,
+            "command_timeout": settings.db_command_timeout_seconds,
+        }
     else:
         engine_kwargs["pool_pre_ping"] = True
         engine_kwargs["pool_size"] = 5
         engine_kwargs["max_overflow"] = 10
+        engine_kwargs["pool_timeout"] = settings.db_pool_timeout_seconds
+        if settings.database_url.startswith("postgresql+asyncpg://"):
+            engine_kwargs["connect_args"] = {
+                "timeout": settings.db_connect_timeout_seconds,
+                "command_timeout": settings.db_command_timeout_seconds,
+            }
 
     db_engine = create_async_engine(settings.database_url, **engine_kwargs)
 
@@ -72,6 +86,57 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             yield session
         finally:
             await session.close()
+
+
+async def wait_for_database(
+    *,
+    max_wait_seconds: float | None = None,
+    retry_interval_seconds: float | None = None,
+) -> None:
+    if settings.database_url.startswith("sqlite+aiosqlite://"):
+        return
+
+    effective_max_wait = (
+        settings.db_startup_max_wait_seconds
+        if max_wait_seconds is None
+        else max_wait_seconds
+    )
+    effective_retry_interval = (
+        settings.db_startup_retry_interval_seconds
+        if retry_interval_seconds is None
+        else retry_interval_seconds
+    )
+    deadline = time.monotonic() + effective_max_wait
+    attempt = 0
+
+    while True:
+        attempt += 1
+        try:
+            async with get_engine().connect() as conn:
+                await conn.execute(sqlalchemy.text("SELECT 1"))
+            logger.info("db_wait_succeeded", attempt=attempt)
+            return
+        except (OperationalError, SQLAlchemyError, OSError, RuntimeError) as exc:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                logger.error(
+                    "db_wait_failed",
+                    attempt=attempt,
+                    timeout_seconds=effective_max_wait,
+                    error=str(exc),
+                )
+                raise RuntimeError(
+                    f"Database connection unavailable after {effective_max_wait:.1f}s"
+                ) from exc
+
+            logger.warning(
+                "db_wait_retrying",
+                attempt=attempt,
+                retry_in_seconds=effective_retry_interval,
+                remaining_seconds=max(0.0, remaining),
+                error=str(exc),
+            )
+            await asyncio.sleep(min(effective_retry_interval, remaining))
 
 
 async def init_db() -> None:

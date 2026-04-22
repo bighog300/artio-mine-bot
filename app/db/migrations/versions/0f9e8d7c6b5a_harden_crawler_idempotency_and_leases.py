@@ -45,6 +45,11 @@ def upgrade() -> None:
         )
     else:
         with op.batch_alter_table("crawl_frontier") as batch_op:
+            batch_op.drop_constraint(
+                "uq_crawl_frontier_source_normalized_url",
+                type_="unique",
+                if_exists=True,
+            )
             batch_op.create_unique_constraint(
                 "uq_crawl_frontier_source_normalized_url",
                 ["source_id", "normalized_url"],

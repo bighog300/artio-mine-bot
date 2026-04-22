@@ -124,6 +124,13 @@ class Settings(BaseSettings):
     playwright_enabled: bool | None = None
     cors_origins: str = "http://localhost:5173"
     max_concurrent_jobs: int = 5
+    run_startup_db_init: bool = False
+    db_startup_wait_enabled: bool = True
+    db_startup_max_wait_seconds: float = 30.0
+    db_startup_retry_interval_seconds: float = 1.0
+    db_connect_timeout_seconds: float = 5.0
+    db_command_timeout_seconds: float = 10.0
+    db_pool_timeout_seconds: float = 5.0
 
     @model_validator(mode="after")
     def _set_playwright_default(self) -> "Settings":
