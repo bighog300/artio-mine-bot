@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -10,13 +10,13 @@ import structlog
 from bs4 import BeautifulSoup
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.crawler.crawl_policy import score_url
 from app.crawler.fetcher import fetch
 from app.crawler.freshness import (
     compute_next_eligible_fetch_at,
     detect_content_change,
     normalize_freshness_policy,
 )
-from app.crawler.crawl_policy import score_url
 from app.crawler.robots import RobotsChecker
 from app.crawler.seeding import build_seed_rows
 from app.crawler.url_utils import normalize_url
@@ -26,30 +26,61 @@ from app.pipeline.job_progress import report_job_progress
 logger = structlog.get_logger()
 RETRYABLE_STATUS_CODES = {429, 503}
 TERMINAL_PAGE_STATUSES = {"extracted", "skipped", "expanded"}
+CAPTCHA_MARKERS = (
+    "captcha",
+    "g-recaptcha",
+    "hcaptcha",
+    "cf-chl",
+    "cloudflare challenge",
+    "are you human",
+)
 
 
-def _extract_links(html: str, base_url: str) -> list[str]:
+class CrawlStage:
+    """Explicit crawl processing stages used for observability and checkpointing."""
+
+    QUEUED = "QUEUED"
+    FETCHING = "FETCHING"
+    PARSING = "PARSING"
+    EXTRACTING = "EXTRACTING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
+def _extract_links(html: str, base_url: str, source_domain: str) -> list[str]:
+    """Extract same-domain links only and enforce source-domain boundary."""
     soup = BeautifulSoup(html or "", "lxml")
     items: list[str] = []
-    base_domain = urlparse(base_url).netloc
+    base_domain = urlparse(base_url).netloc.lower()
     for node in soup.find_all("a", href=True):
         href = (node.get("href") or "").strip()
         if not href or href.startswith("#") or href.startswith("javascript:"):
             continue
         full = urljoin(base_url, href).split("#")[0]
-        if urlparse(full).netloc != base_domain:
+        link_domain = urlparse(full).netloc.lower()
+        if link_domain != base_domain:
+            continue
+        if link_domain != source_domain:
             continue
         items.append(full)
     return items
 
 
-def _parse_retry_after_seconds(retry_after: str | None) -> int:
-    if not retry_after:
-        return 30
-    try:
-        return max(1, int(retry_after))
-    except ValueError:
-        return 30
+def _parse_retry_after_seconds(retry_after: str | None, retry_count: int) -> int:
+    """Exponential backoff with Retry-After override."""
+    if retry_after:
+        try:
+            return max(1, int(retry_after))
+        except ValueError:
+            pass
+    base = 10
+    cap = 300
+    return min(cap, base * (2 ** max(0, retry_count)))
+
+
+def _is_captcha_page(html: str | None) -> bool:
+    body = (html or "").lower()
+    return any(marker in body for marker in CAPTCHA_MARKERS)
 
 
 async def _emit_crawl_event(
@@ -90,6 +121,33 @@ async def _emit_crawl_event(
         )
 
 
+async def _checkpoint(
+    db: AsyncSession,
+    *,
+    crawl_run_id: str,
+    source_id: str,
+    mapping_version_id: str | None,
+    status: str,
+    processed: int,
+    max_pages: int,
+    worker_id: str,
+    stage: str,
+    last_processed_url: str | None = None,
+) -> None:
+    counts = await crud.get_crawl_frontier_counts(db, crawl_run_id)
+    await crud.upsert_crawl_run_checkpoint(
+        db,
+        crawl_run_id=crawl_run_id,
+        source_id=source_id,
+        mapping_version_id=mapping_version_id,
+        status=status,
+        frontier_counts=counts,
+        last_processed_url=last_processed_url,
+        progress={"processed": processed, "max_pages": max_pages, "stage": stage},
+        worker_state={"worker_id": worker_id, "stage": stage},
+    )
+
+
 async def run_durable_crawl(
     db: AsyncSession,
     *,
@@ -104,13 +162,17 @@ async def run_durable_crawl(
     force_refresh: bool = False,
     crawl_run_id: str | None = None,
 ) -> dict[str, Any]:
+    """Run durable crawl with resume-safe frontier and strict idempotency guarantees."""
     robots_checker = robots_checker or RobotsChecker()
     source = await crud.get_source(db, source_id)
     if source is None:
         raise ValueError(f"Source {source_id} not found")
+
     resolved_seed_url = source.url or seed_url
+    source_domain = urlparse(resolved_seed_url).netloc.lower()
     mapping_version_id = source.published_mapping_version_id
     crawl_run = await crud.get_crawl_run(db, crawl_run_id) if crawl_run_id else await crud.get_active_crawl_run_for_source(db, source_id)
+
     if crawl_run is None or crawl_run.status in {"completed", "failed", "cancelled"}:
         crawl_run = await crud.create_crawl_run(
             db,
@@ -122,18 +184,20 @@ async def run_durable_crawl(
             mapping_version_id=mapping_version_id,
         )
         if not refresh_mode:
-            seed_rows = build_seed_rows(
-                root_url=resolved_seed_url,
-                structure_map=source.structure_map,
-            )
+            seed_rows = build_seed_rows(root_url=resolved_seed_url, structure_map=source.structure_map)
+            allowed_seed_rows: list[dict[str, Any]] = []
             for seed_row in seed_rows:
                 seed_row["mapping_version_id"] = mapping_version_id
+                if urlparse(seed_row["url"]).netloc.lower() != source_domain:
+                    continue
+                if await robots_checker.is_allowed(seed_row["url"]):
+                    allowed_seed_rows.append(seed_row)
             seed_priority, seed_page_type = score_url(resolved_seed_url, source.structure_map)
             await crud.upsert_crawl_frontier_rows(
                 db,
                 crawl_run_id=crawl_run.id,
                 source_id=source_id,
-                rows=seed_rows
+                rows=allowed_seed_rows
                 or [
                     {
                         "url": resolved_seed_url,
@@ -171,25 +235,28 @@ async def run_durable_crawl(
         for rule in mapping_json.get("family_rules", [])
         if isinstance(rule, dict) and rule.get("family_key")
     }
+
     processed = 0
     changed_count = 0
     unchanged_count = 0
+
     while processed < max_pages:
         source = await crud.get_source(db, source_id)
         if source is None:
             raise ValueError(f"Source {source_id} not found")
+
         if source.queue_paused or crawl_run.status == "paused":
             await crud.update_crawl_run(db, crawl_run.id, status="paused", last_heartbeat_at=datetime.now(UTC))
-            counts = await crud.get_crawl_frontier_counts(db, crawl_run.id)
-            await crud.upsert_crawl_run_checkpoint(
+            await _checkpoint(
                 db,
                 crawl_run_id=crawl_run.id,
                 source_id=source_id,
                 mapping_version_id=mapping_version_id,
                 status="paused",
-                frontier_counts=counts,
-                progress={"processed": processed, "max_pages": max_pages},
-                worker_state={"worker_id": worker_id},
+                processed=processed,
+                max_pages=max_pages,
+                worker_id=worker_id,
+                stage=CrawlStage.QUEUED,
             )
             await _emit_crawl_event(
                 db,
@@ -205,13 +272,8 @@ async def run_durable_crawl(
             break
 
         await crud.reclaim_expired_frontier_leases(db, crawl_run_id=crawl_run.id)
-        batch = await crud.claim_frontier_rows(
-            db,
-            crawl_run_id=crawl_run.id,
-            worker_id=worker_id,
-            limit=10,
-            lease_seconds=120,
-        )
+        batch = await crud.claim_frontier_rows(db, crawl_run_id=crawl_run.id, worker_id=worker_id, limit=10, lease_seconds=120)
+
         if not batch:
             counts = await crud.get_crawl_frontier_counts(db, crawl_run.id)
             queued = counts.get("queued", 0) + counts.get("fetching", 0) + counts.get("failed_retryable", 0)
@@ -224,28 +286,24 @@ async def run_durable_crawl(
                     last_heartbeat_at=datetime.now(UTC),
                     stats_json=json.dumps(counts),
                 )
-            await crud.upsert_crawl_run_checkpoint(
+            await _checkpoint(
                 db,
                 crawl_run_id=crawl_run.id,
                 source_id=source_id,
                 mapping_version_id=mapping_version_id,
                 status="completed" if queued <= 0 else "running",
-                frontier_counts=counts,
-                progress={"processed": processed, "max_pages": max_pages},
-                worker_state={"worker_id": worker_id},
+                processed=processed,
+                max_pages=max_pages,
+                worker_id=worker_id,
+                stage=CrawlStage.COMPLETED if queued <= 0 else CrawlStage.QUEUED,
             )
             break
 
         for row in batch:
             if processed >= max_pages:
-                await crud.update_frontier_row(
-                    db,
-                    row.id,
-                    status="queued",
-                    lease_expires_at=None,
-                    leased_by_worker=None,
-                )
+                await crud.update_frontier_row(db, row.id, status="queued", lease_expires_at=None, leased_by_worker=None)
                 continue
+
             if row.depth > max_depth:
                 await crud.update_frontier_row(
                     db,
@@ -253,8 +311,36 @@ async def run_durable_crawl(
                     status="skipped",
                     skip_reason="max_depth_exceeded",
                     last_error="max_depth_exceeded",
+                    lease_expires_at=None,
+                    leased_by_worker=None,
                 )
                 continue
+
+            if urlparse(row.url).netloc.lower() != source_domain:
+                await crud.update_frontier_row(
+                    db,
+                    row.id,
+                    status="skipped",
+                    skip_reason="outside_source_domain",
+                    last_error="outside_source_domain",
+                    lease_expires_at=None,
+                    leased_by_worker=None,
+                )
+                continue
+
+            # Idempotency guard: skip already completed pages.
+            existing = await crud.get_page_by_url(db, source_id=source_id, url=row.url)
+            if existing and existing.status in TERMINAL_PAGE_STATUSES:
+                await crud.update_frontier_row(
+                    db,
+                    row.id,
+                    status="extracted",
+                    last_extracted_at=datetime.now(UTC),
+                    lease_expires_at=None,
+                    leased_by_worker=None,
+                )
+                continue
+
             allowed_by_robots = await robots_checker.is_allowed(row.url)
             if not allowed_by_robots:
                 await crud.update_frontier_row(
@@ -277,26 +363,75 @@ async def run_durable_crawl(
                     context={"url": row.url, "reason": "robots_blocked"},
                 )
                 continue
+
+            await _checkpoint(
+                db,
+                crawl_run_id=crawl_run.id,
+                source_id=source_id,
+                mapping_version_id=mapping_version_id,
+                status="running",
+                processed=processed,
+                max_pages=max_pages,
+                worker_id=worker_id,
+                stage=CrawlStage.FETCHING,
+                last_processed_url=row.url,
+            )
+
             result = await fetch(row.url)
             now = datetime.now(UTC)
-            if result.status_code in RETRYABLE_STATUS_CODES:
-                retry_after_s = _parse_retry_after_seconds(None)
+
+            if _is_captcha_page(result.html):
                 await crud.update_frontier_row(
                     db,
                     row.id,
                     status="failed_retryable",
                     retry_count=int(row.retry_count or 0) + 1,
+                    next_retry_at=now + timedelta(minutes=10),
+                    last_error="captcha_detected",
+                    lease_expires_at=None,
+                    leased_by_worker=None,
+                )
+                await crud.update_crawl_run(db, crawl_run.id, status="paused", cooldown_until=now + timedelta(minutes=10))
+                await _emit_crawl_event(
+                    db,
+                    job_id=job_id,
+                    source_id=source_id,
+                    crawl_run_id=crawl_run.id,
+                    worker_id=worker_id,
+                    event_type="captcha_detected",
+                    message="CAPTCHA detected, crawl paused",
+                    level="warning",
+                    context={"url": row.url},
+                )
+                await _checkpoint(
+                    db,
+                    crawl_run_id=crawl_run.id,
+                    source_id=source_id,
+                    mapping_version_id=mapping_version_id,
+                    status="paused",
+                    processed=processed,
+                    max_pages=max_pages,
+                    worker_id=worker_id,
+                    stage=CrawlStage.FAILED,
+                    last_processed_url=row.url,
+                )
+                break
+
+            if result.status_code in RETRYABLE_STATUS_CODES:
+                retry_count = int(row.retry_count or 0) + 1
+                retry_after_s = _parse_retry_after_seconds(None, retry_count)
+                await crud.update_frontier_row(
+                    db,
+                    row.id,
+                    status="failed_retryable",
+                    retry_count=retry_count,
                     next_retry_at=now + timedelta(seconds=retry_after_s),
                     last_status_code=result.status_code,
                     last_error=f"rate_limited_{result.status_code}",
+                    lease_expires_at=None,
+                    leased_by_worker=None,
                 )
-                await crud.update_crawl_run(
-                    db,
-                    crawl_run.id,
-                    status="cooling_down",
-                    cooldown_until=now + timedelta(seconds=retry_after_s),
-                    last_heartbeat_at=now,
-                )
+                await crud.update_crawl_run(db, crawl_run.id, status="cooling_down", cooldown_until=now + timedelta(seconds=retry_after_s), last_heartbeat_at=now)
                 await _emit_crawl_event(
                     db,
                     job_id=job_id,
@@ -305,22 +440,79 @@ async def run_durable_crawl(
                     worker_id=worker_id,
                     event_type="retry_scheduled",
                     message="Rate-limited URL scheduled for retry",
-                    context={"url": row.url, "status_code": result.status_code, "retry_after_seconds": retry_after_s},
+                    context={"url": row.url, "status_code": result.status_code, "retry_after_seconds": retry_after_s, "retry_count": retry_count},
+                )
+                await _checkpoint(
+                    db,
+                    crawl_run_id=crawl_run.id,
+                    source_id=source_id,
+                    mapping_version_id=mapping_version_id,
+                    status="running",
+                    processed=processed,
+                    max_pages=max_pages,
+                    worker_id=worker_id,
+                    stage=CrawlStage.FAILED,
+                    last_processed_url=row.url,
                 )
                 continue
 
             if result.error:
+                failed_status = "failed_terminal" if int(row.retry_count or 0) >= 2 else "failed_retryable"
                 await crud.update_frontier_row(
                     db,
                     row.id,
-                    status="failed_terminal" if int(row.retry_count or 0) >= 2 else "failed_retryable",
+                    status=failed_status,
                     retry_count=int(row.retry_count or 0) + 1,
                     last_error=result.error,
                     last_status_code=result.status_code,
+                    lease_expires_at=None,
+                    leased_by_worker=None,
+                )
+                await _checkpoint(
+                    db,
+                    crawl_run_id=crawl_run.id,
+                    source_id=source_id,
+                    mapping_version_id=mapping_version_id,
+                    status="running",
+                    processed=processed,
+                    max_pages=max_pages,
+                    worker_id=worker_id,
+                    stage=CrawlStage.FAILED,
+                    last_processed_url=row.url,
                 )
                 continue
 
+            await _checkpoint(
+                db,
+                crawl_run_id=crawl_run.id,
+                source_id=source_id,
+                mapping_version_id=mapping_version_id,
+                status="running",
+                processed=processed,
+                max_pages=max_pages,
+                worker_id=worker_id,
+                stage=CrawlStage.PARSING,
+                last_processed_url=result.final_url,
+            )
+
             new_content_hash = hashlib.sha256((result.html or "").encode("utf-8")).hexdigest()
+            duplicate_by_hash = await crud.get_page_by_content_hash(db, source_id=source_id, content_hash=new_content_hash)
+            if duplicate_by_hash and duplicate_by_hash.url != result.final_url:
+                await crud.update_frontier_row(
+                    db,
+                    row.id,
+                    status="extracted",
+                    last_status_code=result.status_code,
+                    last_fetched_at=now,
+                    canonical_url=duplicate_by_hash.url,
+                    content_hash=new_content_hash,
+                    last_refresh_outcome="duplicate_content_hash",
+                    lease_expires_at=None,
+                    leased_by_worker=None,
+                )
+                processed += 1
+                continue
+
             change = detect_content_change(
                 previous_content_hash=row.content_hash,
                 new_content_hash=new_content_hash,
@@ -351,28 +543,37 @@ async def run_durable_crawl(
                 processed += 1
                 continue
 
+            await _checkpoint(
+                db,
+                crawl_run_id=crawl_run.id,
+                source_id=source_id,
+                mapping_version_id=mapping_version_id,
+                status="running",
+                processed=processed,
+                max_pages=max_pages,
+                worker_id=worker_id,
+                stage=CrawlStage.EXTRACTING,
+                last_processed_url=result.final_url,
+            )
+
             page, _created = await crud.get_or_create_page(db, source_id=source_id, url=result.final_url)
             previous_page_status = page.status
+            page_title = None
+            parsed_html = BeautifulSoup(result.html or "", "lxml")
+            if parsed_html.title and parsed_html.title.string:
+                page_title = parsed_html.title.string.strip()
             update_kwargs: dict[str, Any] = {
                 "crawl_run_id": crawl_run.id,
                 "original_url": row.url,
                 "depth": row.depth,
                 "fetch_method": result.method,
                 "html": (result.html or "").replace("\x00", "")[: 500 * 1024],
-                "title": (
-                    BeautifulSoup(result.html or "", "lxml").title.string.strip()
-                    if BeautifulSoup(result.html or "", "lxml").title
-                    and BeautifulSoup(result.html or "", "lxml").title.string
-                    else None
-                ),
+                "title": page_title,
                 "crawled_at": now,
                 "mapping_version_id_used": mapping_version_id,
+                "content_hash": new_content_hash,
             }
-            update_kwargs["status"] = (
-                previous_page_status
-                if (not refresh_mode and previous_page_status in TERMINAL_PAGE_STATUSES)
-                else "fetched"
-            )
+            update_kwargs["status"] = previous_page_status if (not refresh_mode and previous_page_status in TERMINAL_PAGE_STATUSES) else "fetched"
             await crud.update_page(db, page.id, **update_kwargs)
             await crud.update_frontier_row(
                 db,
@@ -391,20 +592,22 @@ async def run_durable_crawl(
                 leased_by_worker=None,
             )
             if not refresh_mode and previous_page_status in TERMINAL_PAGE_STATUSES:
-                await crud.update_frontier_row(
-                    db,
-                    row.id,
-                    status="extracted",
-                    last_extracted_at=now,
-                )
+                await crud.update_frontier_row(db, row.id, status="extracted", last_extracted_at=now)
+
             if change.changed:
                 changed_count += 1
             elif refresh_mode:
                 unchanged_count += 1
-            links = _extract_links(result.html or "", result.final_url)
+
+            links = _extract_links(result.html or "", result.final_url, source_domain)
             source_page_type = row.predicted_page_type or "generic"
             discovered_rows: list[dict[str, Any]] = []
             for link in links:
+                # Enforce robots and domain policy before enqueue.
+                if urlparse(link).netloc.lower() != source_domain:
+                    continue
+                if not await robots_checker.is_allowed(link):
+                    continue
                 priority, predicted_page_type = score_url(link, source.structure_map)
                 discovered_rows.append(
                     {
@@ -420,33 +623,24 @@ async def run_durable_crawl(
                         "discovery_reason": "outlink",
                     }
                 )
-            if not refresh_mode:
-                await crud.upsert_crawl_frontier_rows(
-                    db,
-                    crawl_run_id=crawl_run.id,
-                    source_id=source_id,
-                    rows=discovered_rows,
-                )
+
+            if not refresh_mode and discovered_rows:
+                await crud.upsert_crawl_frontier_rows(db, crawl_run_id=crawl_run.id, source_id=source_id, rows=discovered_rows)
                 await crud.queue_discovered_frontier_rows(db, crawl_run_id=crawl_run.id, limit=max(100, len(discovered_rows)))
+
             processed += 1
-            await crud.update_crawl_run(
-                db,
-                crawl_run.id,
-                status="running",
-                last_heartbeat_at=now,
-                cooldown_until=None,
-            )
-            counts = await crud.get_crawl_frontier_counts(db, crawl_run.id)
-            await crud.upsert_crawl_run_checkpoint(
+            await crud.update_crawl_run(db, crawl_run.id, status="running", last_heartbeat_at=now, cooldown_until=None)
+            await _checkpoint(
                 db,
                 crawl_run_id=crawl_run.id,
                 source_id=source_id,
                 mapping_version_id=mapping_version_id,
                 status="running",
-                frontier_counts=counts,
+                processed=processed,
+                max_pages=max_pages,
+                worker_id=worker_id,
+                stage=CrawlStage.COMPLETED,
                 last_processed_url=result.final_url,
-                progress={"processed": processed, "max_pages": max_pages},
-                worker_state={"worker_id": worker_id},
             )
             await _emit_crawl_event(
                 db,
@@ -456,15 +650,11 @@ async def run_durable_crawl(
                 worker_id=worker_id,
                 event_type="page_fetched",
                 message="Page fetched",
-                context={"url": result.final_url, "depth": row.depth},
+                context={"url": result.final_url, "depth": row.depth, "stage": CrawlStage.COMPLETED},
             )
 
     counts = await crud.get_crawl_frontier_counts(db, crawl_run.id)
-    robots_blocked = await crud.count_crawl_frontier_rows_by_error(
-        db,
-        crawl_run_id=crawl_run.id,
-        last_error="robots_blocked",
-    )
+    robots_blocked = await crud.count_crawl_frontier_rows_by_error(db, crawl_run_id=crawl_run.id, last_error="robots_blocked")
     return {
         "crawl_run_id": crawl_run.id,
         "pages_crawled": counts.get("fetched", 0),
