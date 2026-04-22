@@ -462,6 +462,13 @@ class PipelineRunner:
                     mapping_version_id=source.published_mapping_version_id,
                 )
                 stats = await crawler.execute_crawl_plan(source_id)
+                phase_stats = stats.get("phase_stats", {}) if isinstance(stats.get("phase_stats"), dict) else {}
+                logger.info(
+                    "crawl_phase_stats",
+                    source_id=source_id,
+                    executed_phases=list(phase_stats.keys()),
+                    pages_per_phase={name: values.get("pages_crawled", 0) for name, values in phase_stats.items()},
+                )
                 pages_crawled = max(int(stats.get("pages_crawled", 0)), 1)
                 deterministic_rate = stats.get("extracted_deterministic", 0) / pages_crawled
                 ai_fallback_rate = stats.get("extracted_ai_fallback", 0) / pages_crawled
