@@ -52,6 +52,7 @@ from app.db.models import (
 from app.crawler.url_utils import normalize_url
 from app.records.deduplication import (
     build_merge_snapshot,
+    classify_identity_match,
     fuzzy_name_match,
     merge_record,
     normalize_name,
@@ -2057,32 +2058,58 @@ async def create_record(
         kwargs.setdefault("completeness_score", completeness)
         kwargs.setdefault("has_conflicts", has_conflicts)
 
-    exact_result = await db.execute(
-        select(Record).where(
-            Record.source_id == source_id,
-            Record.record_type == canonical_type.value,
-            Record.normalized_name == payload.normalized_name,
-        )
-    )
-    existing = exact_result.scalar_one_or_none()
-
-    if existing is None and payload.normalized_name:
-        fuzzy_result = await db.execute(
+    existing: Record | None = None
+    best_match: tuple[Record, float, str, dict[str, Any]] | None = None
+    if payload.normalized_name:
+        candidate_result = await db.execute(
             select(Record).where(Record.source_id == source_id, Record.record_type == canonical_type.value)
         )
-        candidates = list(fuzzy_result.scalars().all())
-        existing = next(
-            (
-                candidate
-                for candidate in candidates
-                if fuzzy_name_match(candidate.normalized_name or "", payload.normalized_name)
-            ),
-            None,
-        )
+        for candidate in list(candidate_result.scalars().all()):
+            if not fuzzy_name_match(candidate.normalized_name or "", payload.normalized_name, threshold=0.7):
+                continue
+            candidate_snapshot = serialize_record_snapshot(candidate)
+            score, decision, signals = classify_identity_match(
+                record_type=canonical_type,
+                existing_values=candidate_snapshot,
+                incoming_values={"normalized_name": payload.normalized_name, **kwargs},
+            )
+            if best_match is None or score > best_match[1]:
+                best_match = (candidate, score, decision, signals)
+
+    match_decision: str | None = None
+    if best_match is not None:
+        existing, identity_score, decision, signals = best_match
+        match_decision = decision
+        if decision == "review":
+            kwargs.setdefault("admin_notes", f"dedup_review_required score={identity_score:.3f} signals={signals}")
+            existing = None
+        elif decision == "new":
+            existing = None
 
     if existing is not None:
         existing_snapshot = serialize_record_snapshot(existing)
+        raw_payload: dict[str, Any] = {}
+        if isinstance(existing.raw_data, str):
+            try:
+                parsed = json.loads(existing.raw_data)
+                if isinstance(parsed, dict):
+                    raw_payload = parsed
+            except json.JSONDecodeError:
+                raw_payload = {}
         merged_values, changes = merge_record(existing_snapshot, kwargs)
+        raw_payload["field_provenance"] = merged_values.get("field_provenance", {})
+        raw_payload["conflicts"] = merged_values.get("conflicts", {})
+        raw_payload["merge_events"] = raw_payload.get("merge_events", [])
+        raw_payload["merge_events"].append(
+            {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "involved_record_ids": [existing.id, f"incoming:{payload.fingerprint}"],
+                "before": existing_snapshot,
+                "after": {**existing_snapshot, **{k: v.get("after") for k, v in changes.items()}},
+                "changes": changes,
+            }
+        )
+        merged_values["raw_data"] = json.dumps(raw_payload, default=str)
         merged_values.pop("id", None)
         merged_values.pop("source_id", None)
         merged_values.pop("record_type", None)
@@ -2107,6 +2134,17 @@ async def create_record(
         await db.commit()
         await db.refresh(existing)
         return existing
+
+    if payload.normalized_name and match_decision in {"review", "new"}:
+        name_collision = await db.execute(
+            select(func.count(Record.id)).where(
+                Record.source_id == source_id,
+                Record.record_type == canonical_type.value,
+                Record.normalized_name == payload.normalized_name,
+            )
+        )
+        if int(name_collision.scalar_one() or 0) > 0:
+            kwargs["normalized_name"] = f"{payload.normalized_name}--{payload.fingerprint[:12]}"
 
     insert_values = dict(kwargs)
     for field in ("artist_names", "mediums", "collections", "confidence_reasons"):
@@ -2439,6 +2477,20 @@ async def create_image(db: AsyncSession, source_id: str, url: str, **kwargs: Any
     )
     existing = existing_result.scalar_one_or_none()
     if existing is not None:
+        incoming_record_id = kwargs.get("record_id")
+        incoming_confidence = int(kwargs.get("confidence", 0) or 0)
+        allow_reassign = bool(kwargs.pop("allow_reassign", False))
+        if incoming_record_id and (
+            existing.record_id is None
+            or existing.record_id == incoming_record_id
+            or allow_reassign
+            or incoming_confidence > int(existing.confidence or 0)
+        ):
+            existing.record_id = incoming_record_id
+            existing.page_id = kwargs.get("page_id", existing.page_id)
+            existing.confidence = max(int(existing.confidence or 0), incoming_confidence)
+            await db.commit()
+            await db.refresh(existing)
         return existing
     image = Image(source_id=source_id, url=url, **kwargs)
     db.add(image)

@@ -14,6 +14,7 @@ async def test_duplicate_insert_prevention(db_session):
         source_id=source.id,
         record_type="ARTIST",
         title="Jane Doe",
+        website_url="https://janedoe.example",
         confidence_score=70,
     )
     right = await crud.create_record(
@@ -21,6 +22,7 @@ async def test_duplicate_insert_prevention(db_session):
         source_id=source.id,
         record_type="artist",
         title="Jane Doe",
+        website_url="https://janedoe.example",
         confidence_score=60,
     )
 
@@ -39,6 +41,7 @@ async def test_merge_correctness_prefers_higher_confidence_and_unions_arrays(db_
         record_type="artist",
         title="Mary Smith",
         description="Short bio",
+        website_url="https://marysmith.example",
         mediums=["oil"],
         confidence_score=60,
         field_confidence={"description": 60, "mediums": 60},
@@ -50,6 +53,7 @@ async def test_merge_correctness_prefers_higher_confidence_and_unions_arrays(db_
         record_type="artist",
         title="Mary Smith",
         description="Longer verified biography",
+        website_url="https://marysmith.example",
         mediums=["oil", "ink"],
         confidence_score=90,
         field_confidence={"description": 90, "mediums": 80},
@@ -73,6 +77,7 @@ async def test_multi_page_same_artist_merges_into_one_entity(db_session):
         record_type="artist",
         title="Artist Alpha",
         bio="Bio A",
+        website_url="https://artist.example.net",
         confidence_score=75,
     )
     second = await crud.create_record(
@@ -98,20 +103,100 @@ async def test_conflicting_data_resolution_uses_field_confidence(db_session):
         source_id=source.id,
         record_type="venue",
         title="Gallery One",
+        address="10 Art St",
         city="Cape Town",
         confidence_score=85,
-        field_confidence={"city": 85},
+        field_confidence={"address": 85, "city": 85},
     )
     merged = await crud.create_record(
         db_session,
         source_id=source.id,
         record_type="venue",
         title="Gallery One",
+        address="10 Art St",
         city="Johannesburg",
         confidence_score=40,
-        field_confidence={"city": 40},
+        field_confidence={"address": 40, "city": 40},
     )
 
     assert merged.id == original.id
     assert merged.city == "Cape Town"
     assert merged.structured_data["city"] == "Cape Town"
+
+
+@pytest.mark.asyncio
+async def test_false_merge_prevention_without_secondary_signal(db_session):
+    source = await crud.create_source(db_session, url="https://false-merge.example", name="False Merge")
+    one = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Alex Brown",
+        bio="Painter from Cape Town",
+        confidence_score=70,
+    )
+    two = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Alex Brown",
+        bio="Sculptor from Nairobi",
+        confidence_score=68,
+    )
+    assert one.id != two.id
+
+
+@pytest.mark.asyncio
+async def test_similar_name_different_entity_does_not_merge(db_session):
+    source = await crud.create_source(db_session, url="https://name-similarity.example", name="Name Similarity")
+    first = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="venue",
+        title="Modern Art House",
+        address="1 Main Road",
+        city="Cape Town",
+        confidence_score=85,
+        field_confidence={"address": 85, "city": 85},
+    )
+    second = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="venue",
+        title="Modern Arts Hub",
+        address="88 South Ave",
+        city="Durban",
+        confidence_score=82,
+        field_confidence={"address": 82, "city": 82},
+    )
+    assert first.id != second.id
+
+
+@pytest.mark.asyncio
+async def test_conflict_detection_preserves_existing_value(db_session):
+    source = await crud.create_source(db_session, url="https://conflict-detection.example", name="Conflict Detection")
+    primary = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Lina Moss",
+        website_url="https://linamoss.example",
+        birth_year=1980,
+        confidence_score=90,
+        field_confidence={"birth_year": 90},
+    )
+    merged = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Lina Moss",
+        website_url="https://linamoss.example",
+        birth_year=1982,
+        confidence_score=92,
+        field_confidence={"birth_year": 92},
+    )
+    assert merged.id == primary.id
+    assert merged.birth_year == 1980
+    assert merged.has_conflicts is True
+    payload = json.loads(merged.raw_data or "{}")
+    assert "birth_year" in payload.get("conflicts", {})
