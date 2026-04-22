@@ -481,6 +481,11 @@ class MappingRepairProposalResponse(BaseModel):
     supporting_pages: list[str] = []
     drift_signals_used: list[str] = []
     validation_results: dict[str, Any] = {}
+    occurrence_count: int = 1
+    priority_score: float = 0.0
+    strategy_used: str | None = None
+    reasoning: str | None = None
+    evidence: dict[str, Any] = {}
     status: str
     reviewed_by: str | None = None
     reviewed_at: datetime | None = None

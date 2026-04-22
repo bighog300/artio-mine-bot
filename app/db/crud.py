@@ -1099,6 +1099,11 @@ async def create_mapping_repair_proposal(
     supporting_pages: list[str],
     drift_signals_used: list[str],
     validation_results: dict[str, Any],
+    occurrence_count: int = 1,
+    priority_score: float = 0.0,
+    strategy_used: str | None = None,
+    reasoning: str | None = None,
+    evidence: dict[str, Any] | None = None,
     status: str = "DRAFT",
 ) -> MappingRepairProposal:
     if status not in MAPPING_REPAIR_STATUSES:
@@ -1113,12 +1118,88 @@ async def create_mapping_repair_proposal(
         supporting_pages_json=json.dumps(supporting_pages),
         drift_signals_used_json=json.dumps(drift_signals_used),
         validation_results_json=json.dumps(validation_results),
+        occurrence_count=max(1, int(occurrence_count)),
+        priority_score=float(priority_score),
+        strategy_used=strategy_used,
+        reasoning=reasoning,
+        evidence_json=json.dumps(evidence or {}),
         status=status,
     )
     db.add(proposal)
     await db.commit()
     await db.refresh(proposal)
     return proposal
+
+
+async def upsert_mapping_repair_proposal(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    mapping_version_id: str | None,
+    field_name: str,
+    old_selector: str | None,
+    proposed_selector: str,
+    confidence_score: float,
+    supporting_pages: list[str],
+    drift_signals_used: list[str],
+    validation_results: dict[str, Any],
+    occurrence_count: int = 1,
+    priority_score: float = 0.0,
+    strategy_used: str | None = None,
+    reasoning: str | None = None,
+    evidence: dict[str, Any] | None = None,
+    status: str = "DRAFT",
+) -> MappingRepairProposal:
+    stmt = select(MappingRepairProposal).where(
+        MappingRepairProposal.source_id == source_id,
+        MappingRepairProposal.mapping_version_id == mapping_version_id,
+        MappingRepairProposal.field_name == field_name,
+        MappingRepairProposal.proposed_selector == proposed_selector,
+    )
+    existing = (await db.execute(stmt)).scalar_one_or_none()
+    if existing is None:
+        return await create_mapping_repair_proposal(
+            db,
+            source_id=source_id,
+            mapping_version_id=mapping_version_id,
+            field_name=field_name,
+            old_selector=old_selector,
+            proposed_selector=proposed_selector,
+            confidence_score=confidence_score,
+            supporting_pages=supporting_pages,
+            drift_signals_used=drift_signals_used,
+            validation_results=validation_results,
+            occurrence_count=occurrence_count,
+            priority_score=priority_score,
+            strategy_used=strategy_used,
+            reasoning=reasoning,
+            evidence=evidence,
+            status=status,
+        )
+
+    existing.confidence_score = max(existing.confidence_score, confidence_score)
+    existing.status = "VALIDATED" if "VALIDATED" in {existing.status, status} else status
+    existing.validation_results_json = json.dumps(validation_results)
+    existing.occurrence_count = max(1, int(existing.occurrence_count or 1) + max(1, int(occurrence_count)))
+    existing.priority_score = max(float(existing.priority_score or 0.0), float(priority_score))
+    if strategy_used:
+        existing.strategy_used = strategy_used
+    if reasoning:
+        existing.reasoning = reasoning
+    existing.evidence_json = json.dumps(evidence or {})
+    existing.updated_at = datetime.now(UTC)
+
+    existing_pages = set(json.loads(existing.supporting_pages_json or "[]"))
+    existing_pages.update(supporting_pages)
+    existing.supporting_pages_json = json.dumps(sorted(existing_pages)[:25])
+
+    existing_signals = set(json.loads(existing.drift_signals_used_json or "[]"))
+    existing_signals.update(drift_signals_used)
+    existing.drift_signals_used_json = json.dumps(sorted(existing_signals)[:100])
+
+    await db.commit()
+    await db.refresh(existing)
+    return existing
 
 
 async def list_mapping_repair_proposals(
@@ -1132,7 +1213,15 @@ async def list_mapping_repair_proposals(
     stmt = select(MappingRepairProposal).where(MappingRepairProposal.source_id == source_id)
     if status:
         stmt = stmt.where(MappingRepairProposal.status == status)
-    stmt = stmt.order_by(MappingRepairProposal.created_at.desc()).offset(skip).limit(limit)
+    stmt = (
+        stmt.order_by(
+            MappingRepairProposal.priority_score.desc(),
+            MappingRepairProposal.occurrence_count.desc(),
+            MappingRepairProposal.created_at.desc(),
+        )
+        .offset(skip)
+        .limit(limit)
+    )
     result = await db.execute(stmt)
     return list(result.scalars().all())
 
@@ -1160,6 +1249,7 @@ async def update_mapping_repair_proposal(
     validation_results: dict[str, Any] | None = None,
     feedback: dict[str, Any] | None = None,
     applied_mapping_version_id: str | None = None,
+    confidence_score: float | None = None,
 ) -> MappingRepairProposal:
     proposal = await get_mapping_repair_proposal(db, source_id=source_id, proposal_id=proposal_id)
     if proposal is None:
@@ -1177,10 +1267,43 @@ async def update_mapping_repair_proposal(
         proposal.reviewed_at = datetime.now(UTC)
     if applied_mapping_version_id is not None:
         proposal.applied_mapping_version_id = applied_mapping_version_id
+    if confidence_score is not None:
+        proposal.confidence_score = float(confidence_score)
     proposal.updated_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(proposal)
     return proposal
+
+
+async def get_mapping_repair_feedback_stats(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    field_name: str,
+) -> dict[str, float]:
+    stmt = select(MappingRepairProposal).where(
+        MappingRepairProposal.source_id == source_id,
+        MappingRepairProposal.field_name == field_name,
+    )
+    rows = list((await db.execute(stmt)).scalars().all())
+    if not rows:
+        return {"accepted_rate": 0.5, "apply_success_rate": 0.5}
+
+    accepted = sum(1 for row in rows if row.status in {"VALIDATED", "APPLIED"})
+    applied = [row for row in rows if row.status == "APPLIED"]
+    successful_applies = 0
+    for row in applied:
+        feedback = json.loads(row.feedback_json or "{}")
+        event = feedback.get("post_apply_success")
+        if isinstance(event, dict):
+            successful_applies += 1
+
+    accepted_rate = accepted / max(len(rows), 1)
+    apply_success_rate = successful_applies / max(len(applied), 1) if applied else 0.5
+    return {
+        "accepted_rate": round(accepted_rate, 4),
+        "apply_success_rate": round(apply_success_rate, 4),
+    }
 
 
 async def get_mapping_health_state(
