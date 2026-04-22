@@ -241,6 +241,41 @@ export interface MappingVersion {
   published_by: string | null;
 }
 
+export interface MappingListItem {
+  id: string;
+  name: string;
+  version: number;
+  status: "healthy" | "degraded" | string;
+  updated_at: string;
+  drift_impact: number;
+}
+
+export interface MappingFieldHealth {
+  field_name: string;
+  selector: string;
+  success_rate: number;
+  confidence_avg: number;
+  drift_indicator: "stable" | "warning" | "critical" | string;
+}
+
+export interface MappingDetail {
+  id: string;
+  source_id?: string | null;
+  name: string;
+  version: number;
+  status: "healthy" | "degraded" | string;
+  updated_at: string;
+  drift_impact: number;
+  fields: MappingFieldHealth[];
+}
+
+export interface MappingTestResponse {
+  field_name: string;
+  selector: string;
+  output: Array<{ label: string; value: string | null }>;
+  notes?: string[];
+}
+
 export interface MappingDiffSummary {
   added: number;
   removed: number;
@@ -1181,6 +1216,30 @@ export const applyMappingTemplateToSource = (
   sourceId: string
 ): Promise<{ source_id: string; runtime_map_source: string; has_runtime_map: boolean; runtime_mapping_updated_at: string | null }> =>
   api.post(`/mapping-templates/${templateId}/apply`, null, { params: { source_id: sourceId } }).then((r) => r.data);
+
+export const getMappings = (): Promise<{ items: MappingListItem[] }> =>
+  api.get("/mappings").then((r) => r.data);
+
+export const getMapping = (mappingId: string): Promise<MappingDetail> =>
+  api.get(`/mappings/${mappingId}`).then((r) => r.data);
+
+export const testMapping = (payload: {
+  id: string;
+  field_name: string;
+  selector: string;
+}): Promise<MappingTestResponse> =>
+  api
+    .post(`/mappings/${payload.id}/test`, { field_name: payload.field_name, selector: payload.selector })
+    .then((r) => r.data);
+
+export const updateMapping = (payload: {
+  id: string;
+  field_name: string;
+  selector: string;
+}): Promise<MappingDetail> =>
+  api
+    .post(`/mappings/${payload.id}/update`, { field_name: payload.field_name, selector: payload.selector })
+    .then((r) => r.data);
 
 export const detectSourceDriftSignals = (
   sourceId: string

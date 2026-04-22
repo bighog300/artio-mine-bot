@@ -7,6 +7,8 @@ import { SourceOperations } from "@/pages/SourceOperations";
 import { SourceMapping } from "@/pages/SourceMapping";
 import { MappingReview } from "@/pages/MappingReview";
 import { MappingDrift } from "@/pages/MappingDrift";
+import { Mappings } from "@/pages/Mappings";
+import { MappingDetail } from "@/pages/MappingDetail";
 import { Records } from "@/pages/Records";
 import { RecordDetail } from "@/pages/RecordDetail";
 import { Pages } from "@/pages/Pages";
@@ -42,6 +44,8 @@ export default function App() {
           <Route path="/sources/:id/mapping" element={<SourceMapping />} />
           <Route path="/sources/:id/mappings/:mappingId/review" element={<MappingReview />} />
           <Route path="/sources/:id/drift" element={<MappingDrift />} />
+          <Route path="/mappings" element={<Mappings />} />
+          <Route path="/mappings/:id" element={<MappingDetail />} />
           <Route path="/records" element={<Records />} />
           <Route path="/admin-review" element={<AdminReview />} />
           <Route path="/duplicates" element={<DuplicateResolution />} />

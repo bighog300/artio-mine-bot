@@ -98,6 +98,19 @@ export function MappingDrift() {
                   <Button size="sm" variant="secondary" onClick={() => ackMutation.mutate(signal.id)} disabled={signal.status !== "open"}>Acknowledge</Button>
                   <Button size="sm" variant="secondary" onClick={() => dismissMutation.mutate(signal.id)} disabled={signal.status === "dismissed"}>Dismiss</Button>
                   <Button size="sm" onClick={() => remapMutation.mutate(signal.id)}>Create remap draft</Button>
+                  {signal.mapping_version_id ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() =>
+                        navigate(
+                          `/mappings/${signal.mapping_version_id}?source_id=${encodeURIComponent(id)}&signal_id=${encodeURIComponent(signal.id)}&field=${encodeURIComponent(signal.family_key ?? "")}`,
+                        )
+                      }
+                    >
+                      Fix Mapping
+                    </Button>
+                  ) : null}
                 </td>
               </tr>
             ))}

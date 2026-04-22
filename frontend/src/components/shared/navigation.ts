@@ -47,6 +47,7 @@ const baseNavSections: NavSection[] = [
     heading: "Data Review",
     items: [
       { to: "/records", label: "Records", icon: Database },
+      { to: "/mappings", label: "Mappings", icon: FileText },
       { to: "/admin-review", label: "Admin Review", icon: SearchCheck },
       { to: "/duplicates", label: "Duplicates", icon: GitMerge },
       { to: "/semantic", label: "Semantic", icon: Compass },
