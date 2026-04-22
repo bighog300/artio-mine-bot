@@ -282,6 +282,15 @@ export function SourceMapping() {
 
   const rowItems = rows?.items ?? [];
   const selectedCount = selectedRowIds.length;
+  const hasDraft = Boolean(draftId && draft);
+  const approvedRowsCount = draft?.approved_count ?? 0;
+  const hasApprovedRows = approvedRowsCount > 0;
+  const mappingIsPublished = Boolean(source?.published_mapping_version_id);
+  const mappingIsApplied = Boolean(source?.active_mapping_preset_id);
+  const canStartMining = mappingIsPublished || mappingIsApplied;
+  const canRunScan = hasDraft;
+  const canRunSample = hasDraft && hasApprovedRows;
+  const canPublishDraft = hasDraft && hasApprovedRows;
   const filteredRows = useMemo(
     () => rowItems.filter((row) => (statusFilter === "all" ? true : row.status === statusFilter)),
     [rowItems, statusFilter]
@@ -295,6 +304,9 @@ export function SourceMapping() {
         <Button variant="ghost" size="sm" onClick={() => navigate(`/sources/${id}`)}>← Back to source</Button>
         <h1 className="text-2xl lg:text-3xl font-bold">Source Mapping Workflow</h1>
         <p className="text-sm text-muted-foreground">{source?.url ?? "Loading source..."}</p>
+        <p className="text-xs text-muted-foreground mt-1">
+          Workflow: create draft → scan and moderate rows → sample extraction moderation → publish/apply preset → mine.
+        </p>
       </div>
 
       {message && <div className="rounded border border-border bg-muted/40 px-3 py-2 text-sm">{message}</div>}
@@ -308,6 +320,8 @@ export function SourceMapping() {
           onRunScan={draftId ? () => scanMutation.mutate() : undefined}
           loading={createDraftMutation.isPending}
           scanLoading={scanMutation.isPending}
+          disableRunScan={!canRunScan}
+          runScanDisabledReason={!canRunScan ? "Create a mapping draft first." : null}
         />
         <section className="rounded border bg-card p-4 space-y-2 text-sm">
           <h2 className="font-semibold">Scan Status</h2>
@@ -331,6 +345,8 @@ export function SourceMapping() {
           sampleRun={sampleRun}
           onStart={() => sampleRunMutation.mutate()}
           loading={sampleRunMutation.isPending}
+          disabled={!canRunSample}
+          disabledReason={!hasDraft ? "Create a mapping draft first." : !hasApprovedRows ? "Approve at least one row before running sample extraction." : null}
           onModerateResult={(resultId, payload) => moderateSampleResultMutation.mutate({ resultId, payload })}
         />
       </div>
@@ -357,7 +373,8 @@ export function SourceMapping() {
         <Button
           onClick={() => startMiningMutation.mutate()}
           loading={startMiningMutation.isPending}
-          disabled={!source?.active_mapping_preset_id && !source?.published_mapping_version_id}
+          disabled={!canStartMining}
+          title={!canStartMining ? "Publish a mapping draft or apply a preset before starting mining." : undefined}
         >
           Start Mining
         </Button>
@@ -385,6 +402,8 @@ export function SourceMapping() {
         diff={diff}
         onPublish={() => publishMutation.mutate()}
         publishing={publishMutation.isPending}
+        canPublish={canPublishDraft}
+        publishDisabledReason={!hasDraft ? "Create a mapping draft first." : !hasApprovedRows ? "Approve at least one mapping row before publishing." : null}
         onRollback={(versionId) => rollbackMutation.mutate(versionId)}
       />
 

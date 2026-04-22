@@ -6,6 +6,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_db
+from app.api.main import app
+from app.config import settings
 from app.db import crud
 
 
@@ -153,6 +156,51 @@ async def test_reject_record(test_client: AsyncClient, db_session: AsyncSession)
     )
     assert resp.status_code == 200
     assert resp.json()["status"] == "rejected"
+
+
+@pytest.mark.asyncio
+async def test_records_read_only_api_key_can_list_but_cannot_moderate(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+):
+    source = await crud.create_source(db_session, url="https://records-perm-test.com")
+    record = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Permission Artist",
+        confidence_score=80,
+        confidence_band="HIGH",
+    )
+    await db_session.commit()
+
+    create_key_resp = await test_client.post(
+        "/api/keys",
+        json={"name": "records-viewer", "tenant_id": "public", "permissions": ["read"]},
+    )
+    raw_key = create_key_resp.json()["raw_key"]
+
+    original_dev_auto_admin = settings.dev_auto_admin
+    settings.dev_auto_admin = False
+
+    async def override_get_db():
+        yield db_session
+
+    try:
+        app.dependency_overrides[get_db] = override_get_db
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers={"X-API-Key": raw_key},
+        ) as client:
+            list_resp = await client.get("/api/records")
+            assert list_resp.status_code == 200
+
+            approve_resp = await client.post(f"/api/records/{record.id}/approve")
+            assert approve_resp.status_code == 403
+    finally:
+        app.dependency_overrides.clear()
+        settings.dev_auto_admin = original_dev_auto_admin
 
 
 @pytest.mark.asyncio
@@ -339,6 +387,40 @@ async def test_mine_start_requires_active_mapping(test_client: AsyncClient):
 
     assert resp.status_code == 422
     assert "Source has no active mapping" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_mine_start_requires_non_empty_structure_map(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://mine-empty-structure-map.com")
+    mapping_version = await crud.create_source_mapping_version(db_session, source.id, created_by="admin")
+    await crud.update_source(
+        db_session,
+        source.id,
+        published_mapping_version_id=mapping_version.id,
+        structure_map="{}",
+    )
+
+    resp = await test_client.post(f"/api/mine/{source.id}/start")
+
+    assert resp.status_code == 422
+    assert "runtime mapping is empty" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_mine_start_requires_crawl_plan_phases(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://mine-empty-phases.com")
+    mapping_version = await crud.create_source_mapping_version(db_session, source.id, created_by="admin")
+    await crud.update_source(
+        db_session,
+        source.id,
+        published_mapping_version_id=mapping_version.id,
+        structure_map=json.dumps({"crawl_plan": {"phases": []}, "extraction_rules": {"artist": {}}}),
+    )
+
+    resp = await test_client.post(f"/api/mine/{source.id}/start")
+
+    assert resp.status_code == 422
+    assert "crawl_plan.phases" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio

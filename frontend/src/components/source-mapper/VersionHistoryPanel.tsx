@@ -5,10 +5,20 @@ interface Props {
   diff?: MappingDiffSummary;
   onPublish: () => void;
   publishing: boolean;
+  canPublish?: boolean;
+  publishDisabledReason?: string | null;
   onRollback: (versionId: string) => void;
 }
 
-export function VersionHistoryPanel({ versions, diff, onPublish, publishing, onRollback }: Props) {
+export function VersionHistoryPanel({
+  versions,
+  diff,
+  onPublish,
+  publishing,
+  canPublish = true,
+  publishDisabledReason,
+  onRollback,
+}: Props) {
   return (
     <section className="rounded border bg-card p-4 space-y-2">
       <h2 className="font-semibold">Versioning & Publish</h2>
@@ -17,9 +27,15 @@ export function VersionHistoryPanel({ versions, diff, onPublish, publishing, onR
           <span>Diff — Added: <strong>{diff.added}</strong>, Changed: <strong>{diff.changed}</strong>, Removed: <strong>{diff.removed}</strong>, Unchanged: <strong>{diff.unchanged}</strong></span>
         ) : "Loading diff..."}
       </div>
-      <button className="px-3 py-2 bg-emerald-600 text-white rounded disabled:opacity-60" onClick={onPublish} disabled={publishing}>
+      <button
+        className="px-3 py-2 bg-emerald-600 text-white rounded disabled:opacity-60"
+        onClick={onPublish}
+        disabled={publishing || !canPublish}
+        title={publishDisabledReason ?? undefined}
+      >
         {publishing ? "Publishing..." : "Publish Draft"}
       </button>
+      {publishDisabledReason ? <p className="text-xs text-muted-foreground">{publishDisabledReason}</p> : null}
       <div className="text-sm">
         <div className="font-medium mb-1">Recent versions</div>
         {!versions.length ? "No versions yet." : (

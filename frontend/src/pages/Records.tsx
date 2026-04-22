@@ -67,7 +67,7 @@ export function Records() {
   });
 
   const rejectMutation = useMutation({
-    mutationFn: (id: string) => rejectRecord(id),
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => rejectRecord(id, reason),
     onSuccess: invalidateRecordQueries,
   });
 
@@ -105,10 +105,16 @@ export function Records() {
     if (action === "approve") {
       await Promise.all(ids.map((id) => approveRecord(id)));
     } else {
-      await Promise.all(ids.map((id) => rejectRecord(id)));
+      const reason = window.prompt("Optional rejection reason for selected records:");
+      await Promise.all(ids.map((id) => rejectRecord(id, reason ?? undefined)));
     }
     setSelectedIds(new Set());
     invalidateRecordQueries();
+  };
+
+  const requestRejectReason = () => {
+    const reason = window.prompt("Optional rejection reason:");
+    return reason?.trim() || undefined;
   };
 
   return (
@@ -186,7 +192,14 @@ export function Records() {
             </div>
           )}
           {data?.items.map((record) => (
-            <RecordMobileCard key={record.id} record={record} onToggleSelected={toggleSelected} onApprove={approveMutation.mutate} onReject={rejectMutation.mutate} selected={selectedIds.has(record.id)} />
+            <RecordMobileCard
+              key={record.id}
+              record={record}
+              onToggleSelected={toggleSelected}
+              onApprove={(id) => approveMutation.mutate(id)}
+              onReject={(id) => rejectMutation.mutate({ id, reason: requestRejectReason() })}
+              selected={selectedIds.has(record.id)}
+            />
           ))}
           {!isLoading && data?.items.length === 0 && (
             <EmptyState
@@ -224,7 +237,7 @@ export function Records() {
                 selected={selectedIds.has(record.id)}
                 onToggleSelected={toggleSelected}
                 onApprove={(id) => approveMutation.mutate(id)}
-                onReject={(id) => rejectMutation.mutate(id)}
+                onReject={(id) => rejectMutation.mutate({ id, reason: requestRejectReason() })}
               />
             ))}
             {!isLoading && data?.items.length === 0 && (
