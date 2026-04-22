@@ -224,6 +224,9 @@ async def test_mine_start(test_client: AsyncClient):
     with patch(
         "app.api.routes.mine._enqueue_pipeline_job",
         return_value="mock-rq-job-id",
+    ), patch(
+        "app.api.routes.mine._assert_source_mapping_ready",
+        new=AsyncMock(return_value=None),
     ):
         resp = await test_client.post(f"/api/mine/{source_id}/start")
 
@@ -242,6 +245,9 @@ async def test_mine_start_sets_source_queued(test_client: AsyncClient):
     with patch(
         "app.api.routes.mine._enqueue_pipeline_job",
         return_value="mock-rq-job-id",
+    ), patch(
+        "app.api.routes.mine._assert_source_mapping_ready",
+        new=AsyncMock(return_value=None),
     ):
         resp = await test_client.post(f"/api/mine/{source_id}/start")
 
@@ -302,6 +308,9 @@ async def test_mining_status_includes_queued_job(test_client: AsyncClient):
     with patch(
         "app.api.routes.mine._enqueue_pipeline_job",
         return_value="mock-rq-job-id",
+    ), patch(
+        "app.api.routes.mine._assert_source_mapping_ready",
+        new=AsyncMock(return_value=None),
     ):
         await test_client.post(f"/api/mine/{source_id}/start")
 
@@ -320,6 +329,19 @@ async def test_mine_start_not_found(test_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_mine_start_requires_active_mapping(test_client: AsyncClient):
+    create_resp = await test_client.post(
+        "/api/sources", json={"url": "https://mine-no-mapping.com"}
+    )
+    source_id = create_resp.json()["id"]
+
+    resp = await test_client.post(f"/api/mine/{source_id}/start")
+
+    assert resp.status_code == 422
+    assert "Source has no active mapping" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_mine_start_returns_controlled_error_when_enqueue_fails(test_client: AsyncClient):
     create_resp = await test_client.post(
         "/api/sources", json={"url": "https://mine-enqueue-fail.com"}
@@ -329,6 +351,10 @@ async def test_mine_start_returns_controlled_error_when_enqueue_fails(test_clien
     with (
         patch("app.api.routes.mine._assert_queue_available"),
         patch("app.api.routes.mine._enqueue_pipeline_job", side_effect=RuntimeError("redis down")),
+        patch(
+            "app.api.routes.mine._assert_source_mapping_ready",
+            new=AsyncMock(return_value=None),
+        ),
     ):
         resp = await test_client.post(f"/api/mine/{source_id}/start")
 

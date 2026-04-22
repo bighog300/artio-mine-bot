@@ -429,6 +429,12 @@ async def run_deterministic_mine(
     db: AsyncSession = Depends(get_db),
     _role: str = Depends(require_permission("write")),
 ):
+    source = await _ensure_source(db, source_id)
+    if not source.active_mapping_preset_id and not source.published_mapping_version_id:
+        raise HTTPException(
+            status_code=422,
+            detail="Source has no active mapping — publish a draft or apply a preset before mining",
+        )
     job_id = await _enqueue_source_job(
         db,
         source_id=source_id,

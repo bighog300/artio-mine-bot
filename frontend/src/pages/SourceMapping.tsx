@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
@@ -18,6 +18,7 @@ import {
   getSourceMappingVersions,
   publishSourceMappingDraft,
   rollbackSourceMappingVersion,
+  startMining,
   startSourceMappingSampleRun,
   startSourceMappingScan,
   updateSourceMappingSampleRunResult,
@@ -37,11 +38,13 @@ import { useIsMobile } from "@/lib/mobile-utils";
 export function SourceMapping() {
   const isMobile = useIsMobile();
   const { id } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
-  const [draftId, setDraftId] = useState<string | null>(null);
+  const draftIdFromUrl = searchParams.get("draft");
+  const [localDraftId, setLocalDraftId] = useState<string | null>(draftIdFromUrl);
+  const draftId = localDraftId ?? draftIdFromUrl;
   const [sampleRunId, setSampleRunId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -56,13 +59,6 @@ export function SourceMapping() {
   const [createPresetOpen, setCreatePresetOpen] = useState(false);
   const [deletingPresetId, setDeletingPresetId] = useState<string | null>(null);
   const [applyingPresetId, setApplyingPresetId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const draftFromUrl = searchParams.get("draft");
-    if (draftFromUrl && !draftId) {
-      setDraftId(draftFromUrl);
-    }
-  }, [searchParams, draftId]);
 
   const { data: source } = useQuery({ queryKey: ["source", id], queryFn: () => getSource(id!), enabled: !!id });
   const { data: draft } = useQuery({
@@ -113,7 +109,8 @@ export function SourceMapping() {
     onSuccess: (payload, _variables, context) => {
       if (context?.toastId) toast.dismiss(context.toastId);
       toast.success("Mapping draft queued", "Scan has been queued and will run in the background.");
-      setDraftId(payload.id);
+      setLocalDraftId(payload.id);
+      setSearchParams({ draft: payload.id });
       setMessage("Scan draft created.");
       qc.invalidateQueries({ queryKey: ["source-mapping-draft", id, payload.id] });
       qc.invalidateQueries({ queryKey: ["source-mapping-rows", id, payload.id] });
@@ -130,14 +127,20 @@ export function SourceMapping() {
   });
 
   const scanMutation = useMutation({
-    mutationFn: () => startSourceMappingScan(id!, draftId!),
+    mutationFn: () => {
+      if (!draftId) throw new Error("No active draft — create or open a draft first");
+      return startSourceMappingScan(id!, draftId);
+    },
     onSuccess: (payload) => {
       setMessage(payload.message);
       qc.invalidateQueries({ queryKey: ["source-mapping-draft", id, draftId] });
       qc.invalidateQueries({ queryKey: ["source-mapping-rows", id, draftId] });
       qc.invalidateQueries({ queryKey: ["source-mapping-page-types", id, draftId] });
     },
-    onError: (e: Error) => setMessage(e.message),
+    onError: (e: Error) => {
+      toast.error("Failed to run scan", e.message);
+      setMessage(e.message);
+    },
   });
 
   const updateRowMutation = useMutation({
@@ -152,14 +155,19 @@ export function SourceMapping() {
         destination_field?: string;
         category_target?: string | null;
       };
-    }) => updateSourceMappingRow(id!, draftId!, rowId, updates),
+    }) => {
+      if (!draftId) throw new Error("No active draft — create or open a draft first");
+      return updateSourceMappingRow(id!, draftId, rowId, updates);
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["source-mapping-rows", id, draftId] }),
     onError: (e: Error) => setMessage(e.message),
   });
 
   const actionMutation = useMutation({
-    mutationFn: ({ rowIds, action }: { rowIds: string[]; action: "approve" | "reject" | "ignore" }) =>
-      applySourceMappingAction(id!, draftId!, rowIds, action),
+    mutationFn: ({ rowIds, action }: { rowIds: string[]; action: "approve" | "reject" | "ignore" }) => {
+      if (!draftId) throw new Error("No active draft — create or open a draft first");
+      return applySourceMappingAction(id!, draftId, rowIds, action);
+    },
     onSuccess: (payload) => {
       setMessage(`Bulk action '${payload.action}' updated ${payload.updated} row(s).`);
       qc.invalidateQueries({ queryKey: ["source-mapping-rows", id, draftId] });
@@ -169,7 +177,10 @@ export function SourceMapping() {
   });
 
   const sampleRunMutation = useMutation({
-    mutationFn: () => startSourceMappingSampleRun(id!, draftId!, { sample_count: 5 }),
+    mutationFn: () => {
+      if (!draftId) throw new Error("No active draft — create or open a draft first");
+      return startSourceMappingSampleRun(id!, draftId, { sample_count: 5 });
+    },
     onSuccess: (payload) => {
       setSampleRunId(payload.sample_run_id);
       setMessage(`Sample run ${payload.sample_run_id} ${payload.status}.`);
@@ -178,14 +189,20 @@ export function SourceMapping() {
   });
 
   const publishMutation = useMutation({
-    mutationFn: () => publishSourceMappingDraft(id!, draftId!),
+    mutationFn: () => {
+      if (!draftId) throw new Error("No active draft — create or open a draft first");
+      return publishSourceMappingDraft(id!, draftId);
+    },
     onSuccess: (payload) => {
       setMessage(`Draft published at ${new Date(payload.published_at).toLocaleString()}.`);
       qc.invalidateQueries({ queryKey: ["source", id] });
       qc.invalidateQueries({ queryKey: ["source-mapping-versions", id] });
       qc.invalidateQueries({ queryKey: ["source-mapping-diff", id, draftId] });
     },
-    onError: (e: Error) => setMessage(e.message),
+    onError: (e: Error) => {
+      toast.error("Failed to publish draft", e.message);
+      setMessage(e.message);
+    },
   });
 
   const moderateSampleResultMutation = useMutation({
@@ -214,8 +231,10 @@ export function SourceMapping() {
   });
 
   const createPresetMutation = useMutation({
-    mutationFn: (payload: { name: string; description?: string; include_statuses: string[] }) =>
-      createSourceMappingPreset(id!, { ...payload, draft_id: draftId! }),
+    mutationFn: (payload: { name: string; description?: string; include_statuses: string[] }) => {
+      if (!draftId) throw new Error("No active draft — create or open a draft first");
+      return createSourceMappingPreset(id!, { ...payload, draft_id: draftId });
+    },
     onSuccess: (payload) => {
       setMessage(`Preset '${payload.name}' created.`);
       setCreatePresetOpen(false);
@@ -241,8 +260,24 @@ export function SourceMapping() {
       qc.invalidateQueries({ queryKey: ["source", id] });
       qc.invalidateQueries({ queryKey: ["source-mapping-presets", id] });
     },
-    onError: (e: Error) => setMessage(e.message),
+    onError: (e: Error) => {
+      toast.error("Failed to apply preset", e.message);
+      setMessage(e.message);
+    },
     onSettled: () => setApplyingPresetId(null),
+  });
+
+  const startMiningMutation = useMutation({
+    mutationFn: () => startMining(id!),
+    onSuccess: (payload) => {
+      toast.success("Mining started", `Job ${payload.job_id} is queued.`);
+      setMessage("Mining job queued.");
+      qc.invalidateQueries({ queryKey: ["source", id] });
+    },
+    onError: (e: Error) => {
+      toast.error("Failed to start mining", e.message);
+      setMessage(e.message);
+    },
   });
 
   const rowItems = rows?.items ?? [];
@@ -317,6 +352,16 @@ export function SourceMapping() {
           deletePresetMutation.mutate(presetId);
         }}
       />
+
+      <div>
+        <Button
+          onClick={() => startMiningMutation.mutate()}
+          loading={startMiningMutation.isPending}
+          disabled={!source?.active_mapping_preset_id && !source?.published_mapping_version_id}
+        >
+          Start Mining
+        </Button>
+      </div>
 
       {selectedCount > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
