@@ -8,7 +8,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.deps import get_db
-from app.config import is_serverless_environment, settings, validate_env
+from app.config import (
+    is_development_environment,
+    is_serverless_environment,
+    settings,
+    validate_env,
+)
 
 logger = structlog.get_logger()
 
@@ -19,13 +24,24 @@ IS_SERVERLESS = is_serverless_environment()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from app.db.database import init_db
+    from app.db.database import init_db, wait_for_database
 
     validate_env()
 
-    if not is_serverless_environment() and settings.environment != "docker":
-        # Runtime startup should never create/alter tables; Alembic migrations
-        # are the sole schema-management path.
+    if settings.db_startup_wait_enabled:
+        await wait_for_database()
+
+    should_run_bootstrap_init = (
+        settings.run_startup_db_init
+        and is_development_environment()
+        and not is_serverless_environment()
+        and settings.environment != "docker"
+    )
+    if should_run_bootstrap_init:
+        logger.warning(
+            "startup_init_db_enabled",
+            message="Running non-schema bootstrap init_db() at startup",
+        )
         await init_db()
 
     if not settings.openai_api_key:
