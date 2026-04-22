@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from asyncio import sleep
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -239,6 +240,7 @@ async def run_durable_crawl(
     processed = 0
     changed_count = 0
     unchanged_count = 0
+    await crud.recover_stale_in_progress_pages(db, source_id=source_id, stale_after_seconds=900)
 
     while processed < max_pages:
         source = await crud.get_source(db, source_id)
@@ -328,8 +330,8 @@ async def run_durable_crawl(
                 )
                 continue
 
-            # Idempotency guard: skip already completed pages.
-            existing = await crud.get_page_by_url(db, source_id=source_id, url=row.url)
+            # Idempotency guard: URL identity is normalized URL, not content hash.
+            existing = await crud.get_page_by_normalized_url(db, source_id=source_id, normalized_url=row.normalized_url)
             if existing and existing.status in TERMINAL_PAGE_STATUSES:
                 await crud.update_frontier_row(
                     db,
@@ -364,6 +366,18 @@ async def run_durable_crawl(
                 )
                 continue
 
+            in_progress_page, _ = await crud.get_or_create_page(db, source_id=source_id, url=row.url)
+            await crud.update_page(
+                db,
+                in_progress_page.id,
+                status="in_progress",
+                worker_id=worker_id,
+                started_at=datetime.now(UTC),
+                crawl_run_id=crawl_run.id,
+                original_url=row.url,
+                normalized_url=row.normalized_url,
+            )
+
             await _checkpoint(
                 db,
                 crawl_run_id=crawl_run.id,
@@ -376,6 +390,16 @@ async def run_durable_crawl(
                 stage=CrawlStage.FETCHING,
                 last_processed_url=row.url,
             )
+
+            while True:
+                granted, retry_at = await crud.acquire_domain_rate_limit_slot(
+                    db,
+                    domain=source_domain,
+                    min_interval_ms=1000,
+                )
+                if granted:
+                    break
+                await sleep(max(0.0, (retry_at - datetime.now(UTC)).total_seconds()))
 
             result = await fetch(row.url)
             now = datetime.now(UTC)
@@ -392,6 +416,13 @@ async def run_durable_crawl(
                     leased_by_worker=None,
                 )
                 await crud.update_crawl_run(db, crawl_run.id, status="paused", cooldown_until=now + timedelta(minutes=10))
+                await crud.update_source(
+                    db,
+                    source_id,
+                    queue_paused=True,
+                    operational_status="paused_captcha",
+                    error_message="captcha_detected",
+                )
                 await _emit_crawl_event(
                     db,
                     job_id=job_id,
@@ -496,23 +527,6 @@ async def run_durable_crawl(
             )
 
             new_content_hash = hashlib.sha256((result.html or "").encode("utf-8")).hexdigest()
-            duplicate_by_hash = await crud.get_page_by_content_hash(db, source_id=source_id, content_hash=new_content_hash)
-            if duplicate_by_hash and duplicate_by_hash.url != result.final_url:
-                await crud.update_frontier_row(
-                    db,
-                    row.id,
-                    status="extracted",
-                    last_status_code=result.status_code,
-                    last_fetched_at=now,
-                    canonical_url=duplicate_by_hash.url,
-                    content_hash=new_content_hash,
-                    last_refresh_outcome="duplicate_content_hash",
-                    lease_expires_at=None,
-                    leased_by_worker=None,
-                )
-                processed += 1
-                continue
-
             change = detect_content_change(
                 previous_content_hash=row.content_hash,
                 new_content_hash=new_content_hash,
@@ -565,6 +579,7 @@ async def run_durable_crawl(
             update_kwargs: dict[str, Any] = {
                 "crawl_run_id": crawl_run.id,
                 "original_url": row.url,
+                "normalized_url": normalize_url(result.final_url),
                 "depth": row.depth,
                 "fetch_method": result.method,
                 "html": (result.html or "").replace("\x00", "")[: 500 * 1024],
@@ -572,6 +587,8 @@ async def run_durable_crawl(
                 "crawled_at": now,
                 "mapping_version_id_used": mapping_version_id,
                 "content_hash": new_content_hash,
+                "worker_id": worker_id,
+                "started_at": row.started_at or now,
             }
             update_kwargs["status"] = previous_page_status if (not refresh_mode and previous_page_status in TERMINAL_PAGE_STATUSES) else "fetched"
             await crud.update_page(db, page.id, **update_kwargs)
