@@ -25,6 +25,7 @@ from app.db.models import (
     JobEvent,
     MergeHistory,
     MetricSnapshot,
+    MappingTemplate,
     MappingDriftSignal,
     Page,
     Record,
@@ -1273,6 +1274,159 @@ async def list_source_mapping_presets(
         .order_by(SourceMappingPreset.created_at.desc())
     )
     return list(result.scalars().all())
+
+
+def validate_mapping_template(template_json: dict[str, Any] | str) -> dict[str, Any]:
+    payload: dict[str, Any]
+    errors: list[dict[str, Any]] = []
+    if isinstance(template_json, str):
+        try:
+            parsed = json.loads(template_json)
+        except json.JSONDecodeError:
+            return {"ok": False, "errors": [{"code": "invalid_json", "message": "Template payload is not valid JSON"}]}
+        if not isinstance(parsed, dict):
+            return {"ok": False, "errors": [{"code": "invalid_structure", "message": "Template payload must be a JSON object"}]}
+        payload = parsed
+    elif isinstance(template_json, dict):
+        payload = template_json
+    else:
+        return {"ok": False, "errors": [{"code": "invalid_structure", "message": "Template payload must be a JSON object"}]}
+
+    crawl_plan = payload.get("crawl_plan")
+    if not isinstance(crawl_plan, dict):
+        errors.append({"code": "missing_crawl_plan", "message": "Missing crawl_plan object"})
+    else:
+        phases = crawl_plan.get("phases")
+        if not isinstance(phases, list) or len(phases) == 0:
+            errors.append({"code": "empty_phases", "message": "crawl_plan.phases must be a non-empty list"})
+
+    has_extraction_rules = isinstance(payload.get("extraction_rules"), dict) and bool(payload.get("extraction_rules"))
+    has_mining_map = isinstance(payload.get("mining_map"), dict) and bool(payload.get("mining_map"))
+    has_page_type_rules = isinstance(payload.get("page_type_rules"), dict) and bool(payload.get("page_type_rules"))
+    if not (has_extraction_rules or has_mining_map or has_page_type_rules):
+        errors.append(
+            {
+                "code": "invalid_structure",
+                "message": "Template must include at least one of extraction_rules, mining_map, or page_type_rules",
+            }
+        )
+
+    extraction_rules = payload.get("extraction_rules")
+    if isinstance(extraction_rules, dict):
+        for page_key, rule in extraction_rules.items():
+            if not isinstance(rule, dict):
+                errors.append(
+                    {"code": "invalid_structure", "message": f"extraction_rules.{page_key} must be an object"}
+                )
+                continue
+            selectors = rule.get("css_selectors", {})
+            if selectors is None:
+                continue
+            if not isinstance(selectors, dict):
+                errors.append(
+                    {
+                        "code": "invalid_selector_format",
+                        "message": f"extraction_rules.{page_key}.css_selectors must be an object",
+                    }
+                )
+                continue
+            for field, selector in selectors.items():
+                if not isinstance(selector, str) or not selector.strip():
+                    errors.append(
+                        {
+                            "code": "invalid_selector_format",
+                            "message": f"Selector for extraction_rules.{page_key}.css_selectors.{field} must be a non-empty string",
+                        }
+                    )
+
+    return {"ok": len(errors) == 0, "errors": errors}
+
+
+async def create_mapping_template(
+    db: AsyncSession,
+    *,
+    name: str,
+    description: str | None,
+    template_json: dict[str, Any],
+    schema_version: int = 1,
+    created_by: str | None = None,
+    is_system: bool = False,
+) -> MappingTemplate:
+    template = MappingTemplate(
+        name=name,
+        description=description,
+        template_json=template_json,
+        schema_version=schema_version,
+        created_by=created_by,
+        is_system=is_system,
+    )
+    db.add(template)
+    await db.commit()
+    await db.refresh(template)
+    return template
+
+
+async def list_mapping_templates(db: AsyncSession) -> list[MappingTemplate]:
+    result = await db.execute(select(MappingTemplate).order_by(MappingTemplate.created_at.desc()))
+    return list(result.scalars().all())
+
+
+async def get_mapping_template(db: AsyncSession, template_id: str) -> MappingTemplate | None:
+    result = await db.execute(select(MappingTemplate).where(MappingTemplate.id == template_id))
+    return result.scalar_one_or_none()
+
+
+async def export_source_mapping_preset(
+    db: AsyncSession,
+    *,
+    preset_id: str,
+) -> dict[str, Any]:
+    preset_result = await db.execute(select(SourceMappingPreset).where(SourceMappingPreset.id == preset_id))
+    preset = preset_result.scalar_one_or_none()
+    if preset is None:
+        raise ValueError("Mapping preset not found")
+    rows_result = await db.execute(
+        select(SourceMappingPresetRow).where(SourceMappingPresetRow.preset_id == preset.id).order_by(SourceMappingPresetRow.sort_order.asc())
+    )
+    rows = list(rows_result.scalars().all())
+    source = await get_source(db, preset.source_id)
+    runtime_map = build_runtime_map_from_preset_rows(
+        preset,
+        rows,
+        source_url=source.url if source else None,
+    )
+    return {
+        "schema_version": 1,
+        "name": preset.name,
+        "description": preset.description,
+        "template_type": "mapping_preset",
+        "payload": runtime_map,
+    }
+
+
+async def apply_mapping_template_to_source(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    template_id: str,
+) -> Source:
+    source = await get_source(db, source_id)
+    if source is None:
+        raise ValueError("Source not found")
+    template = await get_mapping_template(db, template_id)
+    if template is None:
+        raise ValueError("Mapping template not found")
+    validation = validate_mapping_template(template.template_json)
+    if not validation["ok"]:
+        raise ValueError("Mapping template is invalid")
+
+    source.structure_map = json.dumps(template.template_json)
+    source.active_mapping_preset_id = None
+    source.runtime_mapping_updated_at = datetime.now(UTC)
+    source.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(source)
+    return source
 
 
 async def get_source_mapping_preset(

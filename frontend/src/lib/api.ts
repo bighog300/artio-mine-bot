@@ -267,6 +267,25 @@ export interface CreateSourceMappingPresetInput {
   include_statuses?: string[];
 }
 
+export interface MappingPresetExportPayload {
+  schema_version: number;
+  name: string;
+  description: string | null;
+  template_type: "mapping_preset";
+  payload: Record<string, unknown>;
+}
+
+export interface MappingTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  schema_version: number;
+  is_system: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface MappingScanResponse {
   draft_id: string;
   scan_status: string;
@@ -1131,6 +1150,37 @@ export const applySourceMappingPreset = (
   presetId: string
 ): Promise<{ source_id: string; active_mapping_preset_id: string; runtime_map_source: string; has_runtime_map: boolean }> =>
   api.post(`/sources/${sourceId}/mapping-presets/${presetId}/apply`).then((r) => r.data);
+
+export const exportSourceMappingPreset = (presetId: string): Promise<MappingPresetExportPayload> =>
+  api.get(`/mapping-presets/${presetId}/export`).then((r) => r.data);
+
+export const listMappingTemplates = (): Promise<{ items: MappingTemplate[]; total: number }> =>
+  api.get("/mapping-templates").then((r) => r.data);
+
+export const importMappingTemplateFromText = (payload: {
+  name: string;
+  description?: string;
+  content: string;
+}): Promise<MappingTemplate> => api.post("/mapping-templates/import", payload).then((r) => r.data);
+
+export const importMappingTemplateFromFile = (payload: {
+  name: string;
+  description?: string;
+  file: File;
+}): Promise<MappingTemplate> =>
+  payload.file.text().then((content) =>
+    importMappingTemplateFromText({
+      name: payload.name,
+      description: payload.description,
+      content,
+    })
+  );
+
+export const applyMappingTemplateToSource = (
+  templateId: string,
+  sourceId: string
+): Promise<{ source_id: string; runtime_map_source: string; has_runtime_map: boolean; runtime_mapping_updated_at: string | null }> =>
+  api.post(`/mapping-templates/${templateId}/apply`, null, { params: { source_id: sourceId } }).then((r) => r.data);
 
 export const detectSourceDriftSignals = (
   sourceId: string

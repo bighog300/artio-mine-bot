@@ -364,3 +364,56 @@ async def test_mapping_presets_zero_matching_rows_fails_with_clear_error(test_cl
     )
     assert create.status_code == 400
     assert "No mapping rows matched include_statuses" in create.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_mapping_preset_export_and_external_template_import_apply(test_client: AsyncClient):
+    source_id = (await test_client.post("/api/sources", json={"url": "https://mapper-template.test"})).json()["id"]
+    draft_id = (await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})).json()["id"]
+    await wait_for_scan_complete(test_client, source_id, draft_id)
+    row_id = (await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows")).json()["items"][0]["id"]
+    await test_client.post(
+        f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows/actions",
+        json={"row_ids": [row_id], "action": "approve", "force_low_confidence": True},
+    )
+    preset_id = (
+        await test_client.post(f"/api/sources/{source_id}/mapping-presets", json={"name": "Portable preset", "draft_id": draft_id})
+    ).json()["id"]
+
+    exported = await test_client.get(f"/api/mapping-presets/{preset_id}/export")
+    assert exported.status_code == 200
+    assert exported.json()["schema_version"] == 1
+    assert exported.json()["template_type"] == "mapping_preset"
+    assert exported.json()["payload"]["crawl_plan"]["phases"]
+
+    imported = await test_client.post(
+        "/api/mapping-templates/import",
+        json={"name": "Imported external", "description": "portable", "content": json.dumps(exported.json())},
+    )
+    assert imported.status_code == 201
+    template_id = imported.json()["id"]
+
+    listing = await test_client.get("/api/mapping-templates")
+    assert listing.status_code == 200
+    assert listing.json()["total"] >= 1
+
+    applied = await test_client.post(f"/api/mapping-templates/{template_id}/apply", params={"source_id": source_id})
+    assert applied.status_code == 200
+    assert applied.json()["source_id"] == source_id
+    assert applied.json()["has_runtime_map"] is True
+
+
+@pytest.mark.asyncio
+async def test_mapping_template_import_rejects_invalid_payload(test_client: AsyncClient):
+    invalid_payload = {
+        "crawl_plan": {"phases": []},
+        "extraction_rules": {"event_detail": {"css_selectors": {"title": 123}}},
+    }
+    response = await test_client.post(
+        "/api/mapping-templates",
+        json={"name": "bad-template", "template_json": invalid_payload},
+    )
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["message"] == "Invalid mapping template"
+    assert any(error["code"] in {"empty_phases", "invalid_selector_format"} for error in detail["errors"])
