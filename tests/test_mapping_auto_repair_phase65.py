@@ -180,3 +180,116 @@ async def test_mapping_repair_api_endpoints(test_client, db_session):
     rejected_resp = await test_client.post(f"/api/mapping-repair/{rejected.id}/reject", params={"source_id": source.id})
     assert rejected_resp.status_code == 200
     assert rejected_resp.json()["status"] == "REJECTED"
+
+
+@pytest.mark.asyncio
+async def test_proposal_dedup_tracks_occurrence_count(db_session):
+    source, mapping, urls = await _seed_mapping_with_pages(db_session)
+    service = AutoRepairService(db_session)
+    signal = await crud.create_mapping_drift_signal(
+        db_session,
+        source_id=source.id,
+        mapping_version_id=mapping.id,
+        signal_type="selector_fail",
+        drift_type="SELECTOR_FAIL",
+        severity="high",
+        field_name="title",
+        mapping_field="title",
+        failing_selector=".old-title",
+        sample_urls=urls,
+        dedupe_hours=0,
+    )
+    await service.generate_for_signal(signal)
+    await service.generate_for_signal(signal)
+
+    proposals = await crud.list_mapping_repair_proposals(db_session, source_id=source.id, skip=0, limit=50)
+    assert proposals
+    assert max(item.occurrence_count for item in proposals) >= 2
+
+
+@pytest.mark.asyncio
+async def test_bad_selector_rejected_with_strong_validation(db_session):
+    source, mapping, urls = await _seed_mapping_with_pages(db_session)
+    proposal = await crud.create_mapping_repair_proposal(
+        db_session,
+        source_id=source.id,
+        mapping_version_id=mapping.id,
+        field_name="title",
+        old_selector=".old-title",
+        proposed_selector=".does-not-exist",
+        confidence_score=0.95,
+        supporting_pages=urls,
+        drift_signals_used=[],
+        validation_results={},
+        status="VALIDATED",
+    )
+    service = AutoRepairService(db_session)
+    pages = await service._load_pages_for_proposal(source.id, proposal)
+    metrics = service._validate_selector(".does-not-exist", "title", pages)
+    assert metrics["success_rate"] == 0.0
+    assert metrics["valid_value_rate"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_safe_rollback_when_post_apply_drift_worsens(db_session):
+    source, mapping, urls = await _seed_mapping_with_pages(db_session)
+    proposal = await crud.create_mapping_repair_proposal(
+        db_session,
+        source_id=source.id,
+        mapping_version_id=mapping.id,
+        field_name="title",
+        old_selector=".old-title",
+        proposed_selector=".does-not-exist",
+        confidence_score=0.88,
+        supporting_pages=urls,
+        drift_signals_used=[],
+        validation_results={"success_rate": 1.0, "valid_value_rate": 1.0, "sample_size": 8},
+        status="VALIDATED",
+    )
+
+    with pytest.raises(RuntimeError):
+        await AutoRepairService(db_session).apply_proposal(source.id, proposal.id, reviewed_by="tester")
+
+    source_after = await crud.get_source(db_session, source.id)
+    assert source_after.active_mapping_version_id == mapping.id
+    proposal_after = await crud.get_mapping_repair_proposal(db_session, source_id=source.id, proposal_id=proposal.id)
+    assert proposal_after is not None
+    assert proposal_after.status == "REJECTED"
+
+
+@pytest.mark.asyncio
+async def test_prioritization_orders_high_impact_first(db_session):
+    source, mapping, urls = await _seed_mapping_with_pages(db_session)
+    high = await crud.create_mapping_repair_proposal(
+        db_session,
+        source_id=source.id,
+        mapping_version_id=mapping.id,
+        field_name="title",
+        old_selector=".old-title",
+        proposed_selector=".title-new",
+        confidence_score=0.91,
+        supporting_pages=urls,
+        drift_signals_used=[],
+        validation_results={"success_rate": 1.0, "valid_value_rate": 1.0, "sample_size": 8},
+        occurrence_count=3,
+        priority_score=20.0,
+        status="VALIDATED",
+    )
+    _low = await crud.create_mapping_repair_proposal(
+        db_session,
+        source_id=source.id,
+        mapping_version_id=mapping.id,
+        field_name="year",
+        old_selector=".old-year",
+        proposed_selector=".year-new",
+        confidence_score=0.45,
+        supporting_pages=urls[:1],
+        drift_signals_used=[],
+        validation_results={"success_rate": 0.1, "valid_value_rate": 0.1, "sample_size": 1},
+        occurrence_count=1,
+        priority_score=2.0,
+        status="DRAFT",
+    )
+
+    ordered = await crud.list_mapping_repair_proposals(db_session, source_id=source.id, skip=0, limit=10)
+    assert ordered[0].id == high.id
