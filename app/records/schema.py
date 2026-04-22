@@ -55,6 +55,7 @@ class StructuredRecordPayload(BaseModel):
     record_type: RecordType
     normalized_name: str
     fingerprint: str
+    fingerprint_version: str = "v2"
     data: RecordData
     field_confidence: dict[str, float] = Field(default_factory=dict)
     confidence_score: int = 0
@@ -66,6 +67,7 @@ class StructuredRecordPayload(BaseModel):
         record_type: RecordType,
         normalized_name: str,
         fingerprint: str,
+        fingerprint_version: str,
         values: dict[str, Any],
         field_confidence: dict[str, float],
         confidence_score: int,
@@ -74,6 +76,7 @@ class StructuredRecordPayload(BaseModel):
             record_type=record_type,
             normalized_name=normalized_name,
             fingerprint=fingerprint,
+            fingerprint_version=fingerprint_version,
             data=RecordData.model_validate(values),
             field_confidence=field_confidence,
             confidence_score=confidence_score,

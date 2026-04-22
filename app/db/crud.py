@@ -145,7 +145,7 @@ def _ordered_pair(left_record_id: str, right_record_id: str) -> tuple[str, str]:
 
 def serialize_record_snapshot(record: Record) -> dict[str, Any]:
     fields = [
-        "id", "source_id", "page_id", "job_id", "record_type", "normalized_name", "fingerprint", "status", "title", "description", "source_url",
+        "id", "source_id", "page_id", "job_id", "record_type", "normalized_name", "fingerprint", "fingerprint_version", "status", "title", "description", "source_url",
         "start_date", "end_date", "venue_name", "venue_address", "artist_names", "ticket_url", "is_free",
         "price_text", "curator", "bio", "nationality", "birth_year", "mediums", "collections", "website_url",
         "instagram_url", "email", "avatar_url", "address", "city", "country", "phone", "opening_hours",
@@ -2046,6 +2046,7 @@ async def create_record(
     payload = prepare_record_payload(canonical_type, kwargs)
     kwargs["normalized_name"] = payload.normalized_name
     kwargs["fingerprint"] = payload.fingerprint
+    kwargs["fingerprint_version"] = payload.fingerprint_version
     kwargs["field_confidence"] = payload.field_confidence
     kwargs["structured_data"] = payload.data.model_dump(mode="json")
 
@@ -2077,11 +2078,13 @@ async def create_record(
                 best_match = (candidate, score, decision, signals)
 
     match_decision: str | None = None
+    review_candidate: tuple[str, float, dict[str, Any]] | None = None
     if best_match is not None:
         existing, identity_score, decision, signals = best_match
         match_decision = decision
         if decision == "review":
             kwargs.setdefault("admin_notes", f"dedup_review_required score={identity_score:.3f} signals={signals}")
+            review_candidate = (existing.id, identity_score, signals)
             existing = None
         elif decision == "new":
             existing = None
@@ -2168,6 +2171,16 @@ async def create_record(
             raise
         return existing
     await db.refresh(record)
+    if review_candidate is not None:
+        left_record_id, identity_score, signals = review_candidate
+        await upsert_duplicate_review(
+            db,
+            left_record_id=left_record_id,
+            right_record_id=record.id,
+            similarity_score=int(round(identity_score * 100)),
+            reason=f"dedup review required: {json.dumps(signals, default=str)}",
+            needs_review=True,
+        )
     return record
 
 
@@ -2948,6 +2961,7 @@ async def upsert_duplicate_review(
     right_record_id: str,
     similarity_score: int,
     reason: str,
+    needs_review: bool = False,
 ) -> DuplicateReview:
     left_id, right_id = _ordered_pair(left_record_id, right_record_id)
     stmt = select(DuplicateReview).where(
@@ -2958,6 +2972,7 @@ async def upsert_duplicate_review(
     if existing is not None:
         existing.similarity_score = similarity_score
         existing.reason = reason
+        existing.needs_review = needs_review
         await db.commit()
         await db.refresh(existing)
         return existing
@@ -2966,6 +2981,7 @@ async def upsert_duplicate_review(
         left_record_id=left_id,
         right_record_id=right_id,
         similarity_score=similarity_score,
+        needs_review=needs_review,
         reason=reason,
         status="pending",
     )
