@@ -60,6 +60,38 @@ def test_build_runtime_map_from_preset_rows_generates_non_empty_phases():
     assert phases[0]["base_url"] == "https://art.co.za"
 
 
+def test_build_runtime_map_from_preset_rows_adds_identifier_rules_for_art_co_za_profiles():
+    preset = crud.SourceMappingPreset(source_id="source-1", tenant_id="public", name="preset-a")
+    rows = [
+        SourceMappingPresetRow(
+            preset_id="preset-1",
+            page_type_key="artist_profile_hub",
+            page_type_label="Artist Profile Hub",
+            selector="h1",
+            destination_field="name",
+            is_enabled=True,
+        ),
+        SourceMappingPresetRow(
+            preset_id="preset-1",
+            page_type_key="artist_biography",
+            page_type_label="Artist Biography",
+            selector=".bio",
+            destination_field="bio_full",
+            is_enabled=True,
+        ),
+    ]
+
+    runtime_map = crud.build_runtime_map_from_preset_rows(
+        preset,
+        rows,
+        source_url="https://art.co.za",
+    )
+
+    extraction_rules = runtime_map.get("extraction_rules", {})
+    assert extraction_rules["artist_profile_hub"]["identifiers"] == ["/[name]/"]
+    assert extraction_rules["artist_biography"]["identifiers"] == ["/[name]/about.php"]
+
+
 def test_has_usable_runtime_map_payload_requires_non_empty_crawl_phases():
     assert crud.has_usable_runtime_map_payload({"crawl_plan": {"phases": []}}) is False
     assert (

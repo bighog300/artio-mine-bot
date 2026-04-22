@@ -1426,6 +1426,13 @@ def build_runtime_map_from_preset_rows(
         page_type_seen.add(page_type_key)
         page_rules = extraction_rules.setdefault(page_type_key, {})
         css_selectors = page_rules.setdefault("css_selectors", {})
+        identifiers = page_rules.setdefault("identifiers", [])
+        if not isinstance(identifiers, list):
+            identifiers = []
+            page_rules["identifiers"] = identifiers
+        for pattern in _default_identifiers_for_page_type(page_type_key):
+            if pattern not in identifiers:
+                identifiers.append(pattern)
         destination_field = row.destination_field or "raw_value"
         if row.selector and destination_field not in css_selectors:
             css_selectors[destination_field] = row.selector
@@ -1473,6 +1480,21 @@ def build_runtime_map_from_preset_rows(
     runtime_map["applied_preset_id"] = preset.id
     runtime_map["applied_preset_name"] = preset.name
     return runtime_map
+
+
+def _default_identifiers_for_page_type(page_type_key: str) -> list[str]:
+    mapping: dict[str, list[str]] = {
+        "artist_directory_root": ["/artists", "/artists/"],
+        "artist_directory_letter": ["/artists/[letter]", "/artists/[letter]/"],
+        "artist_profile_hub": ["/[name]/"],
+        "artist_biography": ["/[name]/about.php"],
+        "artist_related_page": ["/[name]/art-classes.php"],
+        "event_detail": ["/events/[name]"],
+        "exhibition_detail": ["/exhibitions/[name]"],
+        "venue_detail": ["/galleries/[name]"],
+        "artwork_detail": ["/artworks/[name]"],
+    }
+    return mapping.get(page_type_key, [])
 
 
 def _phases_for_page_types(source_url: str | None, page_type_keys: set[str]) -> list[dict[str, Any]]:

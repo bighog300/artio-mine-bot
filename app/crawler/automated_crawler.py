@@ -388,20 +388,43 @@ class AutomatedCrawler:
         """Classify page type by URL pattern matching (NO AI)."""
         parsed_path = urlparse(url).path
 
+        best_page_type: str | None = None
+        best_score = -1
+
         # Prefer extraction rule identifiers if available.
         for page_type, rules in self.extraction_rules.items():
             identifiers = rules.get("identifiers", [])
-            if any(self._matches_pattern(parsed_path, pattern) for pattern in identifiers):
-                return page_type
+            for pattern in identifiers:
+                if not self._matches_pattern(parsed_path, pattern):
+                    continue
+                score = self._pattern_specificity(pattern)
+                if score > best_score:
+                    best_score = score
+                    best_page_type = page_type
+        if best_page_type is not None:
+            return best_page_type
 
         # Backward compatible mining_map pattern matching.
         mining_map = self.structure_map.get("mining_map", {}) or {}
         for page_type, config in mining_map.items():
             pattern = (config or {}).get("url_pattern")
-            if pattern and self._matches_pattern(parsed_path, pattern):
-                return page_type
+            if not pattern or not self._matches_pattern(parsed_path, pattern):
+                continue
+            score = self._pattern_specificity(pattern)
+            if score > best_score:
+                best_score = score
+                best_page_type = page_type
 
-        return "unknown"
+        return best_page_type or "unknown"
+
+    def _pattern_specificity(self, pattern: str) -> int:
+        normalized = pattern or ""
+        normalized = normalized.replace("[letter]", "x")
+        normalized = normalized.replace("[number]", "1")
+        normalized = normalized.replace("[page]", "1")
+        normalized = normalized.replace("[name]", "x")
+        normalized = normalized.replace("[id]", "x")
+        return len(normalized)
 
     def _extract_deterministic(self, html: str, page_type: str, url: str) -> dict[str, Any]:
         """Extract data using CSS selectors and regex (NO AI)."""
