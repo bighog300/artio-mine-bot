@@ -6,12 +6,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/mobile-utils", () => ({ useIsMobile: () => false }));
 
+const mockedNavigate = vi.fn();
+
+vi.mock("react-router-dom", async () => {
+  const actual = await vi.importActual<typeof import("react-router-dom")>("react-router-dom");
+  return {
+    ...actual,
+    useNavigate: () => mockedNavigate,
+  };
+});
+
 vi.mock("@/lib/api", () => ({
   getSources: vi.fn(),
   getRecords: vi.fn(),
-  approveRecord: vi.fn(),
-  rejectRecord: vi.fn(),
-  bulkApprove: vi.fn(),
 }));
 
 import { Records } from "@/pages/Records";
@@ -48,7 +55,6 @@ const recordsPayload = {
       image_count: 0,
       primary_image_url: null,
       created_at: "2026-04-20T00:00:00Z",
-
     },
   ],
   total: 2,
@@ -67,39 +73,34 @@ function renderPage() {
   );
 }
 
-describe("Records moderation actions", () => {
+describe("Records list workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(api.getSources).mockResolvedValue({ items: [{ id: "src-1", url: "https://example.test", name: "Example", status: "idle", total_pages: 0, total_records: 0, last_crawled_at: null, created_at: "2026-04-20T00:00:00Z" }], total: 1, skip: 0, limit: 50 } as never);
     vi.mocked(api.getRecords).mockResolvedValue(recordsPayload as never);
-    vi.mocked(api.approveRecord).mockResolvedValue({ id: "rec-1", status: "approved" } as never);
-    vi.mocked(api.rejectRecord).mockResolvedValue({ id: "rec-1", status: "rejected" } as never);
-    vi.mocked(api.bulkApprove).mockResolvedValue({ approved_count: 1 });
   });
 
-  it("sends reject reason when rejecting from queue", async () => {
-    const user = userEvent.setup();
-    vi.spyOn(window, "prompt").mockReturnValue("Not relevant");
-    renderPage();
-
-    await waitFor(() => expect(screen.getByText("Artist One")).toBeInTheDocument());
-    await user.click(screen.getAllByRole("button", { name: "✕" })[0]);
-
-    await waitFor(() => expect(api.rejectRecord).toHaveBeenCalledWith("rec-1", "Not relevant"));
-  });
-
-  it("approves record from queue", async () => {
+  it("navigates to record details when clicking a record row", async () => {
     const user = userEvent.setup();
     renderPage();
 
     await waitFor(() => expect(screen.getByText("Artist One")).toBeInTheDocument());
-    await user.click(screen.getAllByRole("button", { name: "✓" })[0]);
+    await user.click(screen.getByText("Artist One"));
 
-    await waitFor(() => expect(api.approveRecord).toHaveBeenCalled());
-    expect(vi.mocked(api.approveRecord).mock.calls[0][0]).toBe("rec-1");
+    expect(mockedNavigate).toHaveBeenCalledWith("/records/rec-1");
   });
 
-  it("renders and filters across multiple record types", async () => {
+  it("refetches records when retry is clicked", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("Artist One")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(api.getRecords).toHaveBeenCalledTimes(2));
+  });
+
+  it("filters records by type using the record type selector", async () => {
     const user = userEvent.setup();
     renderPage();
 
@@ -108,11 +109,10 @@ describe("Records moderation actions", () => {
       expect(screen.getByText("Opening Night")).toBeInTheDocument();
     });
 
-    await user.selectOptions(screen.getAllByRole("combobox")[1], "event");
+    await user.selectOptions(screen.getAllByRole("combobox")[2], "event");
 
     await waitFor(() => {
       expect(api.getRecords).toHaveBeenLastCalledWith(expect.objectContaining({ record_type: "event" }));
     });
   });
-
 });

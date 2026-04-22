@@ -25,6 +25,19 @@ async def _find_record_by_title(db: AsyncSession, source_id: str, title: str, re
     return None
 
 
+async def _find_record_by_title_any_type(
+    db: AsyncSession,
+    source_id: str,
+    title: str,
+    record_types: list[str],
+):
+    for record_type in record_types:
+        candidate = await _find_record_by_title(db, source_id, title, record_type)
+        if candidate is not None:
+            return candidate
+    return None
+
+
 async def _refresh_artist_relationships(db: AsyncSession, artist) -> list[dict[str, Any]]:
     payload = {}
     if artist.raw_data:
@@ -57,7 +70,12 @@ async def _refresh_artist_relationships(db: AsyncSession, artist) -> list[dict[s
         title = article.get("title")
         if not title:
             continue
-        target = await _find_record_by_title(db, artist.source_id, title, "artist_article")
+        target = await _find_record_by_title_any_type(
+            db,
+            artist.source_id,
+            title,
+            ["artist_article", "artist_press", "article", "artwork"],
+        )
         if target is None:
             continue
         await crud.upsert_entity_relationship(
@@ -140,7 +158,12 @@ async def get_artist_graph(record_id: str, db: AsyncSession = Depends(get_db)):
         )
 
     exhibitions = [item for item in connected_entities if item["record_type"] == "exhibition"]
-    articles = [item for item in connected_entities if item["record_type"] in {"artist_article", "artist_press"}]
+    articles = [
+        item
+        for item in connected_entities
+        if item["relationship_type"] in {"artist_article", "artist_press"}
+        or item["record_type"] in {"artist_article", "artist_press", "article"}
+    ]
 
     return {
         "artist": {

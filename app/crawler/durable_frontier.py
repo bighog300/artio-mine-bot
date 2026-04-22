@@ -635,7 +635,7 @@ async def run_durable_crawl(
                 page_id=page.id,
                 page_updates={**update_kwargs, "status": completion_status},
                 frontier_updates={
-                    "status": "extracted",
+                    "status": "fetched",
                     "last_status_code": result.status_code,
                     "last_fetched_at": now,
                     "last_extracted_at": now,

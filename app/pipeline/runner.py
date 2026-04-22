@@ -1622,19 +1622,37 @@ class PipelineRunner:
     def _infer_page_role(self, url: str, hints: dict[str, Any] | None = None) -> str | None:
         hints = hints or {}
         domain_rules = hints.get("domain_rules") if isinstance(hints, dict) else {}
-        if not isinstance(domain_rules, dict):
-            return None
         parsed = urlparse(url)
-        domain_hint = domain_rules.get(parsed.netloc) or domain_rules.get(parsed.netloc.lower()) or {}
-        if not isinstance(domain_hint, dict):
-            return None
-        role_patterns = domain_hint.get("role_patterns") or {}
-        if not isinstance(role_patterns, dict):
-            return None
-        path = parsed.path
-        for regex, role in role_patterns.items():
-            if isinstance(regex, str) and isinstance(role, str) and re.search(regex, path):
-                return role
+        if isinstance(domain_rules, dict):
+            domain_hint = domain_rules.get(parsed.netloc) or domain_rules.get(parsed.netloc.lower()) or {}
+            if isinstance(domain_hint, dict):
+                role_patterns = domain_hint.get("role_patterns") or {}
+                if isinstance(role_patterns, dict):
+                    path = parsed.path
+                    for regex, role in role_patterns.items():
+                        if isinstance(regex, str) and isinstance(role, str) and re.search(regex, path):
+                            return role
+        netloc = parsed.netloc.lower()
+        path = parsed.path.lower().rstrip("/")
+        if netloc == "www.art.co.za":
+            if path in {"/artists", "/artists/"}:
+                return "artist_directory_root"
+            if re.fullmatch(r"/artists/[a-z]", path):
+                return "artist_directory_letter"
+            segments = [segment for segment in path.split("/") if segment]
+            if len(segments) == 2 and segments[1].endswith(".php"):
+                suffix_role = {
+                    "about.php": "artist_biography",
+                    "exhibitions.php": "artist_exhibitions",
+                    "articles.php": "artist_articles",
+                    "press.php": "artist_press",
+                    "memories.php": "artist_memories",
+                }.get(segments[1].lower())
+                if suffix_role:
+                    return suffix_role
+                return "artist_related_page"
+            if len(segments) == 1 and segments[0] not in {"artists", "galleries", "gallery", "events", "exhibitions"}:
+                return "artist_profile_hub"
         return None
 
     def _is_artist_profile_candidate_url(self, url: str) -> bool:
@@ -1643,6 +1661,19 @@ class PipelineRunner:
         if len(segments) != 1:
             return False
         slug = segments[0]
+        blocked_slugs = {
+            "artists",
+            "galleries",
+            "gallery",
+            "events",
+            "exhibitions",
+            "contact",
+            "about",
+            "home",
+            "news",
+        }
+        if slug.lower() in blocked_slugs:
+            return False
         if "." in slug:
             return False
         return True
@@ -1653,6 +1684,13 @@ class PipelineRunner:
             patterns = []
         if any(isinstance(pattern, str) and pattern in url for pattern in patterns):
             return True
+        parsed = urlparse(url)
+        if parsed.netloc.lower() == "www.art.co.za":
+            if any(token in parsed.path.lower() for token in ("/watchlist", "/wishlist", "/login", "/signup")):
+                return True
+            query = parsed.query.lower()
+            if "ref=instagram" in query or "ref=facebook" in query:
+                return True
         return False
 
 

@@ -12,6 +12,7 @@ class RecordType(str, Enum):
     EXHIBITION = "exhibition"
     EVENT = "event"
     VENUE = "venue"
+    ORGANIZATION = "organization"
 
 
 class RecordData(BaseModel):

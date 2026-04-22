@@ -25,6 +25,7 @@ TYPE_SECONDARY_FIELDS: dict[RecordType, tuple[str, ...]] = {
     RecordType.EVENT: ("start_date", "end_date", "venue_name", "ticket_url", "source_url"),
     RecordType.EXHIBITION: ("start_date", "end_date", "venue_name", "curator", "source_url"),
     RecordType.ARTWORK: ("year", "medium", "dimensions", "price", "source_url"),
+    RecordType.ORGANIZATION: ("website_url", "address", "city", "country", "phone", "source_url"),
 }
 TYPE_STRONG_SIGNAL_FIELDS: dict[RecordType, tuple[str, ...]] = {
     RecordType.ARTIST: ("website_url", "instagram_url", "email", "birth_year"),
@@ -32,6 +33,7 @@ TYPE_STRONG_SIGNAL_FIELDS: dict[RecordType, tuple[str, ...]] = {
     RecordType.EVENT: ("ticket_url", "source_url"),
     RecordType.EXHIBITION: ("source_url", "venue_name"),
     RecordType.ARTWORK: ("source_url", "dimensions", "year"),
+    RecordType.ORGANIZATION: ("website_url", "address", "phone", "source_url"),
 }
 
 
@@ -45,6 +47,7 @@ def normalize_record_type(value: str | RecordType) -> RecordType:
         "exhibition": RecordType.EXHIBITION,
         "event": RecordType.EVENT,
         "venue": RecordType.VENUE,
+        "organization": RecordType.ORGANIZATION,
         "artist_article": RecordType.ARTWORK,
         "artist_press": RecordType.ARTWORK,
         "artist_memory": RecordType.ARTWORK,

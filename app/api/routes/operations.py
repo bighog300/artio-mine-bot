@@ -593,13 +593,18 @@ async def rollback_merge(
     }
     await crud.update_record(db, primary.id, **restore_fields)
 
-    recreated_secondary = Record(
-        **{
-            key: value
-            for key, value in secondary_snapshot.items()
-            if key not in {"created_at", "updated_at"}
-        }
-    )
+    recreated_values = {
+        key: value
+        for key, value in secondary_snapshot.items()
+        if key not in {"created_at", "updated_at"}
+    }
+    for json_text_field in ("artist_names", "mediums", "collections", "confidence_reasons"):
+        if isinstance(recreated_values.get(json_text_field), list):
+            recreated_values[json_text_field] = json.dumps(recreated_values[json_text_field])
+    if isinstance(recreated_values.get("embedding_vector"), list):
+        recreated_values["embedding_vector"] = json.dumps(recreated_values["embedding_vector"])
+
+    recreated_secondary = Record(**recreated_values)
     db.add(recreated_secondary)
     await db.commit()
 
