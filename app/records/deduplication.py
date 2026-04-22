@@ -9,6 +9,7 @@ from typing import Any
 from app.records.schema import RecordType, StructuredRecordPayload
 
 ARRAY_FIELDS = {"artist_names", "mediums", "collections"}
+FINGERPRINT_VERSION = "v2"
 KEY_FINGERPRINT_FIELDS = (
     "title",
     "start_date",
@@ -25,7 +26,13 @@ TYPE_SECONDARY_FIELDS: dict[RecordType, tuple[str, ...]] = {
     RecordType.EXHIBITION: ("start_date", "end_date", "venue_name", "curator", "source_url"),
     RecordType.ARTWORK: ("year", "medium", "dimensions", "price", "source_url"),
 }
-STRONG_SIGNAL_FIELDS = {"website_url", "instagram_url", "email", "phone", "ticket_url", "source_url", "birth_year", "address"}
+TYPE_STRONG_SIGNAL_FIELDS: dict[RecordType, tuple[str, ...]] = {
+    RecordType.ARTIST: ("website_url", "instagram_url", "email", "birth_year"),
+    RecordType.VENUE: ("address", "phone", "website_url"),
+    RecordType.EVENT: ("ticket_url", "source_url"),
+    RecordType.EXHIBITION: ("source_url", "venue_name"),
+    RecordType.ARTWORK: ("source_url", "dimensions", "year"),
+}
 
 
 def normalize_record_type(value: str | RecordType) -> RecordType:
@@ -67,6 +74,7 @@ def build_fingerprint(record_type: RecordType, normalized_name: str, values: dic
     type_fields = TYPE_SECONDARY_FIELDS.get(record_type, ())
     selected_fields = list(dict.fromkeys([*KEY_FINGERPRINT_FIELDS, *type_fields]))
     canonical_payload: dict[str, Any] = {
+        "fingerprint_version": FINGERPRINT_VERSION,
         "record_type": record_type.value,
         "normalized_name": normalized_name,
         "fields": {},
@@ -91,17 +99,33 @@ def build_field_confidence(values: dict[str, Any], field_confidence: dict[str, f
     return merged
 
 
+def _coerce_payload_values(values: dict[str, Any]) -> dict[str, Any]:
+    coerced = {key: value for key, value in values.items() if not key.startswith("_")}
+    for field in ARRAY_FIELDS:
+        value = coerced.get(field)
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    coerced[field] = parsed
+            except json.JSONDecodeError:
+                continue
+    return coerced
+
+
 def prepare_record_payload(record_type: str | RecordType, values: dict[str, Any]) -> StructuredRecordPayload:
     canonical_type = normalize_record_type(record_type)
-    normalized_name = normalize_name(values.get("title") or values.get("name"))
-    fingerprint = build_fingerprint(canonical_type, normalized_name, values)
-    confidence_score = int(values.get("confidence_score", 0) or 0)
-    field_confidence = build_field_confidence(values, values.get("field_confidence"), confidence_score)
+    normalized_values = _coerce_payload_values(values)
+    normalized_name = normalize_name(normalized_values.get("title") or normalized_values.get("name"))
+    fingerprint = build_fingerprint(canonical_type, normalized_name, normalized_values)
+    confidence_score = int(normalized_values.get("confidence_score", 0) or 0)
+    field_confidence = build_field_confidence(normalized_values, normalized_values.get("field_confidence"), confidence_score)
     return StructuredRecordPayload.from_values(
         record_type=canonical_type,
         normalized_name=normalized_name,
         fingerprint=fingerprint,
-        values=values,
+        fingerprint_version=FINGERPRINT_VERSION,
+        values=normalized_values,
         field_confidence=field_confidence,
         confidence_score=confidence_score,
     )
@@ -194,10 +218,16 @@ def similarity_score(left: str, right: str) -> float:
     return SequenceMatcher(a=left, b=right).ratio()
 
 
-def _field_overlap_score(existing_values: dict[str, Any], incoming_values: dict[str, Any], fields: tuple[str, ...]) -> tuple[float, bool]:
+def _field_overlap_score(
+    existing_values: dict[str, Any],
+    incoming_values: dict[str, Any],
+    fields: tuple[str, ...],
+    strong_signal_fields: tuple[str, ...],
+) -> tuple[float, bool, list[str]]:
     matches = 0
     compared = 0
     strong_signal = False
+    matched_fields: list[str] = []
     for field in fields:
         left = existing_values.get(field)
         right = incoming_values.get(field)
@@ -208,11 +238,12 @@ def _field_overlap_score(existing_values: dict[str, Any], incoming_values: dict[
         right_norm = _normalize_fingerprint_value(right)
         if left_norm == right_norm:
             matches += 1
-            if field in STRONG_SIGNAL_FIELDS:
+            matched_fields.append(field)
+            if field in strong_signal_fields:
                 strong_signal = True
     if compared == 0:
-        return 0.0, False
-    return matches / compared, strong_signal
+        return 0.0, False, []
+    return matches / compared, strong_signal, matched_fields
 
 
 def classify_identity_match(
@@ -222,15 +253,17 @@ def classify_identity_match(
     incoming_values: dict[str, Any],
 ) -> tuple[float, str, dict[str, Any]]:
     name_score = similarity_score(existing_values.get("normalized_name", ""), incoming_values.get("normalized_name", ""))
-    overlap_score, has_strong_secondary = _field_overlap_score(
+    strong_signal_fields = TYPE_STRONG_SIGNAL_FIELDS.get(record_type, ())
+    overlap_score, has_strong_secondary, matched_secondary_fields = _field_overlap_score(
         existing_values,
         incoming_values,
         TYPE_SECONDARY_FIELDS.get(record_type, ()),
+        strong_signal_fields,
     )
     total_score = (name_score * 0.75) + (overlap_score * 0.25)
     if total_score >= 0.85 and has_strong_secondary:
         decision = "merge"
-    elif 0.7 <= total_score < 0.85:
+    elif total_score >= 0.7:
         decision = "review"
     else:
         decision = "new"
@@ -238,6 +271,8 @@ def classify_identity_match(
         "name_similarity": round(name_score, 6),
         "secondary_overlap": round(overlap_score, 6),
         "strong_secondary_signal": has_strong_secondary,
+        "strong_signal_fields": list(strong_signal_fields),
+        "matched_secondary_fields": matched_secondary_fields,
     }
 
 

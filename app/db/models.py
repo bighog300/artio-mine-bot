@@ -261,6 +261,7 @@ class Record(Base):
     record_type: Mapped[str] = mapped_column(String, nullable=False)
     normalized_name: Mapped[str] = mapped_column(String, nullable=False, default="")
     fingerprint: Mapped[str | None] = mapped_column(String, nullable=True)
+    fingerprint_version: Mapped[str] = mapped_column(String, nullable=False, default="v2")
     status: Mapped[str] = mapped_column(String, default="pending", nullable=False)
 
     # Core fields
@@ -1020,6 +1021,7 @@ class DuplicateReview(Base):
     right_record_id: Mapped[str] = mapped_column(String, ForeignKey("records.id"), nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
     similarity_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     reviewed_by: Mapped[str | None] = mapped_column(String, nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(UTC_DATETIME, nullable=True)

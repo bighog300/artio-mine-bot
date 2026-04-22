@@ -3,6 +3,8 @@ import json
 import pytest
 
 from app.db import crud
+from app.records.deduplication import classify_identity_match
+from app.records.schema import RecordType
 
 
 @pytest.mark.asyncio
@@ -200,3 +202,46 @@ async def test_conflict_detection_preserves_existing_value(db_session):
     assert merged.has_conflicts is True
     payload = json.loads(merged.raw_data or "{}")
     assert "birth_year" in payload.get("conflicts", {})
+
+
+@pytest.mark.asyncio
+async def test_review_band_persists_duplicate_candidate(db_session):
+    source = await crud.create_source(db_session, url="https://review-band.example", name="Review Band")
+    first = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Alex Brown",
+        confidence_score=75,
+    )
+    second = await crud.create_record(
+        db_session,
+        source_id=source.id,
+        record_type="artist",
+        title="Alex Browne",
+        confidence_score=72,
+    )
+    assert first.id != second.id
+
+    reviews = await crud.list_duplicate_reviews(db_session, status="pending", limit=20)
+    review = next((item for item in reviews if {item.left_record_id, item.right_record_id} == {first.id, second.id}), None)
+    assert review is not None
+    assert review.needs_review is True
+    assert 70 <= review.similarity_score <= 85
+
+
+def test_strong_signal_required_for_merge_decision():
+    score, decision, signals = classify_identity_match(
+        record_type=RecordType.ARTIST,
+        existing_values={
+            "normalized_name": "alex brown",
+            "nationality": "South African",
+        },
+        incoming_values={
+            "normalized_name": "alex brown",
+            "nationality": "South African",
+        },
+    )
+    assert score >= 0.85
+    assert decision == "review"
+    assert signals["strong_secondary_signal"] is False

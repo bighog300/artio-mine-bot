@@ -734,6 +734,7 @@ async def test_semantic_artist_search_returns_ranked_results(test_client: AsyncC
 @pytest.mark.asyncio
 async def test_duplicate_suggestions_and_merge(test_client: AsyncClient, db_session: AsyncSession):
     source = await crud.create_source(db_session, url="https://duplicates.com")
+    source_two = await crud.create_source(db_session, url="https://duplicates-two.com")
     first = await crud.create_record(
         db_session,
         source_id=source.id,
@@ -745,10 +746,10 @@ async def test_duplicate_suggestions_and_merge(test_client: AsyncClient, db_sess
     )
     second = await crud.create_record(
         db_session,
-        source_id=source.id,
+        source_id=source_two.id,
         record_type="artist",
-        title="Alice N. Elahi",
-        bio="Contemporary painter from Cape Town with city light exhibitions",
+        title="Alice Elahi",
+        bio="Cape Town contemporary artist working across painting",
         website_url="https://alice.example.com",
         raw_data=json.dumps({"related": {"exhibitions": [{"title": "City Light"}]}}),
     )
@@ -757,15 +758,11 @@ async def test_duplicate_suggestions_and_merge(test_client: AsyncClient, db_sess
     assert dup_resp.status_code == 200
     dup_payload = dup_resp.json()
     assert dup_payload["total"] >= 1
+    assert any(item["auto_merged"] for item in dup_payload["items"])
     pair_ids = {(item["left_id"], item["right_id"]) for item in dup_payload["items"]}
     assert (first.id, second.id) in pair_ids or (second.id, first.id) in pair_ids
-
-    merge_resp = await test_client.post(
-        "/api/merge/artists",
-        json={"primary_id": first.id, "secondary_id": second.id},
-    )
-    assert merge_resp.status_code == 200
-    assert merge_resp.json()["status"] == "merged"
+    merged_item = next(item for item in dup_payload["items"] if {item["left_id"], item["right_id"]} == {first.id, second.id})
+    assert merged_item["merge_audit"] is not None
 
     get_secondary = await test_client.get(f"/api/records/{second.id}")
     assert get_secondary.status_code == 404

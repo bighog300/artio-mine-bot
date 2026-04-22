@@ -135,6 +135,17 @@ def _score_duplicate_candidate(left: Record, right: Record) -> tuple[float, list
     return score, reasons
 
 
+def _artist_strong_signals(left: Record, right: Record) -> list[str]:
+    matched: list[str] = []
+    fields = ("website_url", "instagram_url", "email", "source_url", "birth_year")
+    for field in fields:
+        left_value = getattr(left, field, None)
+        right_value = getattr(right, field, None)
+        if left_value and right_value and left_value == right_value:
+            matched.append(field)
+    return matched
+
+
 @router.get("/semantic/artists")
 async def semantic_artists(
     q: str,
@@ -266,25 +277,57 @@ async def related_artists(
 @router.get("/suggest/duplicates")
 async def suggest_duplicates(
     min_score: float = 0.7,
+    auto_merge: bool = True,
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
 ):
     artist_records = await crud.search_records(db, record_type="artist", skip=0, limit=1000)
     candidates: list[dict[str, object]] = []
+    removed_ids: set[str] = set()
 
     for index, left in enumerate(artist_records):
+        if left.id in removed_ids:
+            continue
         for right in artist_records[index + 1 :]:
+            if right.id in removed_ids:
+                continue
             score, reasons = _score_duplicate_candidate(left, right)
             if score < min_score:
                 continue
+            strong_signals = _artist_strong_signals(left, right)
+            can_merge = score >= 0.85 and bool(strong_signals)
             reason = ", ".join(reasons) if reasons else "multi-signal similarity"
+            review_status = "pending"
+            merge_audit: dict[str, object] | None = None
+            needs_review = 0.7 <= score < 0.85 or (score >= 0.85 and not can_merge)
             review = await crud.upsert_duplicate_review(
                 db,
                 left_record_id=left.id,
                 right_record_id=right.id,
                 similarity_score=int(round(score * 100)),
                 reason=reason,
+                needs_review=needs_review,
             )
+            if auto_merge and can_merge:
+                merge_result = await merge_artists(
+                    MergeArtistsRequest(primary_id=left.id, secondary_id=right.id),
+                    db,
+                    _role="admin",
+                )
+                review = await crud.set_duplicate_review_status(
+                    db,
+                    review_id=review.id,
+                    status="auto_merged",
+                    reviewed_by="system:auto_merge",
+                    merge_target_id=str(merge_result["merged_id"]),
+                )
+                review_status = "auto_merged"
+                merge_audit = {
+                    "merge_id": merge_result["merge_id"],
+                    "merged_id": merge_result["merged_id"],
+                    "removed_id": merge_result["removed_id"],
+                }
+                removed_ids.add(str(merge_result["removed_id"]))
             candidates.append(
                 {
                     "review_id": review.id,
@@ -294,8 +337,12 @@ async def suggest_duplicates(
                     "right_name": right.title,
                     "similarity_score": round(score, 6),
                     "reason": reason,
-                    "review_status": review.status,
+                    "review_status": review_status if review_status != "pending" else review.status,
                     "reviewed_by": review.reviewed_by,
+                    "needs_review": review.needs_review,
+                    "strong_signals": strong_signals,
+                    "auto_merged": review_status == "auto_merged",
+                    "merge_audit": merge_audit,
                 }
             )
 
@@ -330,6 +377,7 @@ async def list_duplicate_reviews(
                     "reviewed_by": review.reviewed_by,
                     "reviewed_at": review.reviewed_at,
                     "merge_target_id": review.merge_target_id,
+                    "needs_review": review.needs_review,
                 }
             )
         return {"items": items, "total": total, "skip": skip, "limit": limit}
