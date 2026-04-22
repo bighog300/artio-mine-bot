@@ -21,6 +21,7 @@ from app.db.models import (
     CrawlRun,
     CrawlRunCheckpoint,
     DomainRateLimit,
+    ExtractionBaseline,
     AuditAction,
     AuditEvent,
     DuplicateReview,
@@ -86,6 +87,7 @@ MAPPING_ALLOWED_FIELDS: dict[str, set[str]] = {
 }
 DRIFT_SIGNAL_STATUSES = {"open", "acknowledged", "resolved", "dismissed"}
 DRIFT_SIGNAL_SEVERITIES = {"low", "medium", "high"}
+DRIFT_SIGNAL_TYPES = {"FIELD_MISSING", "FIELD_EMPTY", "STRUCTURE_CHANGED", "SELECTOR_FAIL", "VALUE_ANOMALY"}
 
 
 def _ensure_utc(value: datetime | None) -> datetime | None:
@@ -943,9 +945,19 @@ async def create_mapping_drift_signal(
     sample_urls: list[str] | None = None,
     proposed_action: str | None = None,
     dedupe_hours: int = 12,
+    page_id: str | None = None,
+    record_id: str | None = None,
+    field_name: str | None = None,
+    drift_type: str | None = None,
+    previous_value: str | None = None,
+    current_value: str | None = None,
+    confidence: float | None = None,
 ) -> MappingDriftSignal:
     if severity not in DRIFT_SIGNAL_SEVERITIES:
         raise ValueError(f"Invalid drift severity '{severity}'")
+    normalized_drift_type = drift_type or signal_type.upper()
+    if normalized_drift_type not in DRIFT_SIGNAL_TYPES:
+        normalized_drift_type = "VALUE_ANOMALY"
     if dedupe_hours > 0:
         cutoff = datetime.now(UTC) - timedelta(hours=dedupe_hours)
         existing_stmt = select(MappingDriftSignal).where(
@@ -966,6 +978,13 @@ async def create_mapping_drift_signal(
             existing.diagnostics_json = json.dumps(diagnostics or {})
             existing.sample_urls_json = json.dumps(sample_urls or [])
             existing.proposed_action = proposed_action
+            existing.page_id = page_id
+            existing.record_id = record_id
+            existing.field_name = field_name
+            existing.drift_type = normalized_drift_type
+            existing.previous_value = previous_value
+            existing.current_value = current_value
+            existing.confidence = confidence
             existing.detected_at = datetime.now(UTC)
             existing.updated_at = datetime.now(UTC)
             await db.commit()
@@ -975,9 +994,16 @@ async def create_mapping_drift_signal(
     signal = MappingDriftSignal(
         source_id=source_id,
         mapping_version_id=mapping_version_id,
+        page_id=page_id,
+        record_id=record_id,
+        field_name=field_name,
+        drift_type=normalized_drift_type,
         family_key=family_key,
         signal_type=signal_type,
         severity=severity,
+        confidence=confidence,
+        previous_value=previous_value,
+        current_value=current_value,
         metrics_json=json.dumps(metrics or {}),
         diagnostics_json=json.dumps(diagnostics or {}),
         sample_urls_json=json.dumps(sample_urls or []),
@@ -1070,6 +1096,58 @@ async def get_mapping_health_state(
     if medium_count > 0:
         return "warning"
     return "healthy"
+
+
+async def get_extraction_baseline(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    page_id: str,
+) -> ExtractionBaseline | None:
+    stmt = select(ExtractionBaseline).where(
+        ExtractionBaseline.source_id == source_id,
+        ExtractionBaseline.page_id == page_id,
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def upsert_extraction_baseline(
+    db: AsyncSession,
+    *,
+    source_id: str,
+    page_id: str,
+    mapping_version_id: str | None,
+    record_id: str | None,
+    baseline: dict[str, Any],
+    field_stats: dict[str, Any],
+    dom_section_hash: str | None,
+    confidence_score: int | None,
+) -> ExtractionBaseline:
+    current = await get_extraction_baseline(db, source_id=source_id, page_id=page_id)
+    if current is None:
+        current = ExtractionBaseline(
+            source_id=source_id,
+            page_id=page_id,
+            mapping_version_id=mapping_version_id,
+            record_id=record_id,
+            baseline_json=json.dumps(baseline),
+            field_stats_json=json.dumps(field_stats),
+            dom_section_hash=dom_section_hash,
+            confidence_score=confidence_score,
+            updated_at=datetime.now(UTC),
+        )
+        db.add(current)
+    else:
+        current.mapping_version_id = mapping_version_id
+        current.record_id = record_id
+        current.baseline_json = json.dumps(baseline)
+        current.field_stats_json = json.dumps(field_stats)
+        current.dom_section_hash = dom_section_hash
+        current.confidence_score = confidence_score
+        current.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(current)
+    return current
 
 
 async def create_source_mapping_page_type(
@@ -4112,3 +4190,6 @@ async def prepare_refresh_frontier_rows(
         "selected": selected,
         "skipped_not_due": skipped_not_due,
     }
+    normalized_drift_type = drift_type or signal_type.upper()
+    if normalized_drift_type not in DRIFT_SIGNAL_TYPES:
+        normalized_drift_type = "VALUE_ANOMALY"

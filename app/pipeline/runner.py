@@ -41,6 +41,7 @@ from app.extraction.artist_merge import (
 from app.extraction.artist_related import extract_artist_related_items
 from app.metrics import metrics
 from app.pipeline.image_collector import collect_images
+from app.pipeline.drift_detection import DriftDetectionService
 from app.pipeline.job_progress import report_job_progress
 from app.queue import QueueUnavailableError, get_default_queue
 from app.runtime_ai_policy import runtime_ai_policy
@@ -650,6 +651,11 @@ class PipelineRunner:
         metrics.increment("records_updated", stats.records_updated)
         total_records = await crud.count_records(self.db, source_id=source_id)
         await crud.update_source(self.db, source_id, total_records=total_records)
+        try:
+            drift_summary = await DriftDetectionService(self.db).analyze_source(source_id)
+            logger.info("drift_analysis_completed", source_id=source_id, drift_summary=drift_summary)
+        except Exception as exc:
+            logger.error("drift_analysis_failed", source_id=source_id, error=str(exc))
         return stats
 
     async def run_reclassify_page(self, page_id: str) -> dict[str, Any]:
@@ -965,6 +971,41 @@ class PipelineRunner:
             val = data.get(arr_field, [])
             if isinstance(val, list):
                 record_kwargs[arr_field] = json.dumps(val)
+
+        critical_fields_by_type = {
+            "artist": {"title", "source_url"},
+            "event": {"title", "source_url", "start_date"},
+            "exhibition": {"title", "source_url", "start_date"},
+            "venue": {"title", "source_url"},
+            "artwork": {"title", "source_url"},
+        }
+        missing_critical = sorted(
+            field
+            for field in critical_fields_by_type.get(record_type, {"title", "source_url"})
+            if not record_kwargs.get(field)
+        )
+        if missing_critical and existing_record is None:
+            await crud.update_page(
+                self.db,
+                page.id,
+                status="error",
+                error_message=f"Missing critical fields: {', '.join(missing_critical)}",
+            )
+            await crud.create_mapping_drift_signal(
+                self.db,
+                source_id=page.source_id,
+                mapping_version_id=page.mapping_version_id_used,
+                page_id=page.id,
+                field_name=missing_critical[0],
+                drift_type="FIELD_MISSING",
+                signal_type="field_missing",
+                severity="high",
+                current_value=json.dumps({"missing_critical": missing_critical}),
+                confidence=0.98,
+                sample_urls=[page.url],
+                metrics={"missing_critical_fields": missing_critical, "record_type": record_type},
+            )
+            return {}, None
 
         action = "created"
         if existing_record is None:

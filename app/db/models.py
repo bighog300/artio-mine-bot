@@ -883,9 +883,16 @@ class MappingDriftSignal(Base):
     tenant_id: Mapped[str] = mapped_column(String, ForeignKey("tenants.id"), nullable=False, default="public")
     source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
     mapping_version_id: Mapped[str | None] = mapped_column(String, ForeignKey("source_mapping_versions.id"), nullable=True)
+    page_id: Mapped[str | None] = mapped_column(String, ForeignKey("pages.id"), nullable=True)
+    record_id: Mapped[str | None] = mapped_column(String, ForeignKey("records.id"), nullable=True)
+    field_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    drift_type: Mapped[str | None] = mapped_column(String, nullable=True)
     family_key: Mapped[str | None] = mapped_column(String, nullable=True)
     signal_type: Mapped[str] = mapped_column(String, nullable=False)
     severity: Mapped[str] = mapped_column(String, nullable=False, default="medium")
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    previous_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    current_value: Mapped[str | None] = mapped_column(Text, nullable=True)
     detected_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False, default=_now)
     status: Mapped[str] = mapped_column(String, nullable=False, default="open")
     metrics_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
@@ -908,6 +915,29 @@ class MappingDriftSignal(Base):
         Index("ix_mapping_drift_signals_source_status_detected", "source_id", "status", "detected_at"),
         Index("ix_mapping_drift_signals_mapping_severity_status", "mapping_version_id", "severity", "status"),
         Index("ix_mapping_drift_signals_source_type_family", "source_id", "signal_type", "family_key"),
+        Index("ix_mapping_drift_signals_source_page_field", "source_id", "page_id", "field_name"),
+    )
+
+
+class ExtractionBaseline(Base):
+    __tablename__ = "extraction_baselines"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    source_id: Mapped[str] = mapped_column(String, ForeignKey("sources.id"), nullable=False)
+    mapping_version_id: Mapped[str | None] = mapped_column(String, ForeignKey("source_mapping_versions.id"), nullable=True)
+    page_id: Mapped[str] = mapped_column(String, ForeignKey("pages.id"), nullable=False)
+    record_id: Mapped[str | None] = mapped_column(String, ForeignKey("records.id"), nullable=True)
+    baseline_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    field_stats_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    dom_section_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    confidence_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False, default=_now, onupdate=_now)
+    created_at: Mapped[datetime] = mapped_column(UTC_DATETIME, nullable=False, default=_now)
+
+    __table_args__ = (
+        UniqueConstraint("source_id", "page_id", name="uq_extraction_baselines_source_page"),
+        Index("ix_extraction_baselines_source_mapping", "source_id", "mapping_version_id"),
+        Index("ix_extraction_baselines_source_updated", "source_id", "updated_at"),
     )
 
 
