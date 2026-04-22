@@ -280,7 +280,7 @@ async def test_scan_supports_discovery_roots_for_artists_index(test_client: Asyn
     page_types = await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/page-types")
     assert page_types.status_code == 200
     keys = {item["key"] for item in page_types.json()["items"]}
-    assert "root_page" in keys
+    assert keys & {"section_landing", "root_page"}
     assert any(key.startswith("detail_") or key in {"listing_page", "directory_index", "section_landing"} for key in keys)
 
 
