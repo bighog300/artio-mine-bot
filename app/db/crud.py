@@ -1378,8 +1378,17 @@ def has_usable_runtime_map_payload(runtime_map: dict[str, Any] | None) -> bool:
     if not isinstance(runtime_map, dict):
         return False
     crawl_plan = runtime_map.get("crawl_plan")
-    if isinstance(crawl_plan, dict) and isinstance(crawl_plan.get("phases"), list) and crawl_plan["phases"]:
+    has_crawl_plan = isinstance(crawl_plan, dict) and isinstance(crawl_plan.get("phases"), list) and bool(crawl_plan["phases"])
+    if has_crawl_plan and has_runtime_extraction_payload(runtime_map):
         return True
+    if has_crawl_plan:
+        return True
+    return has_runtime_extraction_payload(runtime_map)
+
+
+def has_runtime_extraction_payload(runtime_map: dict[str, Any] | None) -> bool:
+    if not isinstance(runtime_map, dict):
+        return False
     if isinstance(runtime_map.get("mining_map"), dict) and runtime_map.get("mining_map"):
         return True
     if isinstance(runtime_map.get("extraction_rules"), dict) and runtime_map.get("extraction_rules"):

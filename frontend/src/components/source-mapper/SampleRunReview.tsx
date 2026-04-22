@@ -1,5 +1,6 @@
 import type { MappingSampleRunResultResponse } from "@/lib/api";
 import { SAMPLE_RUN_REVIEW_STATUSES, type SampleRunReviewStatus } from "@/components/source-mapper/constants";
+import { useState } from "react";
 
 interface Props {
   sampleRun?: MappingSampleRunResultResponse;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function SampleRunReview({ sampleRun, onStart, loading, disabled, disabledReason, onModerateResult }: Props) {
+  const [savedNoteResultId, setSavedNoteResultId] = useState<string | null>(null);
   const reviewLabel: Record<SampleRunReviewStatus, string> = {
     approved: "Approve",
     needs_review: "Needs review",
@@ -30,6 +32,7 @@ export function SampleRunReview({ sampleRun, onStart, loading, disabled, disable
           {loading ? "Running..." : "Run sample extraction"}
         </button>
       </div>
+      <p className="text-xs text-muted-foreground">Use sample extraction to validate approved rows before publishing. Notes autosave when focus leaves the notes field.</p>
       {disabledReason ? <p className="text-xs text-muted-foreground">{disabledReason}</p> : null}
       {!sampleRun ? <p className="text-sm text-muted-foreground">No sample run yet.</p> : (
         <>
@@ -52,8 +55,12 @@ export function SampleRunReview({ sampleRun, onStart, loading, disabled, disable
                   rows={2}
                   defaultValue={item.review_notes ?? ""}
                   placeholder="Optional moderation notes"
-                  onBlur={(e) => onModerateResult(item.id, { review_notes: e.target.value })}
+                  onBlur={(e) => {
+                    onModerateResult(item.id, { review_notes: e.target.value });
+                    setSavedNoteResultId(item.id);
+                  }}
                 />
+                {savedNoteResultId === item.id ? <p className="text-[11px] text-emerald-700 mt-1">Notes saved.</p> : null}
                 <pre className="bg-muted/40 rounded p-2 mt-1 overflow-auto">{JSON.stringify(item.record_preview, null, 2)}</pre>
               </li>
             ))}

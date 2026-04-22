@@ -16,6 +16,7 @@ import {
   getSourceMappingRows,
   getSourceMappingSampleRun,
   getSourceMappingVersions,
+  getSourceRuntimeMap,
   publishSourceMappingDraft,
   rollbackSourceMappingVersion,
   startMining,
@@ -101,6 +102,11 @@ export function SourceMapping() {
     queryKey: ["source-mapping-sample-run", id, draftId, sampleRunId],
     queryFn: () => getSourceMappingSampleRun(id!, draftId!, sampleRunId!),
     enabled: !!id && !!draftId && !!sampleRunId,
+  });
+  const { data: runtimeMapState } = useQuery({
+    queryKey: ["source-runtime-map", id],
+    queryFn: () => getSourceRuntimeMap(id!),
+    enabled: !!id,
   });
 
   const createDraftMutation = useMutation({
@@ -284,13 +290,69 @@ export function SourceMapping() {
   const selectedCount = selectedRowIds.length;
   const hasDraft = Boolean(draftId && draft);
   const approvedRowsCount = draft?.approved_count ?? 0;
+  const needsReviewCount = draft?.needs_review_count ?? 0;
+  const hasRows = rowItems.length > 0;
+  const scanComplete = draft?.scan_status === "completed";
   const hasApprovedRows = approvedRowsCount > 0;
-  const mappingIsPublished = Boolean(source?.published_mapping_version_id);
-  const mappingIsApplied = Boolean(source?.active_mapping_preset_id);
-  const canStartMining = mappingIsPublished || mappingIsApplied;
+  const hasPublishedVersion = Boolean(source?.published_mapping_version_id);
+  const hasAppliedPreset = Boolean(source?.active_mapping_preset_id);
+  const crawlPlan = runtimeMapState?.runtime_map?.crawl_plan;
+  const runtimeMapPhases = crawlPlan && typeof crawlPlan === "object" && "phases" in crawlPlan ? (crawlPlan as { phases?: unknown }).phases : undefined;
+  const hasValidCrawlPlan = Array.isArray(runtimeMapPhases) && runtimeMapPhases.length > 0;
+  const runtimeMap = runtimeMapState?.runtime_map;
+  const hasExtractionRules = Boolean(runtimeMap && typeof runtimeMap === "object" && "extraction_rules" in runtimeMap && runtimeMap.extraction_rules && typeof runtimeMap.extraction_rules === "object" && Object.keys(runtimeMap.extraction_rules as Record<string, unknown>).length > 0);
+  const hasMiningMap = Boolean(runtimeMap && typeof runtimeMap === "object" && "mining_map" in runtimeMap && runtimeMap.mining_map && typeof runtimeMap.mining_map === "object" && Object.keys(runtimeMap.mining_map as Record<string, unknown>).length > 0);
+  const hasUsableRuntimeMap = hasValidCrawlPlan && (hasExtractionRules || hasMiningMap);
+  const readyToMine = hasUsableRuntimeMap && (hasPublishedVersion || hasAppliedPreset);
+  const readyForSampleRun = hasDraft && scanComplete && hasApprovedRows;
+  const readyForPublish = hasDraft && scanComplete && hasApprovedRows;
+  const canStartMining = readyToMine;
   const canRunScan = hasDraft;
-  const canRunSample = hasDraft && hasApprovedRows;
-  const canPublishDraft = hasDraft && hasApprovedRows;
+  const canRunSample = readyForSampleRun;
+  const canPublishDraft = readyForPublish;
+  const settingsValidationMessage = useMemo(() => {
+    if (settings.max_pages <= 0) return "Max pages must be greater than 0.";
+    if (settings.max_depth <= 0) return "Max depth must be greater than 0.";
+    if (settings.sample_pages_per_type <= 0) return "Samples per type must be greater than 0.";
+    return null;
+  }, [settings.max_depth, settings.max_pages, settings.sample_pages_per_type]);
+  const nextStepMessage = useMemo(() => {
+    if (!hasDraft) return "Next step: run scan by creating a draft.";
+    if (!scanComplete) return "Next step: wait for scan completion and then review rows.";
+    if (!hasRows) return "Next step: re-scan with broader settings to generate mapping rows.";
+    if (!hasApprovedRows) return "Next step: review and approve rows.";
+    if (!sampleRun) return "Next step: run sample extraction (recommended) before publishing.";
+    if (!hasPublishedVersion) return "Next step: publish draft.";
+    if (!hasAppliedPreset) return "Next step: apply a preset so runtime mapping stays explicit.";
+    if (!hasUsableRuntimeMap) return "Next step: fix runtime mapping payload before mining.";
+    return "Next step: start mining.";
+  }, [hasAppliedPreset, hasApprovedRows, hasDraft, hasPublishedVersion, hasRows, hasUsableRuntimeMap, sampleRun, scanComplete]);
+  const mineDisabledReason = !hasDraft
+    ? "Create and complete a mapping draft first."
+    : !scanComplete
+      ? "Complete the mapping scan before mining."
+      : !hasPublishedVersion && !hasAppliedPreset
+        ? "Publish a draft or apply a preset before starting mining."
+        : !hasValidCrawlPlan
+          ? "Runtime mapping is missing crawl_plan.phases."
+          : !hasExtractionRules && !hasMiningMap
+            ? "Runtime mapping has no extraction/mining rules."
+            : null;
+  const sampleDisabledReason = !hasDraft
+    ? "Create a mapping draft first."
+    : !scanComplete
+      ? "Complete scan before running sample extraction."
+      : !hasApprovedRows
+        ? "Approve at least one row before running sample extraction."
+        : null;
+  const publishDisabledReason = !hasDraft
+    ? "Create a mapping draft first."
+    : !scanComplete
+      ? "Complete scan before publishing."
+      : !hasApprovedRows
+        ? "Approve at least one mapping row before publishing."
+        : null;
+  const publishReadinessSummary = `Readiness — approved: ${approvedRowsCount}, needs review: ${needsReviewCount}. Sample run is recommended before publish.`;
   const filteredRows = useMemo(
     () => rowItems.filter((row) => (statusFilter === "all" ? true : row.status === statusFilter)),
     [rowItems, statusFilter]
@@ -308,6 +370,13 @@ export function SourceMapping() {
           Workflow: create draft → scan and moderate rows → sample extraction moderation → publish/apply preset → mine.
         </p>
       </div>
+      <section className="rounded border bg-card p-4">
+        <h2 className="font-semibold">Workflow status</h2>
+        <p className="text-sm mt-1">{nextStepMessage}</p>
+        <p className="text-xs text-muted-foreground mt-1">
+          Draft: {hasDraft ? "yes" : "no"} · Scan complete: {scanComplete ? "yes" : "no"} · Rows: {rowItems.length} · Approved: {approvedRowsCount} · Needs review: {needsReviewCount} · Runtime map ready: {hasUsableRuntimeMap ? "yes" : "no"}.
+        </p>
+      </section>
 
       {message && <div className="rounded border border-border bg-muted/40 px-3 py-2 text-sm">{message}</div>}
 
@@ -321,7 +390,8 @@ export function SourceMapping() {
           loading={createDraftMutation.isPending}
           scanLoading={scanMutation.isPending}
           disableRunScan={!canRunScan}
-          runScanDisabledReason={!canRunScan ? "Create a mapping draft first." : null}
+          runScanDisabledReason={!canRunScan ? "Create a mapping draft first before re-scan." : null}
+          settingsValidationMessage={settingsValidationMessage}
         />
         <section className="rounded border bg-card p-4 space-y-2 text-sm">
           <h2 className="font-semibold">Scan Status</h2>
@@ -346,7 +416,7 @@ export function SourceMapping() {
           onStart={() => sampleRunMutation.mutate()}
           loading={sampleRunMutation.isPending}
           disabled={!canRunSample}
-          disabledReason={!hasDraft ? "Create a mapping draft first." : !hasApprovedRows ? "Approve at least one row before running sample extraction." : null}
+          disabledReason={sampleDisabledReason}
           onModerateResult={(resultId, payload) => moderateSampleResultMutation.mutate({ resultId, payload })}
         />
       </div>
@@ -374,10 +444,11 @@ export function SourceMapping() {
           onClick={() => startMiningMutation.mutate()}
           loading={startMiningMutation.isPending}
           disabled={!canStartMining}
-          title={!canStartMining ? "Publish a mapping draft or apply a preset before starting mining." : undefined}
+          title={!canStartMining ? mineDisabledReason ?? undefined : undefined}
         >
           Start Mining
         </Button>
+        {!canStartMining && mineDisabledReason ? <p className="text-xs text-muted-foreground mt-1">{mineDisabledReason}</p> : null}
       </div>
 
       {selectedCount > 0 && (
@@ -403,7 +474,8 @@ export function SourceMapping() {
         onPublish={() => publishMutation.mutate()}
         publishing={publishMutation.isPending}
         canPublish={canPublishDraft}
-        publishDisabledReason={!hasDraft ? "Create a mapping draft first." : !hasApprovedRows ? "Approve at least one mapping row before publishing." : null}
+        publishDisabledReason={publishDisabledReason}
+        readinessSummary={publishReadinessSummary}
         onRollback={(versionId) => rollbackMutation.mutate(versionId)}
       />
 

@@ -407,6 +407,40 @@ async def test_mine_start_requires_non_empty_structure_map(test_client: AsyncCli
 
 
 @pytest.mark.asyncio
+async def test_mine_start_requires_structure_map_when_mapping_exists(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://mine-missing-structure-map.com")
+    mapping_version = await crud.create_source_mapping_version(db_session, source.id, created_by="admin")
+    await crud.update_source(
+        db_session,
+        source.id,
+        published_mapping_version_id=mapping_version.id,
+        structure_map=None,
+    )
+
+    resp = await test_client.post(f"/api/mine/{source.id}/start")
+
+    assert resp.status_code == 422
+    assert "runtime mapping is missing" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_mine_start_requires_crawl_plan_object(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://mine-missing-crawl-plan.com")
+    mapping_version = await crud.create_source_mapping_version(db_session, source.id, created_by="admin")
+    await crud.update_source(
+        db_session,
+        source.id,
+        published_mapping_version_id=mapping_version.id,
+        structure_map=json.dumps({"extraction_rules": {"artist": {"title": [".title"]}}}),
+    )
+
+    resp = await test_client.post(f"/api/mine/{source.id}/start")
+
+    assert resp.status_code == 422
+    assert "crawl_plan is required" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_mine_start_requires_crawl_plan_phases(test_client: AsyncClient, db_session: AsyncSession):
     source = await crud.create_source(db_session, url="https://mine-empty-phases.com")
     mapping_version = await crud.create_source_mapping_version(db_session, source.id, created_by="admin")
@@ -421,6 +455,46 @@ async def test_mine_start_requires_crawl_plan_phases(test_client: AsyncClient, d
 
     assert resp.status_code == 422
     assert "crawl_plan.phases" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_mine_start_requires_extraction_or_mining_payload(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://mine-missing-rules.com")
+    mapping_version = await crud.create_source_mapping_version(db_session, source.id, created_by="admin")
+    await crud.update_source(
+        db_session,
+        source.id,
+        published_mapping_version_id=mapping_version.id,
+        structure_map=json.dumps({"crawl_plan": {"phases": [{"name": "seed"}]}}),
+    )
+
+    resp = await test_client.post(f"/api/mine/{source.id}/start")
+
+    assert resp.status_code == 422
+    assert "no usable extraction/mining rules" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_mine_start_accepts_runtime_map_with_valid_crawl_and_rules(test_client: AsyncClient, db_session: AsyncSession):
+    source = await crud.create_source(db_session, url="https://mine-valid-runtime-map.com")
+    mapping_version = await crud.create_source_mapping_version(db_session, source.id, created_by="admin")
+    await crud.update_source(
+        db_session,
+        source.id,
+        published_mapping_version_id=mapping_version.id,
+        structure_map=json.dumps(
+            {
+                "crawl_plan": {"phases": [{"name": "seed"}]},
+                "extraction_rules": {"artist": {"title": [".artist-title"]}},
+            }
+        ),
+    )
+
+    with patch("app.api.routes.mine._enqueue_pipeline_job", return_value="mock-rq-job-id"):
+        resp = await test_client.post(f"/api/mine/{source.id}/start")
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "queued"
 
 
 @pytest.mark.asyncio
