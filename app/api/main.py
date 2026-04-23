@@ -2,7 +2,7 @@ import time
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import SQLAlchemyError
@@ -155,8 +155,20 @@ async def health():
     }
 
 
+
+@app.exception_handler(ValueError)
+async def value_error_handler(_request: Request, exc: ValueError) -> JSONResponse:
+    logger.warning("api_value_error", error=str(exc))
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+@app.exception_handler(RuntimeError)
+async def runtime_error_handler(_request: Request, exc: RuntimeError) -> JSONResponse:
+    logger.exception("api_runtime_error", error=str(exc))
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
 # Include routers
-from app.api.routes import api_keys, audit, backfill, crawl_runs, drift_signals, entities, export, graph, images, intelligence, logs, mapping_presets, mapping_repair, mappings, mine, operations, pages, public_v1, records, review, search, source_mapper, source_mappings, source_profiler, sources, stats, usage  # noqa: E402
+from app.api.routes import api_keys, audit, backfill, crawl_runs, drift_signals, entities, export, graph, images, intelligence, logs, mapping_presets, mapping_repair, mappings, mine, operations, pages, public_v1, records, review, search, smart_mining, source_mapper, source_mappings, source_profiler, sources, stats, usage  # noqa: E402
 from app.api.routes import metrics as metrics_routes  # noqa: E402
 from app.api.routes import settings as settings_routes  # noqa: E402
 
@@ -192,3 +204,4 @@ app.include_router(mapping_presets.preset_export_router, prefix="/api")
 app.include_router(crawl_runs.router, prefix="/api")
 app.include_router(public_v1.router)
 app.include_router(backfill.router, prefix="/api")
+app.include_router(smart_mining.router, prefix="/api")
