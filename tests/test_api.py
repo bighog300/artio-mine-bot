@@ -76,6 +76,17 @@ async def test_list_sources(test_client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_list_sources_empty_db_returns_200(test_client: AsyncClient):
+    resp = await test_client.get("/api/sources")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["items"] == []
+    assert data["total"] == 0
+    assert data["skip"] == 0
+    assert data["limit"] == 50
+
+
+@pytest.mark.asyncio
 async def test_get_source(test_client: AsyncClient):
     create_resp = await test_client.post("/api/sources", json={"url": "https://get1.com"})
     source_id = create_resp.json()["id"]
