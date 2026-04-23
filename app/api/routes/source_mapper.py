@@ -377,12 +377,12 @@ async def approve_or_reject_rows(
             action_type="mapping_rows_bulk_action",
             user_id="admin",
             source_id=source_id,
-            affected_record_ids=body.row_ids,
             details={
                 "draft_id": draft_id,
                 "action": body.action,
                 "destination_entity": body.destination_entity,
                 "destination_field": body.destination_field,
+                "mapping_row_ids": body.row_ids,
             },
         )
         return {"updated": updated, "action": body.action}
@@ -419,8 +419,12 @@ async def approve_or_reject_rows(
         action_type="mapping_rows_bulk_action",
         user_id="admin",
         source_id=source_id,
-        affected_record_ids=body.row_ids,
-        details={"draft_id": draft_id, "action": body.action, "updated": updated},
+        details={
+            "draft_id": draft_id,
+            "action": body.action,
+            "updated": updated,
+            "mapping_row_ids": body.row_ids,
+        },
     )
     return {"updated": updated, "action": body.action}
 
@@ -624,7 +628,6 @@ async def rollback_mapping_version(
         action_type="mapping_version_rolled_back",
         user_id="admin",
         source_id=source_id,
-        record_id=version_id,
-        details={"active_mapping_version_id": restored.id},
+        details={"mapping_version_id": version_id, "active_mapping_version_id": restored.id},
     )
     return _serialize_version_publish_response(restored)
