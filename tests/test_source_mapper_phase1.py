@@ -44,7 +44,7 @@ async def test_create_source_scan_creates_draft_and_seed_rows(test_client: Async
 
 
 @pytest.mark.asyncio
-async def test_mapping_rows_list_update_and_actions(test_client: AsyncClient):
+async def test_mapping_rows_list_update_and_actions(test_client: AsyncClient, db_session: AsyncSession):
     source_resp = await test_client.post("/api/sources", json={"url": "https://mapper-two.test"})
     source_id = source_resp.json()["id"]
     draft_resp = await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})
@@ -77,6 +77,22 @@ async def test_mapping_rows_list_update_and_actions(test_client: AsyncClient):
     )
     assert ignore_resp.status_code == 200
     assert ignore_resp.json()["updated"] == 1
+
+    bulk_action = (
+        (
+            await db_session.execute(
+                select(AuditAction)
+                .where(AuditAction.action_type == "mapping_rows_bulk_action")
+                .order_by(AuditAction.created_at.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert bulk_action is not None
+    assert json.loads(bulk_action.affected_record_ids or "[]") == []
+    bulk_details = json.loads(bulk_action.details_json or "{}")
+    assert bulk_details["mapping_row_ids"] == [row_id]
 
 
 @pytest.mark.asyncio
@@ -371,7 +387,11 @@ async def test_scan_supports_discovery_roots_for_artists_index(test_client: Asyn
 
 
 @pytest.mark.asyncio
-async def test_rollback_published_mapping_version(test_client: AsyncClient):
+async def test_rollback_published_mapping_version_works_with_foreign_keys_enforced(
+    test_client: AsyncClient, db_session: AsyncSession
+):
+    await db_session.execute(text("PRAGMA foreign_keys=ON"))
+
     source_resp = await test_client.post("/api/sources", json={"url": "https://mapper-rollback.test"})
     source_id = source_resp.json()["id"]
     draft_id = (await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})).json()["id"]
@@ -388,6 +408,23 @@ async def test_rollback_published_mapping_version(test_client: AsyncClient):
     rollback = await test_client.post(f"/api/sources/{source_id}/mapping-drafts/versions/{version_id}/rollback")
     assert rollback.status_code == 200
     assert rollback.json()["id"] == version_id
+
+    action = (
+        (
+            await db_session.execute(
+                select(AuditAction)
+                .where(AuditAction.action_type == "mapping_version_rolled_back")
+                .order_by(AuditAction.created_at.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert action is not None
+    assert action.record_id is None
+    details = json.loads(action.details_json or "{}")
+    assert details["mapping_version_id"] == version_id
+    assert details["active_mapping_version_id"] == version_id
 
 
 @pytest.mark.asyncio
