@@ -29,6 +29,30 @@ async def test_console_404_endpoints_are_now_present(test_client: AsyncClient):
     assert "items" in merge_candidates.json()
 
 
+async def test_global_mapping_detail_endpoint_returns_payload_and_not_route_404(
+    test_client: AsyncClient,
+):
+    source_resp = await test_client.post("/api/sources", json={"url": "https://mapping-detail-regression.test"})
+    source_id = source_resp.json()["id"]
+
+    profile_resp = await test_client.post(f"/api/sources/{source_id}/profiles", json={"max_pages": 20})
+    profile_id = profile_resp.json()["id"]
+
+    draft_resp = await test_client.post(f"/api/sources/{source_id}/mappings/draft", json={"profile_id": profile_id})
+    mapping_id = draft_resp.json()["id"]
+
+    detail = await test_client.get(f"/api/mappings/{mapping_id}")
+    assert detail.status_code == 200
+    payload = detail.json()
+    assert payload["id"] == mapping_id
+    assert payload["source_id"] == source_id
+    assert payload["fields"] == []
+
+    not_found = await test_client.get("/api/mappings/00000000-0000-0000-0000-000000000000")
+    assert not_found.status_code == 404
+    assert not_found.json()["detail"] == "Mapping not found"
+
+
 async def test_records_endpoint_tolerates_malformed_confidence_score(
     test_client: AsyncClient, db_session: AsyncSession
 ):
