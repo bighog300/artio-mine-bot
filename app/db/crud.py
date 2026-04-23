@@ -337,7 +337,20 @@ async def get_mapping_suggestion_draft(
     source_id: str,
     mapping_id: str,
 ) -> SourceMappingVersion | None:
-    return await get_mapping_suggestion_version(db, mapping_id=mapping_id, source_id=source_id)
+    version = await get_mapping_by_id(db, mapping_id)
+    if version is None or version.source_id != source_id:
+        return None
+    return version
+
+
+async def get_mapping_by_id(
+    db: AsyncSession,
+    mapping_id: str,
+) -> SourceMappingVersion | None:
+    result = await db.execute(
+        select(SourceMappingVersion).where(SourceMappingVersion.id == mapping_id)
+    )
+    return result.scalar_one_or_none()
 
 
 async def get_mapping_suggestion_version(
@@ -346,13 +359,12 @@ async def get_mapping_suggestion_version(
     mapping_id: str,
     source_id: str | None = None,
 ) -> SourceMappingVersion | None:
-    filters = [SourceMappingVersion.id == mapping_id]
-    if source_id is not None:
-        filters.append(SourceMappingVersion.source_id == source_id)
-    result = await db.execute(
-        select(SourceMappingVersion).where(*filters)
-    )
-    return result.scalar_one_or_none()
+    version = await get_mapping_by_id(db, mapping_id)
+    if version is None:
+        return None
+    if source_id is not None and version.source_id != source_id:
+        return None
+    return version
 
 
 async def update_mapping_suggestion_draft_family_rules(

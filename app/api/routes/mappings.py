@@ -26,10 +26,14 @@ def _serialize_mapping_list_item(mapping: SourceMappingVersion, source: Source) 
     }
 
 
-def _serialize_mapping_detail(mapping: SourceMappingVersion, source: Source) -> dict[str, object]:
+def serialize_mapping_detail(mapping: SourceMappingVersion, source: Source) -> dict[str, object]:
     return {
-        **_serialize_mapping_list_item(mapping, source),
         "source_id": source.id,
+        "id": mapping.id,
+        "name": source.name or source.url,
+        "version": int(mapping.version_number or 1),
+        "status": _mapping_status(mapping),
+        "updated_at": mapping.updated_at,
         "fields": [],
     }
 
@@ -65,10 +69,10 @@ async def get_mapping_detail(
     db: AsyncSession = Depends(get_db),
     _role: str = Depends(require_permission("read")),
 ):
-    mapping = await crud.get_mapping_suggestion_version(db, mapping_id=mapping_id)
+    mapping = await crud.get_mapping_by_id(db, mapping_id)
     if mapping is None:
         raise HTTPException(status_code=404, detail="Mapping not found")
     source = await crud.get_source(db, mapping.source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found")
-    return _serialize_mapping_detail(mapping, source)
+    return serialize_mapping_detail(mapping, source)

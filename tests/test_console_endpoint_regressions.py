@@ -53,6 +53,29 @@ async def test_global_mapping_detail_endpoint_returns_payload_and_not_route_404(
     assert not_found.json()["detail"] == "Mapping not found"
 
 
+async def test_mapping_detail_consistency(test_client: AsyncClient):
+    source_resp = await test_client.post("/api/sources", json={"url": "https://mapping-consistency-regression.test"})
+    source_id = source_resp.json()["id"]
+
+    profile_resp = await test_client.post(f"/api/sources/{source_id}/profiles", json={"max_pages": 20})
+    profile_id = profile_resp.json()["id"]
+
+    draft_resp = await test_client.post(f"/api/sources/{source_id}/mappings/draft", json={"profile_id": profile_id})
+    mapping_id = draft_resp.json()["id"]
+
+    global_detail = await test_client.get(f"/api/mappings/{mapping_id}")
+    assert global_detail.status_code == 200
+
+    source_scoped_detail = await test_client.get(f"/api/sources/{source_id}/mappings/{mapping_id}")
+    assert source_scoped_detail.status_code == 200
+
+    global_payload = global_detail.json()
+    source_scoped_payload = source_scoped_detail.json()
+
+    assert global_payload["id"] == source_scoped_payload["id"] == mapping_id
+    assert global_payload["source_id"] == source_scoped_payload["source_id"] == source_id
+
+
 async def test_records_endpoint_tolerates_malformed_confidence_score(
     test_client: AsyncClient, db_session: AsyncSession
 ):
