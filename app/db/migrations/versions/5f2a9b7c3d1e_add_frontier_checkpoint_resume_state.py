@@ -16,6 +16,14 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _has_unique_constraint(table_name: str, constraint_name: str) -> bool:
+    inspector = sa.inspect(op.get_bind())
+    return any(
+        constraint.get("name") == constraint_name
+        for constraint in inspector.get_unique_constraints(table_name)
+    )
+
+
 def upgrade() -> None:
     op.add_column("crawl_runs", sa.Column("mapping_version_id", sa.String(), nullable=True))
     op.create_foreign_key(
@@ -48,7 +56,8 @@ def upgrade() -> None:
     )
 
     with op.batch_alter_table("crawl_frontier") as batch_op:
-        batch_op.drop_constraint("uq_crawl_frontier_source_normalized_url", type_="unique", if_exists=True)
+        if _has_unique_constraint("crawl_frontier", "uq_crawl_frontier_source_normalized_url"):
+            batch_op.drop_constraint("uq_crawl_frontier_source_normalized_url", type_="unique")
         batch_op.create_unique_constraint(
             "uq_crawl_frontier_source_mapping_normalized_url",
             ["source_id", "mapping_version_id", "normalized_url"],
@@ -96,7 +105,8 @@ def downgrade() -> None:
     op.drop_table("crawl_run_checkpoints", if_exists=True)
 
     with op.batch_alter_table("crawl_frontier") as batch_op:
-        batch_op.drop_constraint("uq_crawl_frontier_source_mapping_normalized_url", type_="unique", if_exists=True)
+        if _has_unique_constraint("crawl_frontier", "uq_crawl_frontier_source_mapping_normalized_url"):
+            batch_op.drop_constraint("uq_crawl_frontier_source_mapping_normalized_url", type_="unique")
         batch_op.create_unique_constraint("uq_crawl_frontier_source_normalized_url", ["source_id", "normalized_url"])
 
     op.drop_constraint("fk_crawl_frontier_mapping_version_id", "crawl_frontier", type_="foreignkey", if_exists=True)
