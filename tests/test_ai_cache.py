@@ -27,3 +27,17 @@ async def test_cache_decorator_hits():
     assert await work(2) == 4
     assert await work(2) == 4
     assert calls["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_ttl_cache_stats_and_invalidate_prefix():
+    cache = TTLCache()
+    await cache.set("site:a", "one", ttl_seconds=60)
+    await cache.set("site:b", "two", ttl_seconds=60)
+    assert await cache.get("site:a") == "one"
+    assert await cache.get("missing") is None
+    deleted = await cache.invalidate_prefix("site:")
+    stats = await cache.stats()
+    assert deleted == 2
+    assert stats["hits"] >= 1
+    assert stats["misses"] >= 1

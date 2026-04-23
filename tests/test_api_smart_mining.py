@@ -39,3 +39,12 @@ async def test_retry_requires_retryable_status(test_client, db_session):
     source = await crud.create_source(db_session, url="https://retry.example", name="Retry")
     response = await test_client.post(f"/api/smart-mine/{source.id}/retry")
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_smart_mine_metrics_endpoint(test_client):
+    response = await test_client.get("/api/smart-mine/metrics")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "cache" in payload
+    assert "usage_totals" in payload

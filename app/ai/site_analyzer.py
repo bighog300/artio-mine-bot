@@ -7,6 +7,7 @@ import structlog
 from bs4 import BeautifulSoup
 
 from app.ai.openai_client import OpenAIClient
+from app.ai.prompt_utils import compact_prompt, smart_html_preview
 from app.config import settings
 from app.crawler.fetcher import fetch
 
@@ -41,17 +42,17 @@ class SiteAnalyzer:
             link for link in links if urlparse(link).netloc == urlparse(homepage.final_url).netloc
         ]
 
-        prompt = (
-            "Analyze this website homepage and navigation links to identify site type, CMS,"
-            " entity types and URL patterns. Return JSON with keys:"
-            " site_type, cms_platform, entity_types, url_patterns, confidence, notes."
+        prompt = compact_prompt(
+            "Analyze homepage/nav links. Return JSON only with: site_type, cms_platform, "
+            "entity_types, url_patterns, confidence (0-100), notes. Never invent unseen sections.",
+            max_chars=220,
         )
         user_prompt = (
             f"URL: {homepage.final_url}\n"
             f"Title: {soup.title.text.strip() if soup.title and soup.title.text else ''}\n"
             f"Meta generator: {(soup.select_one('meta[name=generator]') or {}).get('content', '') if soup.select_one('meta[name=generator]') else ''}\n"
             f"Top links: {same_domain_links[:30]}\n"
-            f"HTML snippet:\n{homepage.html[:6000]}"
+            f"HTML preview:\n{smart_html_preview(homepage.html, max_chars=3000)}"
         )
 
         result = await self.openai_client.complete_json(
@@ -59,6 +60,7 @@ class SiteAnalyzer:
             user_prompt=user_prompt,
             model=settings.openai_model_analysis,
             temperature=0,
+            operation="site_analysis",
         )
 
         site_analysis: SiteAnalysis = {

@@ -9,10 +9,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.smart_miner import SmartMiner
+from app.ai.openai_client import OpenAIClient
 from app.ai.templates import TemplateLibrary
 from app.api.deps import get_db
+from app.api.rbac import Principal, get_current_principal
 from app.db import crud
 from app.db.database import AsyncSessionLocal
+from app.config import settings
 
 router = APIRouter(prefix="/smart-mine", tags=["smart-mining"])
 logger = structlog.get_logger()
@@ -25,7 +28,7 @@ _job_statuses: dict[str, dict] = {}
 def _get_miner() -> SmartMiner:
     global _miner
     if _miner is None:
-        _miner = SmartMiner()
+        _miner = SmartMiner(openai_client=OpenAIClient(api_key=settings.openai_api_key or "test"))
     return _miner
 
 
@@ -49,12 +52,27 @@ class SmartMineStatusResponse(BaseModel):
     updated_at: datetime
     job_status: Literal["queued", "running", "completed", "failed"]
     error: str | None = None
+    helpful_error: str | None = None
 
 
 class SmartTemplateListItem(BaseModel):
     id: str
     name: str
     usage_count: int = 0
+
+
+class SmartMineMetricsResponse(BaseModel):
+    cache: dict
+    usage_totals: dict[str, float]
+    usage_by_operation: dict[str, dict[str, float]]
+    daily_cost_report: dict[str, dict[str, float]]
+    recent_cost_alerts: list[dict]
+
+
+def _helpful_error_message(error: str | None) -> str | None:
+    if not error:
+        return None
+    return "We couldn’t finish Smart Mode. Please retry, or switch to Guided Mode for step-by-step setup."
 
 
 async def _execute_smart_mine(source_id: str, url: str) -> None:
@@ -72,11 +90,11 @@ async def _execute_smart_mine(source_id: str, url: str) -> None:
             "error": None,
         }
     except (ValueError, RuntimeError, OSError) as exc:
-        logger.exception("smart_mine_background_failed", source_id=source_id, error=str(exc))
+        logger.exception("smart_mine_background_failed", source_id=source_id, technical_error=str(exc))
         _job_statuses[source_id] = {
             "job_status": "failed",
             "updated_at": datetime.now(UTC),
-            "error": str(exc),
+            "error": "Smart Mode couldn’t complete for this site right now.",
         }
 
 
@@ -125,6 +143,7 @@ async def get_smart_mine_status(source_id: str, db: AsyncSession = Depends(get_d
         updated_at=status["updated_at"],
         job_status=status["job_status"],
         error=status["error"],
+        helpful_error=_helpful_error_message(status["error"]),
     )
 
 
@@ -155,3 +174,17 @@ async def get_template(template_id: str) -> dict:
     if template is None:
         raise HTTPException(status_code=404, detail="Template not found")
     return template
+
+
+@router.get("/metrics", response_model=SmartMineMetricsResponse, status_code=200)
+async def get_smart_mine_metrics(principal: Principal = Depends(get_current_principal)) -> SmartMineMetricsResponse:
+    if principal.role != "admin":
+        raise HTTPException(status_code=403, detail="This dashboard is available to admins only.")
+    miner = _get_miner()
+    return SmartMineMetricsResponse(
+        cache=await miner.cache_stats(),
+        usage_totals=miner.openai_client.get_usage_totals(),
+        usage_by_operation=miner.openai_client.get_operation_totals(),
+        daily_cost_report=miner.openai_client.get_daily_cost_report(),
+        recent_cost_alerts=miner.recent_cost_alerts(),
+    )

@@ -26,24 +26,36 @@ class TTLCache:
     def __init__(self) -> None:
         self._store: dict[str, CacheEntry] = {}
         self._lock = asyncio.Lock()
+        self._hits = 0
+        self._misses = 0
+        self._sets = 0
+        self._deletes = 0
+        self._expirations = 0
 
     async def get(self, key: str) -> Any | None:
         async with self._lock:
             entry = self._store.get(key)
             if entry is None:
+                self._misses += 1
                 return None
             if entry.expires_at <= time.time():
                 self._store.pop(key, None)
+                self._expirations += 1
+                self._misses += 1
                 return None
+            self._hits += 1
             return entry.value
 
     async def set(self, key: str, value: Any, ttl_seconds: int) -> None:
         async with self._lock:
             self._store[key] = CacheEntry(value=value, expires_at=time.time() + ttl_seconds)
+            self._sets += 1
 
     async def delete(self, key: str) -> None:
         async with self._lock:
-            self._store.pop(key, None)
+            deleted = self._store.pop(key, None)
+            if deleted is not None:
+                self._deletes += 1
 
     async def cleanup_expired(self) -> int:
         now = time.time()
@@ -51,7 +63,32 @@ class TTLCache:
             keys = [k for k, v in self._store.items() if v.expires_at <= now]
             for key in keys:
                 self._store.pop(key, None)
+            self._expirations += len(keys)
             return len(keys)
+
+    async def invalidate_prefix(self, prefix: str) -> int:
+        async with self._lock:
+            keys = [k for k in self._store if k.startswith(prefix)]
+            for key in keys:
+                self._store.pop(key, None)
+            self._deletes += len(keys)
+            return len(keys)
+
+    async def stats(self) -> dict[str, float]:
+        async with self._lock:
+            total_reads = self._hits + self._misses
+            hit_ratio = (self._hits / total_reads) if total_reads else 0.0
+            miss_ratio = (self._misses / total_reads) if total_reads else 0.0
+            return {
+                "size": float(len(self._store)),
+                "hits": float(self._hits),
+                "misses": float(self._misses),
+                "sets": float(self._sets),
+                "deletes": float(self._deletes),
+                "expirations": float(self._expirations),
+                "hit_ratio": round(hit_ratio, 4),
+                "miss_ratio": round(miss_ratio, 4),
+            }
 
 
 def make_cache_key(prefix: str, *parts: Any) -> str:

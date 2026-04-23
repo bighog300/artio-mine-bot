@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 
 from app.ai.site_analyzer import SiteAnalysis
 from app.ai.openai_client import OpenAIClient
+from app.ai.prompt_utils import compact_prompt, smart_html_preview
 from app.config import settings
 from app.crawler.fetcher import fetch
 from app.db import crud
@@ -32,6 +33,7 @@ class ConfigGenerator:
             user_prompt=user_prompt,
             model=settings.openai_model_config,
             temperature=0.1,
+            operation="config_generation",
         )
         self.validate_config(config)
         validation = crud.validate_mapping_template(config)
@@ -54,7 +56,7 @@ class ConfigGenerator:
             if matching:
                 page = await fetch(matching[0])
                 if page.html:
-                    result[entity] = page.html[:5000]
+                    result[entity] = smart_html_preview(page.html, max_chars=3000)
         return result
 
     def validate_config(self, config: dict[str, Any]) -> None:
@@ -84,10 +86,10 @@ class ConfigGenerator:
                     raise ValueError(f"Selector '{sel}' is overly broad")
 
     def _build_system_prompt(self) -> str:
-        return (
-            "Generate a strict JSON mining config for art websites. "
-            "Output keys: crawl_plan, extraction_rules, page_type_rules, record_type_rules, "
-            "follow_rules, asset_rules. Avoid broad identifiers (/ . /.) and generic selectors."
+        return compact_prompt(
+            "Generate strict JSON mining config for art sites. Required keys: crawl_plan, extraction_rules, "
+            "page_type_rules, record_type_rules, follow_rules, asset_rules. Avoid broad identifiers and generic selectors.",
+            max_chars=220,
         )
 
     def _build_user_prompt(

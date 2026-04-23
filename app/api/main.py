@@ -158,14 +158,20 @@ async def health():
 
 @app.exception_handler(ValueError)
 async def value_error_handler(_request: Request, exc: ValueError) -> JSONResponse:
-    logger.warning("api_value_error", error=str(exc))
-    return JSONResponse(status_code=422, content={"detail": str(exc)})
+    logger.warning("api_value_error", technical_error=str(exc))
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "We couldn't process that request. Please review your inputs and try again."},
+    )
 
 
 @app.exception_handler(RuntimeError)
 async def runtime_error_handler(_request: Request, exc: RuntimeError) -> JSONResponse:
-    logger.exception("api_runtime_error", error=str(exc))
-    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    logger.exception("api_runtime_error", technical_error=str(exc))
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Something went wrong while processing your request. Please retry or use Guided Mode."},
+    )
 
 # Include routers
 from app.api.routes import api_keys, audit, backfill, crawl_runs, drift_signals, entities, export, graph, images, intelligence, logs, mapping_presets, mapping_repair, mappings, mine, operations, pages, public_v1, records, review, search, smart_mining, source_mapper, source_mappings, source_profiler, sources, stats, usage  # noqa: E402
