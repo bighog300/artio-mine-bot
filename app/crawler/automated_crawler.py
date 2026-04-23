@@ -7,7 +7,7 @@ import json
 import re
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 import structlog
 from bs4 import BeautifulSoup
@@ -446,10 +446,18 @@ class AutomatedCrawler:
                 if not elements:
                     extracted["confidence"] -= 10
                     continue
-                if len(elements) == 1:
-                    extracted["data"][field] = elements[0].get_text(" ", strip=True)
+                values = [
+                    value
+                    for el in elements
+                    if (value := self._extract_field_value(el, field=field, base_url=url)) is not None
+                ]
+                if not values:
+                    extracted["confidence"] -= 10
+                    continue
+                if len(values) == 1:
+                    extracted["data"][field] = values[0]
                 else:
-                    extracted["data"][field] = [el.get_text(" ", strip=True) for el in elements]
+                    extracted["data"][field] = values
             except Exception as exc:
                 logger.warning("css_selector_failed", selector=selector, error=str(exc), url=url)
                 extracted["confidence"] -= 10
@@ -469,6 +477,64 @@ class AutomatedCrawler:
 
         extracted["confidence"] = max(0, int(extracted["confidence"]))
         return extracted
+
+    def _extract_field_value(self, element: Any, *, field: str, base_url: str) -> str | None:
+        field_name = (field or "").strip().lower()
+        if "email" in field_name:
+            href = element.get("href")
+            if isinstance(href, str) and href.strip():
+                return self._normalize_email(href) or self._normalize_url_value(href, base_url=base_url)
+            text = element.get_text(" ", strip=True)
+            return self._normalize_email(text) or (text or None)
+
+        prefer_image_attr = any(token in field_name for token in ("avatar", "image", "photo", "logo"))
+        prefer_url_attr = (
+            field_name == "source_url"
+            or field_name.endswith("_url")
+            or "website" in field_name
+            or "canonical" in field_name
+            or "link" in field_name
+        )
+        if prefer_image_attr or prefer_url_attr:
+            for attr in self._candidate_attrs(element, prefer_image_attr=prefer_image_attr):
+                value = element.get(attr)
+                normalized = self._normalize_url_value(value, base_url=base_url)
+                if normalized:
+                    return normalized
+
+        text = element.get_text(" ", strip=True)
+        return text or None
+
+    def _candidate_attrs(self, element: Any, *, prefer_image_attr: bool) -> tuple[str, ...]:
+        tag_name = str(getattr(element, "name", "") or "").lower()
+        if tag_name == "meta":
+            return ("content", "href", "src")
+        if tag_name == "link":
+            return ("href", "content")
+        if tag_name == "img" or prefer_image_attr:
+            return ("src", "data-src", "data-original", "href")
+        return ("href", "src", "content")
+
+    def _normalize_url_value(self, value: Any, *, base_url: str) -> str | None:
+        if not isinstance(value, str):
+            return None
+        cleaned = value.strip()
+        if not cleaned or cleaned.startswith("#") or cleaned.lower().startswith("javascript:"):
+            return None
+        return urljoin(base_url, cleaned)
+
+    def _normalize_email(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        cleaned = value.strip()
+        if cleaned.lower().startswith("mailto:"):
+            cleaned = cleaned.split(":", 1)[1]
+            cleaned = cleaned.split("?", 1)[0]
+            cleaned = unquote(cleaned).strip()
+        match = re.search(r"([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})", cleaned)
+        if match:
+            return match.group(1)
+        return None
 
     async def _extract_with_ai(self, html: str, page_type: str, context: str) -> dict[str, Any]:
         """Fallback: Extract using AI (only when CSS/regex fails)."""
@@ -580,6 +646,11 @@ class AutomatedCrawler:
         payload = data.get("data", {}) if isinstance(data.get("data"), dict) else {}
         title = payload.get("name") or payload.get("title")
         description = payload.get("bio") or payload.get("description")
+        bio = payload.get("bio")
+        email = payload.get("email")
+        website_url = payload.get("website_url")
+        avatar_url = payload.get("avatar_url")
+        source_url = payload.get("source_url") or url
         record_type = self._resolve_record_type(page_type)
 
         if page_id is not None:
@@ -599,9 +670,13 @@ class AutomatedCrawler:
             record_type=record_type,
             title=title,
             description=description,
+            bio=bio,
+            email=email,
+            website_url=website_url,
+            avatar_url=avatar_url,
             raw_data=json.dumps(payload),
             confidence_score=int(data.get("confidence", 50)),
-            source_url=url,
+            source_url=source_url,
             extraction_provider=data.get("method", "deterministic"),
         )
 
