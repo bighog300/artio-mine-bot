@@ -4611,3 +4611,13 @@ async def prepare_refresh_frontier_rows(
     normalized_drift_type = drift_type or signal_type.upper()
     if normalized_drift_type not in DRIFT_SIGNAL_TYPES:
         normalized_drift_type = "VALUE_ANOMALY"
+
+
+async def count_pages(db: AsyncSession, source_id: str) -> int:
+    result = await db.execute(select(func.count()).select_from(Page).where(Page.source_id == source_id))
+    return int(result.scalar() or 0)
+
+
+async def count_records(db: AsyncSession, source_id: str) -> int:
+    result = await db.execute(select(func.count()).select_from(Record).where(Record.source_id == source_id))
+    return int(result.scalar() or 0)

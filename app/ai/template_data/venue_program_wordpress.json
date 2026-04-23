@@ -1,0 +1,48 @@
+{
+  "id": "venue_program_wordpress",
+  "name": "Venue Program WordPress",
+  "profile": {
+    "site_type": "venue",
+    "cms_platform": "wordpress",
+    "entity_types": [
+      "event",
+      "venue"
+    ],
+    "url_pattern_tokens": [
+      "/program/",
+      "/events/"
+    ]
+  },
+  "usage_count": 0,
+  "config": {
+    "crawl_plan": {
+      "phases": [
+        {
+          "phase_name": "detail_pages",
+          "base_url": "{url}",
+          "url_pattern": "/artists/[a-z0-9\\-]+/?",
+          "pagination_type": "follow_links",
+          "num_pages": 20
+        }
+      ]
+    },
+    "extraction_rules": {
+      "artist": {
+        "identifiers": [
+          "/artists/[^/]+/?$"
+        ],
+        "exclude_patterns": [
+          "{domain}/wp-admin"
+        ],
+        "css_selectors": {
+          "title": "h1",
+          "description": ".bio, .artist-bio"
+        }
+      }
+    },
+    "page_type_rules": {},
+    "record_type_rules": {},
+    "follow_rules": {},
+    "asset_rules": {}
+  }
+}

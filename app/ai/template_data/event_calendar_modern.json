@@ -1,0 +1,45 @@
+{
+  "id": "event_calendar_modern",
+  "name": "Event Calendar Modern",
+  "profile": {
+    "site_type": "events_site",
+    "cms_platform": "custom",
+    "entity_types": [
+      "event"
+    ],
+    "url_pattern_tokens": [
+      "/events/",
+      "/calendar/"
+    ]
+  },
+  "usage_count": 0,
+  "config": {
+    "crawl_plan": {
+      "phases": [
+        {
+          "phase_name": "detail_pages",
+          "base_url": "{url}",
+          "url_pattern": "/artists/[a-z0-9\\-]+/?",
+          "pagination_type": "follow_links",
+          "num_pages": 20
+        }
+      ]
+    },
+    "extraction_rules": {
+      "event": {
+        "identifiers": [
+          "/events/[^/]+/?$"
+        ],
+        "css_selectors": {
+          "title": "h1",
+          "start_date": "time.start",
+          "end_date": "time.end"
+        }
+      }
+    },
+    "page_type_rules": {},
+    "record_type_rules": {},
+    "follow_rules": {},
+    "asset_rules": {}
+  }
+}
