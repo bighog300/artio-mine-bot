@@ -40,6 +40,15 @@ class DuplicateDecisionRequest(BaseModel):
     primary_id: str | None = None
 
 
+def _safe_number(value: float | int | None, default: float = 0.0) -> float:
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _parse_json(payload: str | None) -> dict:
     if not payload:
         return {}
@@ -168,7 +177,9 @@ async def semantic_artists(
     ranked: list[tuple[Record, float]] = []
     for record in records:
         score = cosine_similarity(query_embedding, crud.parse_embedding(record.embedding_vector))
-        ranking_boost = (record.completeness_score / 1000) + min(record.confidence_score / 1000, 0.1)
+        completeness = _safe_number(record.completeness_score, default=0.0)
+        confidence = _safe_number(record.confidence_score, default=0.0)
+        ranking_boost = (completeness / 1000) + min(confidence / 1000, 0.1)
         ranked.append((record, round(score + ranking_boost, 6)))
 
     ranked.sort(key=lambda item: item[1], reverse=True)
@@ -209,7 +220,8 @@ async def semantic_exhibitions(
     for record in records:
         score = cosine_similarity(query_embedding, crud.parse_embedding(record.embedding_vector))
         recency_bonus = 0.05 if record.created_at and (datetime.now(UTC) - record.created_at).days < 120 else 0.0
-        ranked.append((record, round(score + recency_bonus + (record.completeness_score / 1000), 6)))
+        completeness = _safe_number(record.completeness_score, default=0.0)
+        ranked.append((record, round(score + recency_bonus + (completeness / 1000), 6)))
     ranked.sort(key=lambda item: item[1], reverse=True)
     items = [
         {

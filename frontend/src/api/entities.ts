@@ -158,8 +158,21 @@ async function resolveConflict(input: ResolveConflictInput): Promise<{ status: s
 }
 
 async function getMergeCandidates(): Promise<MergeCandidate[]> {
-  const { data } = await entitiesApi.get<MergeCandidate[] | { items: MergeCandidate[] }>("/entities/merge-candidates", authConfig());
-  return Array.isArray(data) ? data : data.items;
+  const { data } = await entitiesApi.get<{ items: Array<{
+    left_id: string;
+    right_id: string;
+    left_name: string | null;
+    right_name: string | null;
+    similarity_score: number;
+    strong_signals?: string[];
+  }> }>("/suggest/duplicates", { ...authConfig(), params: { auto_merge: false } });
+  return (data.items ?? []).map((item) => ({
+    id: `${item.left_id}:${item.right_id}`,
+    entity_a: { id: item.left_id, name: item.left_name ?? "Unknown", type: "artist" },
+    entity_b: { id: item.right_id, name: item.right_name ?? "Unknown", type: "artist" },
+    similarity_score: item.similarity_score,
+    matching_signals: item.strong_signals ?? [],
+  }));
 }
 
 async function getEntityComparison(a: string, b: string): Promise<EntityComparison> {
