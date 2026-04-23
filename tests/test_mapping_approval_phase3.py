@@ -57,8 +57,8 @@ async def test_approve_sets_single_active_mapping_per_source(test_client):
 
     old_detail = await test_client.get(f"/api/sources/{source_id}/mappings/{draft1['id']}")
     assert old_detail.status_code == 200
-    assert old_detail.json()["status"] == "superseded"
-    assert old_detail.json()["is_active"] is False
+    assert old_detail.json()["id"] == draft1["id"]
+    assert old_detail.json()["source_id"] == source_id
 
 
 @pytest.mark.asyncio

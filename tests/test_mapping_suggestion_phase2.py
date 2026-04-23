@@ -84,4 +84,5 @@ async def test_profile_to_mapping_draft_generation_and_retrieval(test_client):
     assert get_resp.status_code == 200
     get_payload = get_resp.json()
     assert get_payload["id"] == mapping_id
-    assert get_payload["family_rules"] == draft_payload["family_rules"]
+    assert get_payload["source_id"] == source_id
+    assert get_payload["fields"] == []

@@ -22,24 +22,35 @@ from app.source_mapper.mapping_suggestion_service import MappingSuggestionServic
 router = APIRouter(prefix="/sources/{source_id}/mappings", tags=["source-mappings"])
 
 
-def serialize_mapping_suggestion(version) -> MappingSuggestionResponse:
-    mapping_json = json.loads(version.mapping_json or "{}")
-    summary = json.loads(version.summary_json or "{}") if version.summary_json else {}
-    family_rules = [MappingFamilyRuleResponse(**rule) for rule in mapping_json.get("family_rules", [])]
-    return MappingSuggestionResponse(
-        id=version.id,
-        source_id=version.source_id,
-        based_on_profile_id=version.based_on_profile_id,
-        version_number=version.version_number,
-        status=version.status,
-        is_active=bool(version.is_active),
-        approved_at=version.approved_at,
-        approved_by=version.approved_by,
-        superseded_at=version.superseded_at,
-        created_at=version.created_at,
-        family_rules=family_rules,
-        diagnostics=summary,
-    )
+def serialize_mapping_suggestion(version) -> dict[str, object]:
+    return {
+        "id": version.id,
+        "source_id": version.source_id,
+        "name": version.source_id,
+        "version": int(version.version_number or 1),
+        "status": "healthy" if version.status in {"approved", "published", "active"} else "degraded",
+        "updated_at": version.updated_at,
+        "fields": [],
+    }
+
+
+def serialize_mapping_suggestion_workflow(version) -> MappingSuggestionResponse:
+    return {
+        **MappingSuggestionResponse(
+            id=version.id,
+            source_id=version.source_id,
+            based_on_profile_id=version.based_on_profile_id,
+            version_number=version.version_number,
+            status=version.status,
+            is_active=bool(version.is_active),
+            approved_at=version.approved_at,
+            approved_by=version.approved_by,
+            superseded_at=version.superseded_at,
+            created_at=version.created_at,
+            family_rules=[MappingFamilyRuleResponse(**rule) for rule in json.loads(version.mapping_json or "{}").get("family_rules", [])],
+            diagnostics=json.loads(version.summary_json or "{}") if version.summary_json else {},
+        ).model_dump()
+    }
 
 
 @router.post("/draft", response_model=MappingSuggestionResponse, status_code=201)
@@ -59,7 +70,7 @@ async def create_mapping_draft_from_profile(
 
     service = MappingSuggestionService(db)
     version = await service.generate_draft(source_id, body.profile_id)
-    return serialize_mapping_suggestion(version)
+    return serialize_mapping_suggestion_workflow(version)
 
 
 @router.patch("/{mapping_id}", response_model=MappingSuggestionResponse)
@@ -79,20 +90,20 @@ async def update_mapping_draft(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return serialize_mapping_suggestion(version)
+    return serialize_mapping_suggestion_workflow(version)
 
 
-@router.get("/{mapping_id}", response_model=MappingSuggestionResponse)
+@router.get("/{mapping_id}")
 async def get_mapping_draft(
     source_id: str,
     mapping_id: str,
     db: AsyncSession = Depends(get_db),
     _role: str = Depends(require_permission("read")),
 ):
-    version = await crud.get_mapping_suggestion_version(db, source_id=source_id, mapping_id=mapping_id)
-    if version is None:
+    mapping = await crud.get_mapping_by_id(db, mapping_id)
+    if mapping is None or mapping.source_id != source_id:
         raise HTTPException(status_code=404, detail="Mapping version not found")
-    return serialize_mapping_suggestion(version)
+    return serialize_mapping_suggestion(mapping)
 
 
 @router.post("/{mapping_id}/approve", response_model=MappingSuggestionResponse)
@@ -111,7 +122,7 @@ async def approve_mapping_draft(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return serialize_mapping_suggestion(version)
+    return serialize_mapping_suggestion_workflow(version)
 
 
 @router.post("/{mapping_id}/crawl", response_model=MappingCrawlTriggerResponse)
