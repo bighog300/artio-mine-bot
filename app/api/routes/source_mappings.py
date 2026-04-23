@@ -22,7 +22,7 @@ from app.source_mapper.mapping_suggestion_service import MappingSuggestionServic
 router = APIRouter(prefix="/sources/{source_id}/mappings", tags=["source-mappings"])
 
 
-def _serialize_mapping(version) -> MappingSuggestionResponse:
+def serialize_mapping_suggestion(version) -> MappingSuggestionResponse:
     mapping_json = json.loads(version.mapping_json or "{}")
     summary = json.loads(version.summary_json or "{}") if version.summary_json else {}
     family_rules = [MappingFamilyRuleResponse(**rule) for rule in mapping_json.get("family_rules", [])]
@@ -59,7 +59,7 @@ async def create_mapping_draft_from_profile(
 
     service = MappingSuggestionService(db)
     version = await service.generate_draft(source_id, body.profile_id)
-    return _serialize_mapping(version)
+    return serialize_mapping_suggestion(version)
 
 
 @router.patch("/{mapping_id}", response_model=MappingSuggestionResponse)
@@ -79,7 +79,7 @@ async def update_mapping_draft(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _serialize_mapping(version)
+    return serialize_mapping_suggestion(version)
 
 
 @router.get("/{mapping_id}", response_model=MappingSuggestionResponse)
@@ -89,10 +89,10 @@ async def get_mapping_draft(
     db: AsyncSession = Depends(get_db),
     _role: str = Depends(require_permission("read")),
 ):
-    version = await crud.get_mapping_suggestion_draft(db, source_id=source_id, mapping_id=mapping_id)
+    version = await crud.get_mapping_suggestion_version(db, source_id=source_id, mapping_id=mapping_id)
     if version is None:
         raise HTTPException(status_code=404, detail="Mapping version not found")
-    return _serialize_mapping(version)
+    return serialize_mapping_suggestion(version)
 
 
 @router.post("/{mapping_id}/approve", response_model=MappingSuggestionResponse)
@@ -111,7 +111,7 @@ async def approve_mapping_draft(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _serialize_mapping(version)
+    return serialize_mapping_suggestion(version)
 
 
 @router.post("/{mapping_id}/crawl", response_model=MappingCrawlTriggerResponse)
