@@ -84,6 +84,32 @@ def _serialize_job_run(job: object) -> dict[str, object]:
     }
 
 
+def _serialize_source(source: object, stats_data: dict[str, object]) -> dict[str, object]:
+    payload = {
+        "id": getattr(source, "id"),
+        "url": getattr(source, "url"),
+        "name": getattr(source, "name", None),
+        "status": getattr(source, "status", "pending") or "pending",
+        "operational_status": getattr(source, "operational_status", "idle") or "idle",
+        "total_pages": getattr(source, "total_pages", 0) or 0,
+        "total_records": getattr(source, "total_records", 0) or 0,
+        "last_crawled_at": getattr(source, "last_crawled_at", None),
+        "created_at": getattr(source, "created_at"),
+        "crawl_hints": _parse_json(getattr(source, "crawl_hints", None), None),
+        "extraction_rules": _parse_json(getattr(source, "extraction_rules", None), None),
+        "crawl_intent": getattr(source, "crawl_intent", "site_root") or "site_root",
+        "max_depth": getattr(source, "max_depth", None),
+        "max_pages": getattr(source, "max_pages", None),
+        "enabled": bool(getattr(source, "enabled", True)),
+        "queue_paused": bool(getattr(source, "queue_paused", False)),
+        "health_status": getattr(source, "health_status", "unknown") or "unknown",
+        "active_mapping_preset_id": getattr(source, "active_mapping_preset_id", None),
+        "runtime_mapping_updated_at": getattr(source, "runtime_mapping_updated_at", None),
+        "stats": SourceStats(**stats_data).model_dump(),
+    }
+    return SourceResponse.model_validate(payload).model_dump()
+
+
 @router.get("", response_model=dict)
 async def list_sources(
     skip: int = 0,
@@ -99,9 +125,7 @@ async def list_sources(
         items = []
         for source in sources:
             stats_data = await crud.get_source_stats(db, source.id)
-            source_dict = SourceResponse.model_validate(source).model_dump()
-            source_dict["stats"] = SourceStats(**stats_data).model_dump()
-            items.append(source_dict)
+            items.append(_serialize_source(source, stats_data))
 
         return {"items": items, "total": total, "skip": skip, "limit": limit}
     except SQLAlchemyError as exc:
