@@ -4,12 +4,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db
 from app.api.main import app
 from app.config import settings
 from app.db import crud
+from app.db.models import AuditAction, JobEvent, Log, MergeHistory, SourceMappingPreset
 
 
 @pytest.mark.asyncio
@@ -95,6 +97,83 @@ async def test_delete_source(test_client: AsyncClient):
     resp = await test_client.delete(f"/api/sources/{source_id}")
     assert resp.status_code == 204
     get_resp = await test_client.get(f"/api/sources/{source_id}")
+    assert get_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_source_handles_non_cascading_dependents(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+):
+    await db_session.execute(text("PRAGMA foreign_keys=ON"))
+    source = await crud.create_source(db_session, url="https://delete-deps.com")
+    job = await crud.create_job(db_session, source_id=source.id, job_type="crawl_section", payload={})
+    db_session.add(JobEvent(job_id=job.id, source_id=source.id, event_type="progress", message="started"))
+    db_session.add(Log(level="info", service="api", source_id=source.id, message="log entry", context="{}"))
+    db_session.add(AuditAction(action_type="source_deleted_candidate", source_id=source.id))
+    db_session.add(
+        MergeHistory(
+            primary_record_id="primary-record",
+            secondary_record_id="secondary-record",
+            source_id=source.id,
+            primary_snapshot="{}",
+            secondary_snapshot="{}",
+        )
+    )
+    await db_session.commit()
+
+    delete_resp = await test_client.delete(f"/api/sources/{source.id}")
+    assert delete_resp.status_code == 204
+
+    get_resp = await test_client.get(f"/api/sources/{source.id}")
+    assert get_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_source_with_mapping_pointers_and_versions(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+):
+    await db_session.execute(text("PRAGMA foreign_keys=ON"))
+    source = await crud.create_source(db_session, url="https://delete-mapping-pointers.com")
+    profile = await crud.create_source_profile(db_session, source_id=source.id, seed_url=source.url)
+    mapping = await crud.create_mapping_suggestion_draft(
+        db_session,
+        source_id=source.id,
+        profile_id=profile.id,
+        mapping_json={"family_rules": []},
+    )
+    preset = SourceMappingPreset(
+        source_id=source.id,
+        tenant_id=source.tenant_id,
+        name="default",
+        description="default preset",
+        created_from_mapping_version_id=None,
+        created_by="test",
+        row_count=0,
+        page_type_count=0,
+    )
+    db_session.add(preset)
+    await db_session.commit()
+    await db_session.refresh(preset)
+    await crud.update_source(
+        db_session,
+        source.id,
+        active_mapping_version_id=mapping.id,
+        published_mapping_version_id=mapping.id,
+        active_mapping_preset_id=preset.id,
+    )
+
+    job = await crud.create_job(db_session, source_id=source.id, job_type="map_site", payload={})
+    db_session.add(JobEvent(job_id=job.id, source_id=source.id, event_type="info", message="mapped"))
+    db_session.add(Log(level="info", service="worker", source_id=source.id, message="mapping log", context="{}"))
+    db_session.add(AuditAction(action_type="mapping_published", source_id=source.id))
+    await db_session.commit()
+
+    delete_resp = await test_client.delete(f"/api/sources/{source.id}")
+    assert delete_resp.status_code == 204
+
+    get_resp = await test_client.get(f"/api/sources/{source.id}")
     assert get_resp.status_code == 404
 
 
