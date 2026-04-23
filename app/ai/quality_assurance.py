@@ -61,12 +61,10 @@ class QualityAssurance:
             await crud.delete_source(db, temp_source.id)
 
     async def _refine_config(self, *, config: dict[str, Any], stats: dict[str, Any]) -> dict[str, Any]:
-        prompt = (
-            "Refine this mining config to improve extraction success rate. Keep same top-level schema."
-            "Return JSON only."
-        )
+        prompt = "Refine mining config to improve success rate. Keep same top-level schema. Return JSON only."
         user_prompt = f"Config: {config}\nStats: {stats}"
         return await self.openai_client.complete_json(
             system_prompt=prompt,
             user_prompt=user_prompt,
+            operation="config_refinement",
         )

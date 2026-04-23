@@ -17,7 +17,11 @@ async def test_complete_json_tracks_usage() -> None:
 
     payload = await client.complete_json(system_prompt="sys", user_prompt="user")
     totals = client.get_usage_totals()
+    by_operation = client.get_operation_totals()
+    daily = client.get_daily_cost_report()
 
     assert payload["ok"] is True
     assert totals["total_tokens"] == 150
     assert totals["estimated_cost_usd"] > 0
+    assert by_operation["general"]["total_tokens"] == 150
+    assert len(daily) >= 1

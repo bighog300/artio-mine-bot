@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai.cache import TTLCache, cache_async_result, make_cache_key
+from app.ai.cache import TTLCache, make_cache_key
 from app.ai.config_generator import ConfigGenerator
 from app.ai.models import SmartMineResultModel
 from app.ai.openai_client import OpenAIClient
@@ -17,6 +18,15 @@ from app.db import crud
 logger = structlog.get_logger()
 ANALYSIS_CACHE_TTL_SECONDS = 24 * 60 * 60
 TEMPLATE_MATCH_CACHE_TTL_SECONDS = 60 * 60
+POPULAR_SITE_WARMUPS = ("https://www.artsy.net", "https://www.saatchiart.com", "https://www.tate.org.uk")
+COST_ALERT_THRESHOLD_USD = 0.15
+
+
+@dataclass
+class CostAlert:
+    url: str
+    source_id: str
+    cost_per_url_usd: float
 
 
 class SmartMiner:
@@ -28,31 +38,70 @@ class SmartMiner:
         self.template_library = template_library or TemplateLibrary()
         self._analysis_cache = TTLCache()
         self._template_match_cache = TTLCache()
+        self._url_fingerprint: dict[str, str] = {}
+        self._cost_alerts: list[CostAlert] = []
 
-    @cache_async_result(
-        cache=TTLCache(),
-        ttl_seconds=ANALYSIS_CACHE_TTL_SECONDS,
-        key_builder=lambda self, url: make_cache_key("site_analysis", url),
-    )
     async def _analyze_site_cached(self, url: str) -> dict:
-        return await self.site_analyzer.analyze(url)
+        key = make_cache_key("site_analysis", url)
+        cached = await self._analysis_cache.get(key)
+        if cached is not None:
+            return cached
+        result = await self.site_analyzer.analyze(url)
+        await self._analysis_cache.set(key, result, ANALYSIS_CACHE_TTL_SECONDS)
+        return result
 
-    @cache_async_result(
-        cache=TTLCache(),
-        ttl_seconds=TEMPLATE_MATCH_CACHE_TTL_SECONDS,
-        key_builder=lambda self, analysis: make_cache_key("template_match", analysis),
-    )
     async def _match_template_cached(self, analysis: dict) -> dict | None:
+        key = make_cache_key("template_match", analysis)
+        cached = await self._template_match_cache.get(key)
+        if cached is not None:
+            return cached
         match = self.template_library.match_template(analysis)
         if not match:
+            await self._template_match_cache.set(key, None, TEMPLATE_MATCH_CACHE_TTL_SECONDS)
             return None
-        return {"template_id": match.template_id, "score": match.score}
+        payload = {"template_id": match.template_id, "score": match.score}
+        await self._template_match_cache.set(key, payload, TEMPLATE_MATCH_CACHE_TTL_SECONDS)
+        return payload
+
+    async def warm_cache(self) -> dict[str, float]:
+        warmed = 0
+        for url in POPULAR_SITE_WARMUPS:
+            try:
+                await self._analyze_site_cached(url)
+                warmed += 1
+            except (RuntimeError, ValueError, OSError):
+                logger.warning("smart_cache_warm_failed", url=url)
+        return {"warmed_urls": float(warmed), "requested_urls": float(len(POPULAR_SITE_WARMUPS))}
+
+    async def invalidate_for_site_change(self, url: str, fingerprint: str) -> bool:
+        previous = self._url_fingerprint.get(url)
+        self._url_fingerprint[url] = fingerprint
+        if previous is None or previous == fingerprint:
+            return False
+        deleted = await self._analysis_cache.invalidate_prefix("site_analysis:")
+        await self._template_match_cache.invalidate_prefix("template_match:")
+        logger.info("smart_cache_invalidate", url=url, deleted=deleted, reason="site_changed")
+        return True
+
+    async def cache_stats(self) -> dict[str, dict[str, float]]:
+        return {
+            "analysis_cache": await self._analysis_cache.stats(),
+            "template_match_cache": await self._template_match_cache.stats(),
+        }
+
+    def recent_cost_alerts(self) -> list[dict[str, str | float]]:
+        return [
+            {"url": alert.url, "source_id": alert.source_id, "cost_per_url_usd": round(alert.cost_per_url_usd, 6)}
+            for alert in self._cost_alerts[-25:]
+        ]
 
     async def smart_mine(self, db: AsyncSession, source_id: str, url: str) -> SmartMineResultModel:
         source = await crud.get_source(db, source_id)
         if source is None:
             raise ValueError(f"Source {source_id} not found")
 
+        start_cost = self.openai_client.get_usage_totals()["estimated_cost_usd"]
+        await self.invalidate_for_site_change(url, fingerprint=url.rstrip("/").lower())
         await crud.update_source(db, source_id, status="analyzing")
         analysis = await self._analyze_site_cached(url)
 
@@ -88,6 +137,10 @@ class SmartMiner:
             status=status,
             usage=self.openai_client.get_usage_totals(),
         )
+        total_cost_delta = self.openai_client.get_usage_totals()["estimated_cost_usd"] - start_cost
+        if total_cost_delta > COST_ALERT_THRESHOLD_USD:
+            self._cost_alerts.append(CostAlert(url=url, source_id=source_id, cost_per_url_usd=total_cost_delta))
+            logger.warning("smart_mine_cost_alert", source_id=source_id, url=url, cost_usd=round(total_cost_delta, 6))
         return SmartMineResultModel(
             source_id=source_id,
             status=status,
