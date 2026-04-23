@@ -1,11 +1,45 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.rbac import require_permission
 from app.api.deps import get_db
 from app.api.schemas import EntityRelationshipResponse, EntityResponse, PaginatedResponse
 from app.db import crud
 
 router = APIRouter(tags=["entities"])
+
+
+@router.get("/entities/merge-candidates")
+async def list_merge_candidates(
+    min_score: float = Query(default=0.7, ge=0.0, le=1.0),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _role: str = Depends(require_permission("read")),
+):
+    try:
+        artists = await crud.search_records(db, record_type="artist", skip=0, limit=1000)
+    except SQLAlchemyError:
+        return {"items": [], "total": 0, "skip": 0, "limit": limit}
+
+    candidates: list[dict] = []
+    for idx, left in enumerate(artists):
+        for right in artists[idx + 1 :]:
+            score = crud.embedding_similarity(left, right)
+            if score < min_score:
+                continue
+            candidates.append(
+                {
+                    "id": f"{left.id}:{right.id}",
+                    "entity_a": {"id": left.id, "name": left.title or "Unknown", "type": "artist"},
+                    "entity_b": {"id": right.id, "name": right.title or "Unknown", "type": "artist"},
+                    "similarity_score": round(score, 6),
+                    "matching_signals": ["embedding similarity"],
+                }
+            )
+
+    candidates.sort(key=lambda item: float(item["similarity_score"]), reverse=True)
+    return {"items": candidates[:limit], "total": len(candidates), "skip": 0, "limit": limit}
 
 
 @router.get("/entities", response_model=PaginatedResponse)

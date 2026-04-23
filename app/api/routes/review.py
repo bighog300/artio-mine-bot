@@ -28,6 +28,23 @@ def _parse_raw(raw_data: str | None) -> dict[str, Any]:
     return {}
 
 
+def _coerce_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_str_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if item is not None]
+
+
+def _coerce_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 async def _get_artist_or_404(db: AsyncSession, artist_id: str):
     record = await crud.get_record(db, artist_id)
     if record is None or record.record_type != "artist":
@@ -101,9 +118,9 @@ async def list_review_artists(
     items = []
     for artist in artists:
         payload = _parse_raw(artist.raw_data)
-        conflicts = payload.get("conflicts", {})
-        missing_fields = payload.get("missing_fields", [])
-        score = payload.get("completeness_score", 0)
+        conflicts = _coerce_dict(payload.get("conflicts", {}))
+        missing_fields = _coerce_str_list(payload.get("missing_fields", []))
+        score = _coerce_int(payload.get("completeness_score", 0), default=0)
 
         if completeness_lt is not None and score >= completeness_lt:
             continue
