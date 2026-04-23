@@ -576,6 +576,7 @@ async def delete_source(db: AsyncSession, source_id: str) -> bool:
             )
         )
     )
+
     await db.execute(delete(CrawlRunCheckpoint).where(CrawlRunCheckpoint.source_id == source_id))
     await db.execute(delete(CrawlFrontier).where(CrawlFrontier.source_id == source_id))
     await db.execute(delete(CrawlRun).where(CrawlRun.source_id == source_id))

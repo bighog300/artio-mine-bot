@@ -11,7 +11,7 @@ from app.api.deps import get_db
 from app.api.main import app
 from app.config import settings
 from app.db import crud
-from app.db.models import AuditAction, JobEvent, Log, MergeHistory, SourceMappingPreset
+
 
 
 @pytest.mark.asyncio
@@ -178,6 +178,7 @@ async def test_delete_source_with_mapping_pointers_and_versions(
 
 
 @pytest.mark.asyncio
+
 async def test_get_stats(test_client: AsyncClient):
     resp = await test_client.get("/api/stats")
     assert resp.status_code == 200
