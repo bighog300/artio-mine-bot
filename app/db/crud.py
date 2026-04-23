@@ -576,26 +576,7 @@ async def delete_source(db: AsyncSession, source_id: str) -> bool:
             )
         )
     )
-    await db.execute(
-        update(Page)
-        .where(Page.source_id == source_id)
-        .values(crawl_run_id=None, mapping_version_id_used=None)
-    )
-    await db.execute(
-        update(Record)
-        .where(Record.source_id == source_id)
-        .values(crawl_run_id=None)
-    )
-    await db.execute(
-        update(Job)
-        .where(Job.source_id == source_id)
-        .values(crawl_run_id=None)
-    )
-    await db.execute(
-        update(SourceMappingPreset)
-        .where(SourceMappingPreset.source_id == source_id)
-        .values(created_from_mapping_version_id=None)
-    )
+
     await db.execute(delete(CrawlRunCheckpoint).where(CrawlRunCheckpoint.source_id == source_id))
     await db.execute(delete(CrawlFrontier).where(CrawlFrontier.source_id == source_id))
     await db.execute(delete(CrawlRun).where(CrawlRun.source_id == source_id))

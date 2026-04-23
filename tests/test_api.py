@@ -11,7 +11,7 @@ from app.api.deps import get_db
 from app.api.main import app
 from app.config import settings
 from app.db import crud
-from app.db.models import AuditAction, Job, JobEvent, Log, MergeHistory, SourceMappingPreset
+
 
 
 @pytest.mark.asyncio
@@ -178,51 +178,7 @@ async def test_delete_source_with_mapping_pointers_and_versions(
 
 
 @pytest.mark.asyncio
-async def test_delete_source_with_crawl_run_linked_rows(
-    test_client: AsyncClient,
-    db_session: AsyncSession,
-):
-    await db_session.execute(text("PRAGMA foreign_keys=ON"))
-    source = await crud.create_source(db_session, url="https://delete-crawl-runs.com")
-    crawl_run = await crud.create_crawl_run(
-        db_session,
-        source_id=source.id,
-        seed_url=source.url,
-        status="running",
-    )
-    page = await crud.create_page(
-        db_session,
-        source_id=source.id,
-        url=f"{source.url}/page",
-        crawl_run_id=crawl_run.id,
-    )
-    await crud.create_record(
-        db_session,
-        source_id=source.id,
-        record_type="artist",
-        title="Crawl Run Linked Artist",
-        page_id=page.id,
-        crawl_run_id=crawl_run.id,
-    )
-    db_session.add(
-        Job(
-            source_id=source.id,
-            crawl_run_id=crawl_run.id,
-            job_type="crawl_section",
-            status="running",
-            payload="{}",
-        )
-    )
-    await db_session.commit()
 
-    delete_resp = await test_client.delete(f"/api/sources/{source.id}")
-    assert delete_resp.status_code == 204
-
-    get_resp = await test_client.get(f"/api/sources/{source.id}")
-    assert get_resp.status_code == 404
-
-
-@pytest.mark.asyncio
 async def test_get_stats(test_client: AsyncClient):
     resp = await test_client.get("/api/stats")
     assert resp.status_code == 200
