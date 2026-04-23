@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 STRICT_ENVIRONMENTS = {"production", "vercel"}
@@ -100,8 +100,10 @@ class Settings(BaseSettings):
     environment: str = "development"
     # None means "use environment-based default": True in local development, False otherwise.
     dev_auto_admin: bool | None = None
-    openai_api_key: str | None = None
-    openai_model: str = "gpt-4o"
+    openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
+    openai_model: str = Field(default="gpt-4o", validation_alias="OPENAI_MODEL")
+    openai_model_config: str = Field(default="gpt-4o", validation_alias="OPENAI_MODEL_CONFIG")
+    openai_model_analysis: str = Field(default="gpt-3.5-turbo", validation_alias="OPENAI_MODEL_ANALYSIS")
     openai_required: bool = False
     database_url: str = get_database_url()
     redis_url: str = os.environ.get("REDIS_URL", "redis://redis:6379/0")
@@ -120,6 +122,10 @@ class Settings(BaseSettings):
     crawler_use_ai_fallback: bool = True
     crawler_allow_ai: bool = True
     crawler_require_runtime_map: bool = False
+    smart_mode_max_retries: int = Field(default=3, validation_alias="SMART_MODE_MAX_RETRIES")
+    smart_mode_retry_base_seconds: float = Field(default=1.0, validation_alias="SMART_MODE_RETRY_BASE_SECONDS")
+    smart_mode_min_success_rate: float = Field(default=85.0, validation_alias="SMART_MODE_MIN_SUCCESS_RATE")
+    smart_mode_max_refinement_attempts: int = Field(default=2, validation_alias="SMART_MODE_MAX_REFINEMENT_ATTEMPTS")
     # None means "use environment-based default": True in dev, False in production.
     playwright_enabled: bool | None = None
     cors_origins: str = "http://localhost:5173"
