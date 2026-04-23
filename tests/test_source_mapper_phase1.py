@@ -7,7 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import SourceMappingPreset, SourceMappingPresetRow, SourceMappingSampleResult, SourceMappingVersion
+from app.db.models import AuditAction, SourceMappingPreset, SourceMappingPresetRow, SourceMappingSampleResult, SourceMappingVersion
 
 
 async def wait_for_scan_complete(client: AsyncClient, source_id: str, draft_id: str, timeout: float = 10) -> dict:
@@ -234,6 +234,46 @@ async def test_publish_state_transition_and_version_clone_workflow(test_client: 
     versions = await test_client.get(f"/api/sources/{source_id}/mapping-drafts")
     assert versions.status_code == 200
     assert versions.json()["total"] >= 2
+
+
+@pytest.mark.asyncio
+async def test_publish_mapping_draft_works_with_foreign_keys_enforced(
+    test_client: AsyncClient, db_session: AsyncSession
+):
+    await db_session.execute(text("PRAGMA foreign_keys=ON"))
+
+    source_id = (await test_client.post("/api/sources", json={"url": "https://mapper-publish-fk.test"})).json()["id"]
+    draft_id = (await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})).json()["id"]
+    await wait_for_scan_complete(test_client, source_id, draft_id)
+
+    publish = await test_client.post(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/publish")
+    assert publish.status_code == 200
+    assert publish.json()["status"] == "published"
+
+    actions = (
+        (
+            await db_session.execute(
+                select(AuditAction).where(AuditAction.action_type == "mapping_draft_published").order_by(AuditAction.created_at.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert actions
+    details = json.loads(actions[0].details_json or "{}")
+    assert details["draft_id"] == draft_id
+    assert details["status"] == "published"
+    assert actions[0].record_id is None
+
+
+@pytest.mark.asyncio
+async def test_publish_mapping_draft_returns_404_for_missing_draft(test_client: AsyncClient):
+    source_id = (await test_client.post("/api/sources", json={"url": "https://mapper-publish-missing.test"})).json()["id"]
+
+    publish = await test_client.post(
+        f"/api/sources/{source_id}/mapping-drafts/00000000-0000-0000-0000-000000000000/publish"
+    )
+    assert publish.status_code == 404
 
 
 @pytest.mark.asyncio

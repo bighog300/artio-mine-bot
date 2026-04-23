@@ -562,7 +562,6 @@ async def publish_mapping_draft(
         action_type="mapping_draft_published",
         user_id="admin",
         source_id=source_id,
-        record_id=draft_id,
         details={"draft_id": draft_id, "status": published.status},
     )
     return _serialize_version_publish_response(published)
