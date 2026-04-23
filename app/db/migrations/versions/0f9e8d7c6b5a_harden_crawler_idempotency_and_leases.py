@@ -16,6 +16,15 @@ branch_labels = None
 depends_on = None
 
 
+def _has_unique_constraint(table_name: str, constraint_name: str) -> bool:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    for constraint in inspector.get_unique_constraints(table_name):
+        if constraint.get("name") == constraint_name:
+            return True
+    return False
+
+
 def upgrade() -> None:
     op.execute("""
     ALTER TABLE crawl_frontier
@@ -45,11 +54,11 @@ def upgrade() -> None:
         )
     else:
         with op.batch_alter_table("crawl_frontier") as batch_op:
-            batch_op.drop_constraint(
-                "uq_crawl_frontier_source_normalized_url",
-                type_="unique",
-                if_exists=True,
-            )
+            if _has_unique_constraint("crawl_frontier", "uq_crawl_frontier_source_normalized_url"):
+                batch_op.drop_constraint(
+                    "uq_crawl_frontier_source_normalized_url",
+                    type_="unique",
+                )
             batch_op.create_unique_constraint(
                 "uq_crawl_frontier_source_normalized_url",
                 ["source_id", "normalized_url"],
@@ -79,13 +88,15 @@ def downgrade() -> None:
     op.drop_table("domain_rate_limits", if_exists=True)
 
     with op.batch_alter_table("pages") as batch_op:
-        batch_op.drop_constraint("uq_pages_source_normalized_url", type_="unique", if_exists=True)
+        if _has_unique_constraint("pages", "uq_pages_source_normalized_url"):
+            batch_op.drop_constraint("uq_pages_source_normalized_url", type_="unique")
         batch_op.drop_column("worker_id", if_exists=True)
         batch_op.drop_column("started_at", if_exists=True)
         batch_op.drop_column("normalized_url", if_exists=True)
 
     with op.batch_alter_table("crawl_frontier") as batch_op:
-        batch_op.drop_constraint("uq_crawl_frontier_source_normalized_url", type_="unique", if_exists=True)
+        if _has_unique_constraint("crawl_frontier", "uq_crawl_frontier_source_normalized_url"):
+            batch_op.drop_constraint("uq_crawl_frontier_source_normalized_url", type_="unique")
         batch_op.create_unique_constraint(
             "uq_crawl_frontier_source_mapping_normalized_url",
             ["source_id", "mapping_version_id", "normalized_url"],

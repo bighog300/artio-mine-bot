@@ -16,6 +16,33 @@ branch_labels = None
 depends_on = None
 
 
+def _has_unique_constraint(table_name: str, constraint_name: str) -> bool:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    for constraint in inspector.get_unique_constraints(table_name):
+        if constraint.get("name") == constraint_name:
+            return True
+    return False
+
+
+def _has_check_constraint(table_name: str, constraint_name: str) -> bool:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    for constraint in inspector.get_check_constraints(table_name):
+        if constraint.get("name") == constraint_name:
+            return True
+    return False
+
+
+def _has_foreign_key_constraint(table_name: str, constraint_name: str) -> bool:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    for constraint in inspector.get_foreign_keys(table_name):
+        if constraint.get("name") == constraint_name:
+            return True
+    return False
+
+
 def upgrade() -> None:
     with op.batch_alter_table("records", schema=None) as batch_op:
         batch_op.add_column(sa.Column("job_id", sa.String(), nullable=True))
@@ -71,9 +98,12 @@ def downgrade() -> None:
         batch_op.drop_column("image_hash", if_exists=True)
 
     with op.batch_alter_table("records", schema=None) as batch_op:
-        batch_op.drop_constraint("uq_records_type_normalized_name_source", type_="unique", if_exists=True)
-        batch_op.drop_constraint("ck_records_record_type_enum", type_="check", if_exists=True)
-        batch_op.drop_constraint("fk_records_job_id_jobs", type_="foreignkey", if_exists=True)
+        if _has_unique_constraint("records", "uq_records_type_normalized_name_source"):
+            batch_op.drop_constraint("uq_records_type_normalized_name_source", type_="unique")
+        if _has_check_constraint("records", "ck_records_record_type_enum"):
+            batch_op.drop_constraint("ck_records_record_type_enum", type_="check")
+        if _has_foreign_key_constraint("records", "fk_records_job_id_jobs"):
+            batch_op.drop_constraint("fk_records_job_id_jobs", type_="foreignkey")
         batch_op.drop_index("ix_records_fingerprint", if_exists=True)
         batch_op.drop_index("ix_records_normalized_name", if_exists=True)
         batch_op.drop_index("ix_records_job_id", if_exists=True)
