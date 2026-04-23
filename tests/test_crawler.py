@@ -267,6 +267,47 @@ async def test_extract_deterministic_css_selectors():
 
 
 @pytest.mark.asyncio
+async def test_extract_deterministic_supports_attribute_fields():
+    crawler = AutomatedCrawler(
+        structure_map={
+            "extraction_rules": {
+                "artist_profile": {
+                    "css_selectors": {
+                        "title": "h1",
+                        "description": "blockquote",
+                        "email": "a[href^='mailto:']",
+                        "website_url": "a.website",
+                        "avatar_url": "img.avatar",
+                        "source_url": "link[rel='canonical']",
+                    }
+                }
+            }
+        },
+        db=MagicMock(),
+    )
+    html = """
+    <html>
+      <head><link rel="canonical" href="/michellesueur"></head>
+      <body>
+        <h1>Michelle Sueur</h1>
+        <blockquote>South African mixed-media artist.</blockquote>
+        <a href="mailto:artist@example.com?subject=hello">Email</a>
+        <a class="website" href="https://portfolio.example.com">Website</a>
+        <img class="avatar" src="/images/avatar.jpg" />
+      </body>
+    </html>
+    """
+    result = crawler._extract_deterministic(html, "artist_profile", "https://art.co.za/michellesueur")
+    assert result["data"]["title"] == "Michelle Sueur"
+    assert result["data"]["description"] == "South African mixed-media artist."
+    assert result["data"]["email"] == "artist@example.com"
+    assert result["data"]["website_url"] == "https://portfolio.example.com"
+    assert result["data"]["avatar_url"] == "https://art.co.za/images/avatar.jpg"
+    assert result["data"]["source_url"] == "https://art.co.za/michellesueur"
+    assert result["confidence"] == 100
+
+
+@pytest.mark.asyncio
 async def test_extract_deterministic_regex():
     crawler = AutomatedCrawler(
         structure_map={
@@ -406,3 +447,37 @@ async def test_crawl_plan_execution(db_session):
     assert stats["extracted_deterministic"] == 1
     pages = await crud.list_pages(db_session, source_id=source.id, limit=10)
     assert len(pages) == 1
+
+
+@pytest.mark.asyncio
+async def test_save_record_persists_artist_metadata_fields(db_session):
+    source = await crud.create_source(db_session, url="https://art.co.za", name="Art")
+    crawler = AutomatedCrawler(structure_map={"extraction_rules": {}}, db=db_session)
+
+    record = await crawler._save_record(
+        source_id=source.id,
+        page_id=None,
+        page_type="artist_profile",
+        data={
+            "method": "deterministic",
+            "confidence": 92,
+            "data": {
+                "title": "Michelle Sueur",
+                "description": "Painter and sculptor",
+                "bio": "Long-form bio",
+                "email": "artist@example.com",
+                "website_url": "https://portfolio.example.com",
+                "avatar_url": "https://art.co.za/images/avatar.jpg",
+                "source_url": "https://art.co.za/michellesueur",
+            },
+        },
+        url="https://art.co.za/michellesueur",
+    )
+
+    assert record.title == "Michelle Sueur"
+    assert record.description == "Long-form bio"
+    assert record.bio == "Long-form bio"
+    assert record.email == "artist@example.com"
+    assert record.website_url == "https://portfolio.example.com"
+    assert record.avatar_url == "https://art.co.za/images/avatar.jpg"
+    assert record.source_url == "https://art.co.za/michellesueur"
