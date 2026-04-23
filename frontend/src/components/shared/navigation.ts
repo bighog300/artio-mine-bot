@@ -15,6 +15,7 @@ import {
   RefreshCw,
   SearchCheck,
   Settings,
+  Wand2,
   TerminalSquare,
   Upload,
   type LucideIcon,
@@ -37,6 +38,7 @@ const baseNavSections: NavSection[] = [
     heading: "Mining Pipeline",
     items: [
       { to: "/sources", label: "Sources", icon: Globe },
+      { to: "/smart-mine", label: "Smart Mining", icon: Wand2 },
       { to: "/pages", label: "Pages", icon: FileText },
       { to: "/jobs", label: "Jobs", icon: ListChecks },
       { to: "/queues", label: "Queues", icon: Layers3 },

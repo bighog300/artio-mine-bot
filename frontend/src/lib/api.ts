@@ -601,6 +601,43 @@ export interface MiningStatus {
   } | null;
 }
 
+export interface SmartMineTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  tags?: string[];
+}
+
+export interface StartSmartMineInput {
+  url: string;
+  template_id?: string;
+}
+
+export interface StartSmartMineResponse {
+  source_id: string;
+  status: string;
+  message?: string;
+}
+
+export interface SmartMineStatus {
+  source_id: string;
+  status: string;
+  stage?: "analyzing" | "generating" | "testing" | "mining" | string | null;
+  progress_percent?: number;
+  progress?: {
+    pages_crawled?: number;
+    pages_total_estimated?: number;
+    records_extracted?: number;
+    percent_complete?: number;
+  } | null;
+  results?: {
+    total_pages?: number;
+    total_records?: number;
+    high_confidence_records?: number;
+  } | null;
+  error_message?: string | null;
+}
+
 export interface SiteMap {
   root_url: string;
   platform: string;
@@ -1310,6 +1347,15 @@ export const createBackfillSchedule = (input: CreateBackfillScheduleInput): Prom
 
 export const getMiningStatus = (sourceId: string): Promise<MiningStatus> =>
   api.get(`/mine/${sourceId}/status`).then((r) => r.data);
+
+export const getSmartMineTemplates = (): Promise<{ items: SmartMineTemplate[] }> =>
+  api.get("/smart-mine/templates").then((r) => r.data);
+
+export const startSmartMine = (input: StartSmartMineInput): Promise<StartSmartMineResponse> =>
+  api.post("/smart-mine/", input).then((r) => r.data);
+
+export const getSmartMineStatus = (sourceId: string): Promise<SmartMineStatus> =>
+  api.get(`/smart-mine/${sourceId}/status`).then((r) => r.data);
 
 export const mapSite = (sourceId: string): Promise<SiteMap> =>
   api.post(`/mine/${sourceId}/map`).then((r) => r.data.site_map);
