@@ -334,8 +334,7 @@ async def update_mapping_row(
         action_type="mapping_row_updated",
         user_id="admin",
         source_id=source_id,
-        record_id=row_id,
-        details={"draft_id": draft_id, "updates": updates},
+        details={"draft_id": draft_id, "mapping_row_id": row_id, "updates": updates},
     )
     return _serialize_row(row)
 

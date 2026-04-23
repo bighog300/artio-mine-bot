@@ -1,5 +1,6 @@
 import asyncio
 import json
+from sqlalchemy import text
 
 import pytest
 from httpx import AsyncClient
@@ -94,6 +95,51 @@ async def test_mapping_row_validation_error_on_invalid_destination(test_client: 
         json={"destination_entity": "event", "destination_field": "not_a_field"},
     )
     assert patch_resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_mapping_row_update_works_with_foreign_keys_enforced(
+    test_client: AsyncClient, db_session: AsyncSession
+):
+    await db_session.execute(text("PRAGMA foreign_keys=ON"))
+
+    source_resp = await test_client.post("/api/sources", json={"url": "https://mapper-row-fk.test"})
+    source_id = source_resp.json()["id"]
+    draft_resp = await test_client.post(f"/api/sources/{source_id}/mapping-drafts", json={})
+    draft_id = draft_resp.json()["id"]
+    await wait_for_scan_complete(test_client, source_id, draft_id)
+
+    rows_resp = await test_client.get(f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows")
+    row_id = rows_resp.json()["items"][0]["id"]
+
+    patch_resp = await test_client.patch(
+        f"/api/sources/{source_id}/mapping-drafts/{draft_id}/rows/{row_id}",
+        json={"status": "approved"},
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["id"] == row_id
+    assert patch_resp.json()["status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_mapping_row_update_returns_404_for_mismatched_source(test_client: AsyncClient):
+    first_source = await test_client.post("/api/sources", json={"url": "https://mapper-404-a.test"})
+    second_source = await test_client.post("/api/sources", json={"url": "https://mapper-404-b.test"})
+    first_source_id = first_source.json()["id"]
+    second_source_id = second_source.json()["id"]
+
+    draft_resp = await test_client.post(f"/api/sources/{first_source_id}/mapping-drafts", json={})
+    draft_id = draft_resp.json()["id"]
+    await wait_for_scan_complete(test_client, first_source_id, draft_id)
+    row_id = (
+        await test_client.get(f"/api/sources/{first_source_id}/mapping-drafts/{draft_id}/rows")
+    ).json()["items"][0]["id"]
+
+    mismatch_resp = await test_client.patch(
+        f"/api/sources/{second_source_id}/mapping-drafts/{draft_id}/rows/{row_id}",
+        json={"status": "approved"},
+    )
+    assert mismatch_resp.status_code == 404
 
 
 @pytest.mark.asyncio
