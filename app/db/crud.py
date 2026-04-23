@@ -25,6 +25,7 @@ from app.db.models import (
     ExtractionBaseline,
     AuditAction,
     AuditEvent,
+    BackfillJob,
     DuplicateReview,
     Entity,
     EntityLink,
@@ -32,6 +33,7 @@ from app.db.models import (
     Image,
     Job,
     JobEvent,
+    Log,
     MergeHistory,
     MetricSnapshot,
     MappingTemplate,
@@ -508,6 +510,97 @@ async def delete_source(db: AsyncSession, source_id: str) -> bool:
     source = await get_source(db, source_id)
     if source is None:
         return False
+
+    source.active_mapping_version_id = None
+    source.published_mapping_version_id = None
+    source.active_mapping_preset_id = None
+    await db.flush()
+
+    source_record_ids = select(Record.id).where(Record.source_id == source_id)
+
+    await db.execute(
+        update(Log)
+        .where(Log.source_id == source_id)
+        .values(source_id=None)
+    )
+    await db.execute(
+        update(JobEvent)
+        .where(JobEvent.source_id == source_id)
+        .values(source_id=None)
+    )
+    await db.execute(
+        update(AuditAction)
+        .where(
+            or_(
+                AuditAction.source_id == source_id,
+                AuditAction.record_id.in_(source_record_ids),
+            )
+        )
+        .values(source_id=None, record_id=None)
+    )
+    await db.execute(
+        update(AuditEvent)
+        .where(
+            or_(
+                AuditEvent.source_id == source_id,
+                AuditEvent.record_id.in_(source_record_ids),
+            )
+        )
+        .values(source_id=None, record_id=None)
+    )
+    await db.execute(
+        update(MergeHistory)
+        .where(MergeHistory.source_id == source_id)
+        .values(source_id=None)
+    )
+
+    await db.execute(
+        delete(BackfillJob).where(BackfillJob.record_id.in_(source_record_ids))
+    )
+    await db.execute(
+        delete(DuplicateReview).where(
+            or_(
+                DuplicateReview.left_record_id.in_(source_record_ids),
+                DuplicateReview.right_record_id.in_(source_record_ids),
+                DuplicateReview.merge_target_id.in_(source_record_ids),
+            )
+        )
+    )
+    await db.execute(
+        delete(EntityRelationship).where(
+            or_(
+                EntityRelationship.source_id == source_id,
+                EntityRelationship.from_record_id.in_(source_record_ids),
+                EntityRelationship.to_record_id.in_(source_record_ids),
+                EntityRelationship.source_record_id.in_(source_record_ids),
+            )
+        )
+    )
+    await db.execute(
+        update(Page)
+        .where(Page.source_id == source_id)
+        .values(crawl_run_id=None, mapping_version_id_used=None)
+    )
+    await db.execute(
+        update(Record)
+        .where(Record.source_id == source_id)
+        .values(crawl_run_id=None)
+    )
+    await db.execute(
+        update(Job)
+        .where(Job.source_id == source_id)
+        .values(crawl_run_id=None)
+    )
+    await db.execute(
+        update(SourceMappingPreset)
+        .where(SourceMappingPreset.source_id == source_id)
+        .values(created_from_mapping_version_id=None)
+    )
+    await db.execute(delete(CrawlRunCheckpoint).where(CrawlRunCheckpoint.source_id == source_id))
+    await db.execute(delete(CrawlFrontier).where(CrawlFrontier.source_id == source_id))
+    await db.execute(delete(CrawlRun).where(CrawlRun.source_id == source_id))
+    await db.execute(delete(ExtractionBaseline).where(ExtractionBaseline.source_id == source_id))
+
     await db.delete(source)
     await db.commit()
     return True
