@@ -1,4 +1,5 @@
 import json
+import math
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +21,18 @@ from app.db import crud
 router = APIRouter(prefix="/records", tags=["records"])
 
 
+def _safe_int(value: object, default: int = 0) -> int:
+    if value is None:
+        return default
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return default
+    if math.isnan(numeric) or math.isinf(numeric):
+        return default
+    return int(numeric)
+
+
 def _to_record_list_item(record, image_count: int = 0, primary_image_url: str | None = None) -> dict:
     reasons = record.confidence_reasons
     if isinstance(reasons, str):
@@ -27,6 +40,8 @@ def _to_record_list_item(record, image_count: int = 0, primary_image_url: str | 
             reasons = json.loads(reasons)
         except Exception:
             reasons = []
+    if not isinstance(reasons, list):
+        reasons = []
 
     return {
         "id": record.id,
@@ -35,7 +50,7 @@ def _to_record_list_item(record, image_count: int = 0, primary_image_url: str | 
         "status": record.status,
         "title": record.title,
         "description": record.description,
-        "confidence_score": int(record.confidence_score or 0),
+        "confidence_score": _safe_int(record.confidence_score, default=0),
         "confidence_band": record.confidence_band or "LOW",
         "confidence_reasons": reasons,
         "source_url": record.source_url,

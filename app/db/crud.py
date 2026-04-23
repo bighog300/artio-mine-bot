@@ -1,5 +1,6 @@
 import json
 import hashlib
+import math
 import re
 from asyncio import sleep
 from datetime import UTC, datetime, timedelta
@@ -3158,16 +3159,30 @@ async def list_records_for_artist_family(
     return list(result.scalars().all())
 
 
-def parse_embedding(embedding_value: str | None) -> list[float]:
-    if not embedding_value:
+def parse_embedding(embedding_value: Any) -> list[float]:
+    if embedding_value is None:
         return []
-    try:
-        parsed = json.loads(embedding_value)
-    except json.JSONDecodeError:
+    if isinstance(embedding_value, str):
+        try:
+            parsed = json.loads(embedding_value)
+        except (TypeError, json.JSONDecodeError):
+            return []
+    elif isinstance(embedding_value, (list, tuple)):
+        parsed = list(embedding_value)
+    else:
         return []
     if not isinstance(parsed, list):
         return []
-    return [float(item) for item in parsed]
+    vector: list[float] = []
+    for item in parsed:
+        try:
+            value = float(item)
+        except (TypeError, ValueError):
+            return []
+        if math.isnan(value) or math.isinf(value):
+            return []
+        vector.append(value)
+    return vector
 
 
 def embedding_similarity(left: Record, right: Record) -> float:
