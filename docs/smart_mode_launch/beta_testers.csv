@@ -1,0 +1,11 @@
+tester_id,name,email,role,source_type,timezone,account_status,notes
+BT-01,Ava Nguyen,ava.nguyen+smartmode@example.com,Gallery Operator,WordPress Gallery,US/Pacific,ready,Focus on exhibitions + artist extraction
+BT-02,Liam Carter,liam.carter+smartmode@example.com,Museum Curator,Museum CMS,US/Mountain,ready,Focus on event cadence and recrawl
+BT-03,Sophia Patel,sophia.patel+smartmode@example.com,Arts Journalist,Magazine/Blog,US/Central,ready,Focus on profile pages and duplicate handling
+BT-04,Noah Kim,noah.kim+smartmode@example.com,Operations Admin,Portfolio Site,US/Eastern,ready,Focus on guided mode and fallback behavior
+BT-05,Emma Brooks,emma.brooks+smartmode@example.com,Program Manager,Venue Calendar,US/Pacific,ready,Focus on event date/time normalization
+BT-06,James Rivera,james.rivera+smartmode@example.com,Data Steward,Artist Directory,US/Central,ready,Focus on confidence scoring and approvals
+BT-07,Olivia Chen,olivia.chen+smartmode@example.com,Gallery Assistant,Squarespace Gallery,US/Eastern,ready,Focus on image extraction and attribution
+BT-08,Benjamin Lewis,ben.lewis+smartmode@example.com,Research Lead,University Arts Site,US/Mountain,ready,Focus on crawl depth and coverage
+BT-09,Isabella Reed,isabella.reed+smartmode@example.com,Venue Coordinator,Multi-language Site,US/Pacific,ready,Focus on partial-page parsing and retries
+BT-10,Lucas Green,lucas.green+smartmode@example.com,QA Analyst,Static HTML Site,US/Eastern,ready,Focus on failure recovery and export readiness
