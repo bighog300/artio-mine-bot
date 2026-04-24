@@ -95,7 +95,13 @@ class SmartMiner:
             for alert in self._cost_alerts[-25:]
         ]
 
+    async def _run_deterministic_mine(self, db: AsyncSession, source_id: str) -> dict:
+        from app.pipeline.runner import PipelineRunner
+
+        return await PipelineRunner(db, self.openai_client).run_deterministic_mine(source_id)
+
     async def smart_mine(self, db: AsyncSession, source_id: str, url: str) -> SmartMineResultModel:
+        logger.info("smart_mine_start", source_id=source_id, url=url)
         source = await crud.get_source(db, source_id)
         if source is None:
             raise ValueError(f"Source {source_id} not found")
@@ -103,7 +109,9 @@ class SmartMiner:
         start_cost = self.openai_client.get_usage_totals()["estimated_cost_usd"]
         await self.invalidate_for_site_change(url, fingerprint=url.rstrip("/").lower())
         await crud.update_source(db, source_id, status="analyzing")
+        logger.info("smart_mine_analyzing", source_id=source_id)
         analysis = await self._analyze_site_cached(url)
+        logger.info("smart_mine_analyzed", source_id=source_id, site_type=analysis.get("site_type"))
 
         template_info = await self._match_template_cached(analysis)
         config: dict
@@ -113,12 +121,15 @@ class SmartMiner:
             config = self.template_library.apply_template(template_id, url)
             self.template_library.increment_usage(template_id)
         else:
+            logger.info("smart_mine_generating_config", source_id=source_id)
             await crud.update_source(db, source_id, status="generating_config")
             config = await self.config_generator.generate(url, analysis)
+        logger.info("smart_mine_config_ready", source_id=source_id)
 
         await crud.update_source(db, source_id, status="testing")
         attempts = 0
         report = type("R", (), {"success_rate": 0.0})()
+        logger.info("smart_mine_testing_config", source_id=source_id)
         for attempt in range(1, 3):
             attempts = attempt
             tested_config, report = await self.qa.run(db=db, source_id=source_id, source_url=url, config=config)
@@ -128,6 +139,11 @@ class SmartMiner:
 
         status = "completed" if report.success_rate >= 85 else "needs_human_review"
         await crud.update_source(db, source_id, status="mining", structure_map=json.dumps(config))
+        logger.info("smart_mine_qa_complete", source_id=source_id, success_rate=report.success_rate, attempts=attempts)
+        if status == "completed":
+            logger.info("smart_mine_starting_crawl", source_id=source_id)
+            await self._run_deterministic_mine(db, source_id)
+            logger.info("smart_mine_crawl_completed", source_id=source_id)
 
         logger.info(
             "smart_mine_complete",

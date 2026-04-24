@@ -4,7 +4,18 @@ import pytest
 
 from app.ai.smart_miner import SmartMiner
 from app.api.routes import smart_mining
+from app.config import settings
 from app.db import crud
+
+
+@pytest.fixture(autouse=True)
+def _smart_mine_env() -> None:
+    smart_mining._miner = None
+    previous_key = settings.openai_api_key
+    settings.openai_api_key = "sk-proj-test-key"
+    yield
+    settings.openai_api_key = previous_key
+    smart_mining._miner = None
 
 
 @pytest.mark.asyncio
