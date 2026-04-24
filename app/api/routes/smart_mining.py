@@ -28,7 +28,13 @@ _job_statuses: dict[str, dict] = {}
 def _get_miner() -> SmartMiner:
     global _miner
     if _miner is None:
-        _miner = SmartMiner(openai_client=OpenAIClient(api_key=settings.openai_api_key or "test"))
+        api_key = settings.openai_api_key
+        if not api_key or api_key == "test" or api_key.startswith("sk-test"):
+            raise HTTPException(
+                status_code=503,
+                detail="Smart Mode requires a valid OPENAI_API_KEY environment variable.",
+            )
+        _miner = SmartMiner(openai_client=OpenAIClient(api_key=api_key))
     return _miner
 
 
@@ -82,6 +88,7 @@ def _helpful_error_message(error: str | None) -> str | None:
 
 
 async def _execute_smart_mine(source_id: str, url: str) -> None:
+    logger.info("smart_mine_background_start", source_id=source_id, url=url)
     _job_statuses[source_id] = {
         "job_status": "running",
         "updated_at": datetime.now(UTC),
@@ -89,18 +96,24 @@ async def _execute_smart_mine(source_id: str, url: str) -> None:
     }
     try:
         async with AsyncSessionLocal() as session:
-            await _get_miner().smart_mine(session, source_id, url)
+            result = await _get_miner().smart_mine(session, source_id, url)
         _job_statuses[source_id] = {
             "job_status": "completed",
             "updated_at": datetime.now(UTC),
             "error": None,
         }
-    except (ValueError, RuntimeError, OSError) as exc:
+        logger.info(
+            "smart_mine_background_complete",
+            source_id=source_id,
+            status=result.status,
+            success_rate=result.success_rate,
+        )
+    except Exception as exc:
         logger.exception("smart_mine_background_failed", source_id=source_id, technical_error=str(exc))
         _job_statuses[source_id] = {
             "job_status": "failed",
             "updated_at": datetime.now(UTC),
-            "error": "Smart Mode couldn’t complete for this site right now.",
+            "error": str(exc),
         }
 
 
@@ -110,6 +123,7 @@ async def create_smart_mine(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ) -> SmartMineCreateResponse:
+    _get_miner()
     if request.source_id:
         source = await crud.get_source(db, request.source_id)
         if source is None:

@@ -11,6 +11,7 @@ from app.db import crud
 async def test_integration_smart_mine_full_workflow(db_session) -> None:
     source = await crud.create_source(db_session, url="https://art.co.za", name="Artio Test")
     miner = SmartMiner(openai_client=OpenAIClient(api_key="test"))
+    miner._run_deterministic_mine = AsyncMock(return_value={"runtime_mode": "deterministic"})
 
     miner.site_analyzer.analyze = AsyncMock(
         return_value={
@@ -36,3 +37,4 @@ async def test_integration_smart_mine_full_workflow(db_session) -> None:
     result = await miner.smart_mine(db_session, source.id, source.url)
     assert result.status == "completed"
     assert result.success_rate == 89.0
+    miner._run_deterministic_mine.assert_awaited_once_with(db_session, source.id)
