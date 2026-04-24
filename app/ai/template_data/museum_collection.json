@@ -1,0 +1,46 @@
+{
+  "id": "museum_collection",
+  "name": "Museum Collection",
+  "profile": {
+    "site_type": "museum",
+    "cms_platform": "custom",
+    "entity_types": [
+      "artwork",
+      "artist"
+    ],
+    "url_pattern_tokens": [
+      "/collection/",
+      "/artworks/"
+    ]
+  },
+  "usage_count": 0,
+  "config": {
+    "crawl_plan": {
+      "phases": [
+        {
+          "phase_name": "detail_pages",
+          "base_url": "{url}",
+          "url_pattern": "/artists/[a-z0-9\\-]+/?",
+          "pagination_type": "follow_links",
+          "num_pages": 20
+        }
+      ]
+    },
+    "extraction_rules": {
+      "artwork": {
+        "identifiers": [
+          "/collection/[^/]+/?$"
+        ],
+        "css_selectors": {
+          "title": "h1",
+          "medium": ".medium",
+          "year": ".year"
+        }
+      }
+    },
+    "page_type_rules": {},
+    "record_type_rules": {},
+    "follow_rules": {},
+    "asset_rules": {}
+  }
+}

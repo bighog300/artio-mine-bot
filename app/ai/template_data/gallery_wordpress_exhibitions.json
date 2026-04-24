@@ -1,0 +1,46 @@
+{
+  "id": "gallery_wordpress_exhibitions",
+  "name": "Gallery WordPress Exhibitions",
+  "profile": {
+    "site_type": "art_gallery",
+    "cms_platform": "wordpress",
+    "entity_types": [
+      "exhibition"
+    ],
+    "url_pattern_tokens": [
+      "/exhibitions/"
+    ]
+  },
+  "usage_count": 0,
+  "config": {
+    "crawl_plan": {
+      "phases": [
+        {
+          "phase_name": "exhibitions",
+          "base_url": "{url}",
+          "url_pattern": "/exhibitions/[a-z0-9\\-]+/?",
+          "pagination_type": "follow_links",
+          "num_pages": 20
+        }
+      ]
+    },
+    "extraction_rules": {
+      "artist": {
+        "identifiers": [
+          "/artists/[^/]+/?$"
+        ],
+        "exclude_patterns": [
+          "{domain}/wp-admin"
+        ],
+        "css_selectors": {
+          "title": "h1",
+          "description": ".bio, .artist-bio"
+        }
+      }
+    },
+    "page_type_rules": {},
+    "record_type_rules": {},
+    "follow_rules": {},
+    "asset_rules": {}
+  }
+}

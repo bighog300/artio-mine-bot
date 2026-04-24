@@ -32,6 +32,8 @@ import { EntityDetail } from "@/pages/EntityDetail";
 import { EntityConflicts } from "@/pages/EntityConflicts";
 import { EntityMergeCandidates } from "@/pages/EntityMergeCandidates";
 import { EntityCompare } from "@/pages/EntityCompare";
+import { SmartMining } from "@/pages/SmartMining";
+import { SmartMiningProgress } from "@/pages/SmartMiningProgress";
 import { ToastProvider } from "@/components/ui";
 import { ApiAuthNotice } from "@/components/shared/ApiAuthNotice";
 
@@ -72,6 +74,8 @@ export default function App() {
           <Route path="/logs" element={<Logs />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/api-access" element={<ApiAccess />} />
+          <Route path="/smart-mine" element={<SmartMining />} />
+          <Route path="/smart-mine/:sourceId/progress" element={<SmartMiningProgress />} />
           <Route path="/backfill" element={<Backfill />} />
           <Route path="/mobile-test" element={<MobileTest />} />
         </Routes>
