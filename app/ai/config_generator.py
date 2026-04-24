@@ -35,11 +35,63 @@ class ConfigGenerator:
             temperature=0.1,
             operation="config_generation",
         )
+        config = self._normalize_extraction_rules(config)
         config = self._add_default_identifiers_if_empty(config)
         self.validate_config(config)
         validation = crud.validate_mapping_template(config)
         if not validation["ok"]:
             raise ValueError(f"Generated config failed schema validation: {validation['errors']}")
+        return config
+
+    def _normalize_extraction_rules(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Convert extraction_rules from list to dict format if needed.
+
+        OpenAI sometimes returns extraction_rules as a list of objects with entity_type,
+        but we need a dict keyed by entity_type.
+        """
+        extraction_rules = config.get("extraction_rules", {})
+
+        if isinstance(extraction_rules, dict):
+            return config
+
+        if isinstance(extraction_rules, list):
+            normalized: dict[str, Any] = {}
+            for rule in extraction_rules:
+                if not isinstance(rule, dict):
+                    continue
+
+                entity_type = rule.get("entity_type")
+                if not entity_type:
+                    logger.warning(
+                        "extraction_rule_missing_entity_type",
+                        rule_keys=list(rule.keys()),
+                    )
+                    continue
+
+                normalized_rule: dict[str, Any] = {}
+
+                if "identifiers" in rule:
+                    normalized_rule["identifiers"] = rule["identifiers"]
+
+                if "selectors" in rule:
+                    normalized_rule["css_selectors"] = rule["selectors"]
+                elif "css_selectors" in rule:
+                    normalized_rule["css_selectors"] = rule["css_selectors"]
+
+                for key, value in rule.items():
+                    if key not in ["entity_type", "selectors", "identifiers", "css_selectors"]:
+                        normalized_rule[key] = value
+
+                normalized[str(entity_type)] = normalized_rule
+
+            config["extraction_rules"] = normalized
+            logger.info(
+                "normalized_extraction_rules_list_to_dict",
+                original_count=len(extraction_rules),
+                normalized_count=len(normalized),
+                entity_types=list(normalized.keys()),
+            )
+
         return config
 
     def _add_default_identifiers_if_empty(self, config: dict[str, Any]) -> dict[str, Any]:
@@ -115,12 +167,16 @@ class ConfigGenerator:
 
     def _build_system_prompt(self) -> str:
         return compact_prompt(
-            "Generate JSON mining config for art sites. CRITICAL: Every extraction_rule MUST have "
-            "non-empty 'identifiers' array with specific URL patterns (e.g., '/artists/[^/]+/?$'). "
-            "NEVER use empty identifiers []. Use specific CSS selectors, avoid broad patterns. "
+            "Generate JSON mining config for art sites. CRITICAL: "
+            "1. extraction_rules MUST be a dict/object keyed by page type (e.g., {'Artists': {...}, "
+            "'Exhibitions': {...}}), NOT a list. "
+            "2. Each rule MUST have non-empty 'identifiers' array with URL patterns (e.g., "
+            "'/artists/[^/]+/?$'). "
+            "3. Use 'css_selectors' (not 'selectors') for CSS selector mappings. "
+            "4. NEVER use empty identifiers []. "
             "Required keys: crawl_plan, extraction_rules, page_type_rules, record_type_rules, "
             "follow_rules, asset_rules.",
-            max_chars=280,
+            max_chars=320,
         )
 
     def _build_user_prompt(
