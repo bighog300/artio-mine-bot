@@ -11,7 +11,7 @@ from app.api.deps import get_db
 from app.api.main import app
 from app.config import settings
 from app.db import crud
-from app.db.models import AuditAction, JobEvent, Log, MergeHistory, SourceMappingPreset
+from app.db.models import AuditAction, Entity, EntityRelationship, JobEvent, Log, MergeHistory, SourceMappingPreset
 
 
 
@@ -186,6 +186,37 @@ async def test_delete_source_with_mapping_pointers_and_versions(
     assert delete_resp.status_code == 204
 
     get_resp = await test_client.get(f"/api/sources/{source.id}")
+    assert get_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_source_handles_cross_source_entity_relationships(
+    test_client: AsyncClient,
+    db_session: AsyncSession,
+):
+    await db_session.execute(text("PRAGMA foreign_keys=ON"))
+    source_a = await crud.create_source(db_session, url="https://delete-entity-a.com")
+    source_b = await crud.create_source(db_session, url="https://delete-entity-b.com")
+
+    entity_a = Entity(source_id=source_a.id, entity_type="artist", canonical_name="Entity A", canonical_data={})
+    entity_b = Entity(source_id=source_b.id, entity_type="artist", canonical_name="Entity B", canonical_data={})
+    db_session.add_all([entity_a, entity_b])
+    await db_session.flush()
+
+    db_session.add(
+        EntityRelationship(
+            source_id=source_b.id,
+            from_entity_id=entity_a.id,
+            to_entity_id=entity_b.id,
+            relationship_type="related_to",
+        )
+    )
+    await db_session.commit()
+
+    delete_resp = await test_client.delete(f"/api/sources/{source_a.id}")
+    assert delete_resp.status_code == 204
+
+    get_resp = await test_client.get(f"/api/sources/{source_a.id}")
     assert get_resp.status_code == 404
 
 

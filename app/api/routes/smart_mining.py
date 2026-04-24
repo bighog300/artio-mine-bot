@@ -115,7 +115,21 @@ async def create_smart_mine(
         if source is None:
             raise HTTPException(status_code=404, detail="Source not found")
     else:
-        source = await crud.create_source(db, url=request.url, name=request.name or request.url)
+        existing_source = await crud.get_source_by_url(db, request.url)
+        if existing_source is not None:
+            source = existing_source
+            logger.info(
+                "smart_mine_reusing_existing_source",
+                source_id=source.id,
+                url=request.url,
+            )
+        else:
+            source = await crud.create_source(db, url=request.url, name=request.name or request.url)
+            logger.info(
+                "smart_mine_created_new_source",
+                source_id=source.id,
+                url=request.url,
+            )
 
     _job_statuses[source.id] = {
         "job_status": "queued",
