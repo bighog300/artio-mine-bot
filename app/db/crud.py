@@ -517,6 +517,7 @@ async def delete_source(db: AsyncSession, source_id: str) -> bool:
     await db.flush()
 
     source_record_ids = select(Record.id).where(Record.source_id == source_id)
+    source_entity_ids = select(Entity.id).where(Entity.source_id == source_id)
 
     await db.execute(
         update(Log)
@@ -573,6 +574,17 @@ async def delete_source(db: AsyncSession, source_id: str) -> bool:
                 EntityRelationship.from_record_id.in_(source_record_ids),
                 EntityRelationship.to_record_id.in_(source_record_ids),
                 EntityRelationship.source_record_id.in_(source_record_ids),
+                EntityRelationship.from_entity_id.in_(source_entity_ids),
+                EntityRelationship.to_entity_id.in_(source_entity_ids),
+            )
+        )
+    )
+    await db.execute(
+        delete(EntityLink).where(
+            or_(
+                EntityLink.source_id == source_id,
+                EntityLink.record_id.in_(source_record_ids),
+                EntityLink.entity_id.in_(source_entity_ids),
             )
         )
     )

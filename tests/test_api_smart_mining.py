@@ -24,6 +24,20 @@ async def test_smart_mine_create_and_status(test_client):
 
 
 @pytest.mark.asyncio
+async def test_smart_mine_reuses_existing_source_by_url(test_client, db_session):
+    smart_mining._execute_smart_mine = AsyncMock(return_value=None)
+    source = await crud.create_source(db_session, url="https://example.com/reuse", name="Reuse")
+
+    response = await test_client.post(
+        "/api/smart-mine/",
+        json={"url": source.url, "name": "Should Not Duplicate"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["source_id"] == source.id
+
+
+@pytest.mark.asyncio
 async def test_template_endpoints(test_client):
     resp = await test_client.get("/api/smart-mine/templates")
     assert resp.status_code == 200
