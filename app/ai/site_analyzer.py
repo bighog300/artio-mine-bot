@@ -63,15 +63,21 @@ class SiteAnalyzer:
             operation="site_analysis",
         )
 
+        # Safe handling of url_patterns which might be a list or dict
+        url_patterns_raw = result.get("url_patterns", {})
+        url_patterns_safe: dict[str, list[str]] = {}
+        if isinstance(url_patterns_raw, dict):
+            url_patterns_safe = {
+                str(k): [str(v) for v in vals if isinstance(v, str)]
+                for k, vals in url_patterns_raw.items()
+                if isinstance(vals, list)
+            }
+
         site_analysis: SiteAnalysis = {
             "site_type": str(result.get("site_type", "unknown")),
             "cms_platform": str(result.get("cms_platform", "unknown")),
             "entity_types": [str(x) for x in result.get("entity_types", []) if isinstance(x, str)],
-            "url_patterns": {
-                str(k): [str(v) for v in vals if isinstance(v, str)]
-                for k, vals in result.get("url_patterns", {}).items()
-                if isinstance(vals, list)
-            },
+            "url_patterns": url_patterns_safe,
             "confidence": int(result.get("confidence", 0) or 0),
             "notes": str(result.get("notes", "")),
         }
