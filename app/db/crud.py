@@ -4613,11 +4613,59 @@ async def prepare_refresh_frontier_rows(
         normalized_drift_type = "VALUE_ANOMALY"
 
 
-async def count_pages(db: AsyncSession, source_id: str) -> int:
-    result = await db.execute(select(func.count()).select_from(Page).where(Page.source_id == source_id))
+async def count_pages(
+    db: AsyncSession,
+    source_id: str | None = None,
+    page_type: str | None = None,
+    status: str | None = None,
+    tenant_id: str | None = None,
+) -> int:
+    """Count pages with optional filters."""
+    stmt = select(func.count(Page.id))
+    filters: list[Any] = []
+    if source_id is not None:
+        filters.append(Page.source_id == source_id)
+    if page_type is not None:
+        filters.append(Page.page_type == page_type)
+    if status is not None:
+        filters.append(Page.status == status)
+    if tenant_id is not None:
+        filters.append(Page.tenant_id == tenant_id)
+    if filters:
+        stmt = stmt.where(and_(*filters))
+    result = await db.execute(stmt)
     return int(result.scalar() or 0)
 
 
-async def count_records(db: AsyncSession, source_id: str) -> int:
-    result = await db.execute(select(func.count()).select_from(Record).where(Record.source_id == source_id))
+async def count_records(
+    db: AsyncSession,
+    source_id: str | None = None,
+    status: str | None = None,
+    record_type: str | None = None,
+    tenant_id: str | None = None,
+    search: str | None = None,
+) -> int:
+    """Count records with optional filters."""
+    stmt = select(func.count(Record.id))
+    filters: list[Any] = []
+    if source_id is not None:
+        filters.append(Record.source_id == source_id)
+    if status is not None:
+        filters.append(Record.status == status)
+    if record_type is not None:
+        filters.append(Record.record_type == normalize_record_type(record_type).value)
+    if tenant_id is not None:
+        filters.append(Record.tenant_id == tenant_id)
+    if search is not None:
+        query_filter = f"%{search}%"
+        filters.append(
+            or_(
+                Record.title.ilike(query_filter),
+                Record.description.ilike(query_filter),
+                Record.bio.ilike(query_filter),
+            )
+        )
+    if filters:
+        stmt = stmt.where(and_(*filters))
+    result = await db.execute(stmt)
     return int(result.scalar() or 0)

@@ -11,6 +11,7 @@ from app.api.deps import get_db
 from app.api.main import app
 from app.config import settings
 from app.db import crud
+from app.db.models import AuditAction, JobEvent, Log, MergeHistory, SourceMappingPreset
 
 
 
