@@ -61,6 +61,12 @@ class SmartTemplateListItem(BaseModel):
     usage_count: int = 0
 
 
+class SmartTemplateListResponse(BaseModel):
+    """Response for template listing."""
+
+    items: list[SmartTemplateListItem]
+
+
 class SmartMineMetricsResponse(BaseModel):
     cache: dict
     usage_totals: dict[str, float]
@@ -162,10 +168,18 @@ async def retry_smart_mine(source_id: str, background_tasks: BackgroundTasks, db
     return SmartMineCreateResponse(source_id=source_id, status="queued", message="Smart mining retry queued")
 
 
-@router.get("/templates", response_model=list[SmartTemplateListItem], status_code=200)
-async def list_templates() -> list[SmartTemplateListItem]:
+@router.get("/templates", response_model=SmartTemplateListResponse, status_code=200)
+async def list_templates() -> SmartTemplateListResponse:
     templates = _template_library.list_templates()
-    return [SmartTemplateListItem(id=t["id"], name=t.get("name", t["id"]), usage_count=int(t.get("usage_count", 0))) for t in templates]
+    items = [
+        SmartTemplateListItem(
+            id=t["id"],
+            name=t.get("name", t["id"]),
+            usage_count=int(t.get("usage_count", 0)),
+        )
+        for t in templates
+    ]
+    return SmartTemplateListResponse(items=items)
 
 
 @router.get("/templates/{template_id}", response_model=dict, status_code=200)

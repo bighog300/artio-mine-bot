@@ -27,9 +27,10 @@ async def test_smart_mine_create_and_status(test_client):
 async def test_template_endpoints(test_client):
     resp = await test_client.get("/api/smart-mine/templates")
     assert resp.status_code == 200
-    assert len(resp.json()) >= 1
+    payload = resp.json()
+    assert len(payload["items"]) >= 1
 
-    template_id = resp.json()[0]["id"]
+    template_id = payload["items"][0]["id"]
     detail = await test_client.get(f"/api/smart-mine/templates/{template_id}")
     assert detail.status_code == 200
 
