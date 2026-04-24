@@ -70,3 +70,45 @@ def test_user_prompt_includes_identifier_requirements() -> None:
     )
     assert "NEVER use empty identifiers: []" in prompt
     assert "/artists/[^/]+/?$" in prompt
+
+
+def test_normalize_extraction_rules_converts_list_to_dict() -> None:
+    generator = ConfigGenerator(OpenAIClient(api_key="test"))
+    config = {
+        "extraction_rules": [
+            {
+                "entity_type": "Artists",
+                "identifiers": ["/artists/[^/]+/?$"],
+                "selectors": {"name": "h1.title", "bio": ".artist-bio"},
+            },
+            {
+                "entity_type": "Exhibitions",
+                "identifiers": ["/exhibitions/[^/]+/?$"],
+                "css_selectors": {"title": "h1.title"},
+            },
+        ]
+    }
+
+    normalized = generator._normalize_extraction_rules(config)
+
+    assert isinstance(normalized["extraction_rules"], dict)
+    assert set(normalized["extraction_rules"].keys()) == {"Artists", "Exhibitions"}
+    assert normalized["extraction_rules"]["Artists"]["css_selectors"] == {
+        "name": "h1.title",
+        "bio": ".artist-bio",
+    }
+    assert normalized["extraction_rules"]["Exhibitions"]["css_selectors"] == {"title": "h1.title"}
+
+
+def test_normalize_extraction_rules_skips_missing_entity_type() -> None:
+    generator = ConfigGenerator(OpenAIClient(api_key="test"))
+    config = {
+        "extraction_rules": [
+            {"identifiers": ["/artists/[^/]+/?$"], "selectors": {"name": "h1.title"}},
+            {"entity_type": "Artists", "identifiers": ["/artists/[^/]+/?$"], "selectors": {"name": "h1.title"}},
+        ]
+    }
+
+    normalized = generator._normalize_extraction_rules(config)
+
+    assert set(normalized["extraction_rules"].keys()) == {"Artists"}
