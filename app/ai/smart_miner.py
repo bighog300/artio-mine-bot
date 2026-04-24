@@ -142,8 +142,14 @@ class SmartMiner:
         logger.info("smart_mine_qa_complete", source_id=source_id, success_rate=report.success_rate, attempts=attempts)
         if status == "completed":
             logger.info("smart_mine_starting_crawl", source_id=source_id)
-            await self._run_deterministic_mine(db, source_id)
-            logger.info("smart_mine_crawl_completed", source_id=source_id)
+            await crud.update_source(db, source_id, status="mining")
+            result = await self._run_deterministic_mine(db, source_id)
+            logger.info(
+                "smart_mine_crawl_complete",
+                source_id=source_id,
+                pages=result.get("pages_count", 0),
+                records=result.get("records_count", 0),
+            )
 
         logger.info(
             "smart_mine_complete",
