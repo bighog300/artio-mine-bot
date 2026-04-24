@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import copy
 import json
 from typing import Any
 
@@ -18,6 +20,24 @@ class QualityAssurance:
     def __init__(self, openai_client: OpenAIClient) -> None:
         self.openai_client = openai_client
 
+    def _limit_config_for_testing(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Limit config for quick QA testing - only crawl a few pages."""
+        limited = copy.deepcopy(config)
+
+        crawl_plan = limited.get("crawl_plan", {})
+        phases = crawl_plan.get("phases", [])
+
+        if phases:
+            limited_phases = [phases[0]]
+            for target in limited_phases[0].get("targets", []):
+                target["limit"] = 5
+            crawl_plan["phases"] = limited_phases
+            limited["crawl_plan"] = crawl_plan
+
+        logger.info("qa_config_limited", original_phases=len(phases), limited_phases=1)
+
+        return limited
+
     async def run(
         self,
         *,
@@ -26,14 +46,61 @@ class QualityAssurance:
         source_url: str,
         config: dict[str, Any],
     ) -> tuple[dict[str, Any], QualityReportModel]:
-        temp_source = await crud.create_source(db, url=f"{source_url.rstrip('/')}/__smart_test", name="SmartMode QA")
+        existing = await crud.get_source_by_url(db, f"{source_url.rstrip('/')}/__smart_test")
+        if existing:
+            temp_source = existing
+            logger.info("qa_reusing_test_source", source_id=temp_source.id)
+        else:
+            temp_source = await crud.create_source(
+                db,
+                url=f"{source_url.rstrip('/')}/__smart_test",
+                name="SmartMode QA",
+            )
+            logger.info("qa_created_test_source", source_id=temp_source.id)
+
         try:
-            await crud.update_source(db, temp_source.id, structure_map=json.dumps(config), status="testing")
-            crawler = AutomatedCrawler(structure_map=config, db=db, ai_allowed=False)
-            stats = await crawler.execute_crawl_plan(temp_source.id)
+            limited_config = self._limit_config_for_testing(config)
+            await crud.update_source(
+                db,
+                temp_source.id,
+                structure_map=json.dumps(limited_config),
+                status="testing",
+            )
+            logger.info("qa_starting_test_crawl", source_id=temp_source.id, pages_limit=5)
+
+            crawler = AutomatedCrawler(structure_map=limited_config, db=db, ai_allowed=False)
+
+            try:
+                stats = await asyncio.wait_for(
+                    crawler.execute_crawl_plan(temp_source.id),
+                    timeout=60.0,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("qa_test_crawl_timeout", source_id=temp_source.id)
+                return config, QualityReportModel(
+                    pages_crawled=0,
+                    records_created=0,
+                    success_rate=0.0,
+                    refined=False,
+                    attempts=1,
+                )
+
             pages_crawled = int(stats.get("pages_crawled", 0))
-            records_created = int(stats.get("extracted_deterministic", 0)) + int(stats.get("extracted_ai_fallback", 0))
-            success_rate = round((records_created / max(pages_crawled, 1)) * 100, 2)
+            records_created = int(stats.get("extracted_deterministic", 0)) + int(
+                stats.get("extracted_ai_fallback", 0)
+            )
+
+            if pages_crawled == 0:
+                success_rate = 0.0
+            else:
+                success_rate = round((records_created / pages_crawled) * 100, 2)
+
+            logger.info(
+                "qa_test_complete",
+                pages_crawled=pages_crawled,
+                records_created=records_created,
+                success_rate=success_rate,
+            )
 
             if success_rate >= 85:
                 return config, QualityReportModel(
@@ -44,12 +111,45 @@ class QualityAssurance:
                     attempts=1,
                 )
 
+            if pages_crawled == 0:
+                logger.warning("qa_no_pages_crawled", source_id=source_id)
+                return config, QualityReportModel(
+                    pages_crawled=0,
+                    records_created=0,
+                    success_rate=0.0,
+                    refined=False,
+                    attempts=1,
+                )
+
+            logger.info("qa_attempting_refinement", current_success_rate=success_rate)
             refined = await self._refine_config(config=config, stats=stats)
-            crawler = AutomatedCrawler(structure_map=refined, db=db, ai_allowed=False)
-            second_stats = await crawler.execute_crawl_plan(temp_source.id)
+            limited_refined = self._limit_config_for_testing(refined)
+            crawler = AutomatedCrawler(structure_map=limited_refined, db=db, ai_allowed=False)
+
+            try:
+                second_stats = await asyncio.wait_for(
+                    crawler.execute_crawl_plan(temp_source.id),
+                    timeout=60.0,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("qa_refinement_timeout", source_id=temp_source.id)
+                return config, QualityReportModel(
+                    pages_crawled=pages_crawled,
+                    records_created=records_created,
+                    success_rate=success_rate,
+                    refined=False,
+                    attempts=2,
+                )
+
             pages_crawled_2 = int(second_stats.get("pages_crawled", 0))
-            records_created_2 = int(second_stats.get("extracted_deterministic", 0)) + int(second_stats.get("extracted_ai_fallback", 0))
-            success_rate_2 = round((records_created_2 / max(pages_crawled_2, 1)) * 100, 2)
+            records_created_2 = int(second_stats.get("extracted_deterministic", 0)) + int(
+                second_stats.get("extracted_ai_fallback", 0)
+            )
+            if pages_crawled_2 == 0:
+                success_rate_2 = 0.0
+            else:
+                success_rate_2 = round((records_created_2 / pages_crawled_2) * 100, 2)
+
             return refined, QualityReportModel(
                 pages_crawled=pages_crawled_2,
                 records_created=records_created_2,
@@ -58,7 +158,15 @@ class QualityAssurance:
                 attempts=2,
             )
         finally:
-            await crud.delete_source(db, temp_source.id)
+            try:
+                await crud.delete_source(db, temp_source.id)
+                logger.info("qa_cleaned_up_test_source", source_id=temp_source.id)
+            except Exception as cleanup_error:
+                logger.warning(
+                    "qa_cleanup_failed",
+                    source_id=temp_source.id,
+                    error=str(cleanup_error),
+                )
 
     async def _refine_config(self, *, config: dict[str, Any], stats: dict[str, Any]) -> dict[str, Any]:
         prompt = "Refine mining config to improve success rate. Keep same top-level schema. Return JSON only."
