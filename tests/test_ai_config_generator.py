@@ -44,3 +44,29 @@ async def test_config_generator_generate_success() -> None:
         },
     )
     assert "crawl_plan" in config
+
+
+def test_config_generator_fills_empty_identifiers_with_default() -> None:
+    generator = ConfigGenerator(OpenAIClient(api_key="test"))
+    config = {
+        "extraction_rules": {
+            "Artists": {"identifiers": [], "css_selectors": {"title": "h1.title"}},
+        }
+    }
+    updated = generator._add_default_identifiers_if_empty(config)
+    assert updated["extraction_rules"]["Artists"]["identifiers"] == ["/artist/[^/]+/?$"]
+
+
+def test_user_prompt_includes_identifier_requirements() -> None:
+    generator = ConfigGenerator(OpenAIClient(api_key="test"))
+    prompt = generator._build_user_prompt(
+        source_url="https://example.com",
+        analysis={
+            "site_type": "art_gallery",
+            "cms_platform": "custom",
+            "entity_types": ["artists"],
+        },
+        sample_pages={},
+    )
+    assert "NEVER use empty identifiers: []" in prompt
+    assert "/artists/[^/]+/?$" in prompt

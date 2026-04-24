@@ -35,10 +35,33 @@ class ConfigGenerator:
             temperature=0.1,
             operation="config_generation",
         )
+        config = self._add_default_identifiers_if_empty(config)
         self.validate_config(config)
         validation = crud.validate_mapping_template(config)
         if not validation["ok"]:
             raise ValueError(f"Generated config failed schema validation: {validation['errors']}")
+        return config
+
+    def _add_default_identifiers_if_empty(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Add default identifiers when model output leaves them empty."""
+        extraction_rules = config.get("extraction_rules", {})
+        if not isinstance(extraction_rules, dict):
+            return config
+
+        for page_type, rule in extraction_rules.items():
+            if not isinstance(rule, dict):
+                continue
+            identifiers = rule.get("identifiers", [])
+            if not isinstance(identifiers, list) or len(identifiers) == 0:
+                normalized_page_type = str(page_type).lower().replace(" ", "_")
+                singular_page_type = normalized_page_type.rstrip("s")
+                default_pattern = f"/{singular_page_type}/[^/]+/?$"
+                rule["identifiers"] = [default_pattern]
+                logger.warning(
+                    "openai_empty_identifiers_fixed",
+                    page_type=page_type,
+                    default_pattern=default_pattern,
+                )
         return config
 
     async def _fetch_sample_pages(self, source_url: str, analysis: SiteAnalysis) -> dict[str, str]:
@@ -66,8 +89,13 @@ class ConfigGenerator:
 
         for page_type, rule in extraction_rules.items():
             identifiers = rule.get("identifiers", [])
-            if not isinstance(identifiers, list) or not identifiers:
-                raise ValueError(f"extraction_rules.{page_type}.identifiers must be non-empty list")
+            if not identifiers or not isinstance(identifiers, list) or len(identifiers) == 0:
+                raise ValueError(
+                    f"extraction_rules.{page_type}.identifiers must be a non-empty list. "
+                    "OpenAI generated an empty or invalid identifiers array. "
+                    f"Expected format: ['/{str(page_type).lower()}/[^/]+/?$'] or similar URL pattern. "
+                    "This is usually a prompt issue - the model didn't understand identifier requirements."
+                )
             for identifier in identifiers:
                 ident = str(identifier).strip()
                 if ident in FORBIDDEN_IDENTIFIERS or len(ident) < 3:
@@ -87,9 +115,12 @@ class ConfigGenerator:
 
     def _build_system_prompt(self) -> str:
         return compact_prompt(
-            "Generate strict JSON mining config for art sites. Required keys: crawl_plan, extraction_rules, "
-            "page_type_rules, record_type_rules, follow_rules, asset_rules. Avoid broad identifiers and generic selectors.",
-            max_chars=220,
+            "Generate JSON mining config for art sites. CRITICAL: Every extraction_rule MUST have "
+            "non-empty 'identifiers' array with specific URL patterns (e.g., '/artists/[^/]+/?$'). "
+            "NEVER use empty identifiers []. Use specific CSS selectors, avoid broad patterns. "
+            "Required keys: crawl_plan, extraction_rules, page_type_rules, record_type_rules, "
+            "follow_rules, asset_rules.",
+            max_chars=280,
         )
 
     def _build_user_prompt(
@@ -98,10 +129,48 @@ class ConfigGenerator:
         analysis: SiteAnalysis,
         sample_pages: dict[str, str],
     ) -> str:
-        return (
-            f"Source URL: {source_url}\n"
-            f"Site analysis: {analysis}\n"
-            f"Sample pages by entity: {list(sample_pages.keys())}\n"
-            "Return robust fallback selectors like 'h1.title, h1, h2'. "
-            "Set crawl_plan.phases as non-empty list."
-        )
+        site_type = analysis.get("site_type", "unknown")
+        cms = analysis.get("cms_platform", "unknown")
+        entities = analysis.get("entity_types", [])
+        normalized_entities = [str(entity).lower() for entity in entities]
+
+        identifier_examples: list[str] = []
+        if "artists" in normalized_entities or "artist" in normalized_entities:
+            identifier_examples.append(
+                "For Artists pages, use pattern like: '/artists/[^/]+/?$' or '/artist/[^/]+/?$'"
+            )
+        if "artworks" in normalized_entities or "artwork" in normalized_entities:
+            identifier_examples.append(
+                "For Artworks pages, use pattern like: '/artworks/[^/]+/?$' or '/art/[^/]+/?$'"
+            )
+        if "exhibitions" in normalized_entities or "exhibition" in normalized_entities:
+            identifier_examples.append(
+                "For Exhibitions, use pattern like: '/exhibitions/[^/]+/?$'"
+            )
+
+        prompt_parts = [
+            f"Site URL: {source_url}",
+            f"Site type: {site_type}",
+            f"CMS: {cms}",
+            f"Entity types: {', '.join(str(entity) for entity in entities)}",
+            "",
+            "CRITICAL RULES:",
+            "- Every extraction_rule MUST have 'identifiers' with at least one URL pattern",
+            "- NEVER use empty identifiers: []",
+            "- Use specific regex patterns, not broad catch-alls like '/'",
+            "- Return robust fallback selectors like 'h1.title, h1, h2'",
+            "- Set crawl_plan.phases as non-empty list",
+        ]
+
+        if identifier_examples:
+            prompt_parts.append("")
+            prompt_parts.append("Example identifier patterns:")
+            prompt_parts.extend(identifier_examples)
+
+        if sample_pages:
+            prompt_parts.append("")
+            prompt_parts.append("Sample pages from site:")
+            for page_type, sample_html in sample_pages.items():
+                prompt_parts.append(f"{page_type}: {sample_html}")
+
+        return "\n".join(prompt_parts)
