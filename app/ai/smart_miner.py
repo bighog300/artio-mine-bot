@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from dataclasses import dataclass
 
@@ -136,20 +137,38 @@ class SmartMiner:
             config = tested_config
             if report.success_rate >= 85:
                 break
+        config = self._ensure_production_crawl_targets(config, source_url=url)
 
         status = "completed" if report.success_rate >= 85 else "needs_human_review"
         await crud.update_source(db, source_id, status="mining", structure_map=json.dumps(config))
         logger.info("smart_mine_qa_complete", source_id=source_id, success_rate=report.success_rate, attempts=attempts)
+        production_pages = 0
+        production_records = 0
+        status_reason: str | None = None
         if status == "completed":
             logger.info("smart_mine_starting_crawl", source_id=source_id)
             await crud.update_source(db, source_id, status="mining")
             result = await self._run_deterministic_mine(db, source_id)
+            production_pages = int(result.get("pages_count", 0))
+            production_records = int(result.get("records_count", 0))
             logger.info(
                 "smart_mine_crawl_complete",
                 source_id=source_id,
-                pages=result.get("pages_count", 0),
-                records=result.get("records_count", 0),
+                pages=production_pages,
+                records=production_records,
             )
+            if production_pages == 0 or production_records == 0:
+                status = "needs_human_review"
+                status_reason = (
+                    f"Production crawl insufficient results (pages_crawled={production_pages}, "
+                    f"records_created={production_records})."
+                )
+                logger.warning(
+                    "smart_mine_production_results_insufficient",
+                    source_id=source_id,
+                    pages_crawled=production_pages,
+                    records_created=production_records,
+                )
 
         logger.info(
             "smart_mine_complete",
@@ -157,6 +176,9 @@ class SmartMiner:
             success_rate=report.success_rate,
             attempts=attempts,
             status=status,
+            production_pages_crawled=production_pages,
+            production_records_created=production_records,
+            status_reason=status_reason,
             usage=self.openai_client.get_usage_totals(),
         )
         total_cost_delta = self.openai_client.get_usage_totals()["estimated_cost_usd"] - start_cost
@@ -171,9 +193,56 @@ class SmartMiner:
             analysis=dict(analysis),
             cost_summary=self.openai_client.get_usage_totals(),
             config=config,
-            message=None if status == "completed" else "Escalate to human for mapping review.",
+            message=None if status == "completed" else (status_reason or "Escalate to human for mapping review."),
         )
 
     async def match_template(self, url: str) -> dict | None:
         analysis = await self._analyze_site_cached(url)
         return await self._match_template_cached(analysis)
+
+    def _ensure_production_crawl_targets(self, config: dict, *, source_url: str) -> dict:
+        ensured = copy.deepcopy(config)
+        normalized_urls: list[str] = []
+        seen: set[str] = set()
+
+        def _add(url: str | None) -> None:
+            if not isinstance(url, str):
+                return
+            candidate = url.strip()
+            if not candidate or candidate in seen:
+                return
+            seen.add(candidate)
+            normalized_urls.append(candidate)
+
+        crawl_targets = ensured.get("crawl_targets", [])
+        if isinstance(crawl_targets, list):
+            for target in crawl_targets:
+                if isinstance(target, dict):
+                    _add(target.get("url"))
+                elif isinstance(target, str):
+                    _add(target)
+
+        crawl_plan = ensured.get("crawl_plan", {})
+        phases = crawl_plan.get("phases", []) if isinstance(crawl_plan, dict) else []
+        if isinstance(phases, list):
+            for phase in phases:
+                if not isinstance(phase, dict):
+                    continue
+                phase_targets = phase.get("targets")
+                if isinstance(phase_targets, list):
+                    for target in phase_targets:
+                        if isinstance(target, dict):
+                            _add(target.get("url"))
+                        elif isinstance(target, str):
+                            _add(target)
+                phase_urls = phase.get("urls")
+                if isinstance(phase_urls, list):
+                    for phase_url in phase_urls:
+                        _add(phase_url if isinstance(phase_url, str) else None)
+
+        if not normalized_urls:
+            _add(source_url)
+
+        ensured["crawl_targets"] = [{"url": candidate} for candidate in normalized_urls]
+        logger.info("smart_mine_persisting_production_crawl_targets", crawl_targets=ensured["crawl_targets"])
+        return ensured
