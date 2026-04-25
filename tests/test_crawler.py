@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import respx
 from httpx import Response
+from sqlalchemy.exc import IntegrityError
 
 from app.crawler.fetcher import FetchResult, fetch
 from app.crawler.automated_crawler import AutomatedCrawler
@@ -544,3 +545,46 @@ async def test_save_record_persists_artist_metadata_fields(db_session):
     assert record.website_url == "https://portfolio.example.com"
     assert record.avatar_url == "https://art.co.za/images/avatar.jpg"
     assert record.source_url == "https://art.co.za/michellesueur"
+
+
+@pytest.mark.asyncio
+async def test_crawl_plan_does_not_increment_created_when_record_persist_fails(db_session, monkeypatch):
+    source = await crud.create_source(db_session, url="https://example.com/failure")
+    structure_map = {
+        "crawl_targets": [{"url": "https://example.com/failure/test", "limit": 1}],
+        "extraction_rules": {
+            "_QA_Test": {
+                "identifiers": ["^/failure/test$"],
+                "target_record_type": "artwork",
+                "fields": {"title": {"selector": "title"}},
+            }
+        },
+    }
+    fetch_result = FetchResult(
+        url="https://example.com/failure/test",
+        final_url="https://example.com/failure/test",
+        html="<html><head><title>Failure</title></head><body><h1>Failure</h1></body></html>",
+        status_code=200,
+        method="httpx",
+    )
+    crawler = AutomatedCrawler(structure_map=structure_map, db=db_session, ai_allowed=False)
+    rollback_spy = AsyncMock(wraps=db_session.rollback)
+    monkeypatch.setattr(db_session, "rollback", rollback_spy)
+    monkeypatch.setattr(
+        crawler,
+        "_save_record",
+        AsyncMock(side_effect=IntegrityError("insert", {}, Exception("invalid record_type"))),
+    )
+
+    with patch("app.crawler.automated_crawler.fetch", new=AsyncMock(return_value=fetch_result)):
+        with patch("app.crawler.automated_crawler.settings") as mock_settings:
+            mock_settings.max_pages_per_source = 1
+            mock_settings.deterministic_confidence_threshold = 80
+            mock_settings.crawler_use_ai_fallback = False
+            mock_settings.max_ai_fallback_per_source = 50
+            stats = await crawler.execute_crawl_plan(source.id)
+
+    assert stats["pages_crawled"] == 1
+    assert stats["extracted_deterministic"] == 0
+    assert stats["failed"] == 1
+    rollback_spy.assert_awaited()

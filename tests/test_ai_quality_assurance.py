@@ -75,6 +75,7 @@ def test_limit_config_for_testing_preserves_extraction_rules() -> None:
     assert limited["extraction_rules"]["artist_profile"] == config["extraction_rules"]["artist_profile"]
     assert "_QA_Test" in limited["extraction_rules"]
     assert limited["extraction_rules"]["_QA_Test"]["identifiers"] == ["^/__smart_test$", "/__smart_test"]
+    assert limited["extraction_rules"]["_QA_Test"]["target_record_type"] == "artwork"
     assert limited["extraction_rules"]["_QA_Test"]["fields"]["title"]["selector"] == "title"
     assert limited["extraction_rules"]["_QA_Test"]["fields"]["heading"]["selector"] == "h1"
     assert "_QA_Test" not in config["extraction_rules"]
@@ -159,3 +160,21 @@ async def test_quality_assurance_refines_when_low_success(db_session) -> None:
 
     assert report.refined is True
     assert report.success_rate == 90.0
+
+
+@pytest.mark.asyncio
+async def test_qa_test_rule_persists_with_db_valid_record_type(db_session) -> None:
+    source = await crud.create_source(db_session, url="https://art.co.za", name="Art")
+    qa = QualityAssurance(OpenAIClient(api_key="test"))
+    limited = qa._limit_config_for_testing({"crawl_targets": [{"url": "https://art.co.za"}]}, source_url=source.url)
+    crawler = AutomatedCrawler(structure_map=limited, db=db_session)
+
+    record = await crawler._save_record(
+        source_id=source.id,
+        page_id=None,
+        page_type="_QA_Test",
+        data={"confidence": 95, "data": {"title": "Smart Test Page"}},
+        url="https://art.co.za/__smart_test",
+    )
+
+    assert record.record_type in {"artist", "artwork", "event", "exhibition", "venue"}

@@ -305,7 +305,6 @@ class AutomatedCrawler:
                 return
 
             if confidence >= settings.deterministic_confidence_threshold:
-                self.stats["extracted_deterministic"] += 1
                 logger.info(
                     "record_persist_attempt",
                     url=url,
@@ -315,8 +314,10 @@ class AutomatedCrawler:
                 try:
                     record = await self._save_record(source_id, page.id, page_type, deterministic, url)
                 except Exception:
+                    await self.db.rollback()
                     logger.exception("record_persist_failed", url=url, page_type=page_type)
                     raise
+                self.stats["extracted_deterministic"] += 1
                 if record is not None and asset_urls:
                     try:
                         collected = await collect_images(
@@ -340,9 +341,14 @@ class AutomatedCrawler:
                     page_type=page_type,
                     context=self._get_ai_context(page_type),
                 )
+                try:
+                    await self._save_record(source_id, page.id, page_type, ai_data, url)
+                except Exception:
+                    await self.db.rollback()
+                    logger.exception("record_persist_failed", url=url, page_type=page_type, method="ai_fallback")
+                    raise
                 self.stats["extracted_ai_fallback"] += 1
                 self._ai_fallback_used += 1
-                await self._save_record(source_id, page.id, page_type, ai_data, url)
                 await self._follow_links(source_id=source_id, page_type=page_type, html=html, current_url=url, depth=depth)
                 return
 
@@ -645,6 +651,16 @@ class AutomatedCrawler:
         return f"Page type: {expected_type}\n{hint}\nExpected fields: {fields}"
 
     def _resolve_record_type(self, page_type: str) -> str:
+        extraction_rule = self.extraction_rules.get(page_type, {}) or {}
+        extraction_explicit = extraction_rule.get("target_record_type")
+        if isinstance(extraction_explicit, str) and extraction_explicit.strip():
+            return extraction_explicit.strip().lower()
+        extraction_targets = extraction_rule.get("target_record_types") or []
+        if isinstance(extraction_targets, list):
+            for target in extraction_targets:
+                if isinstance(target, str) and target.strip():
+                    return target.strip().lower()
+
         type_rules = self.structure_map.get("page_type_rules", {}) or {}
         page_rule = type_rules.get(page_type, {}) or {}
         explicit = page_rule.get("target_record_type")
@@ -677,7 +693,7 @@ class AutomatedCrawler:
         }
         if page_type in legacy:
             return legacy[page_type]
-        return "organization"
+        return "artwork"
 
     async def _save_record(
         self,
