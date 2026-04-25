@@ -55,6 +55,25 @@ def test_limit_config_for_testing_empties_phase_when_no_valid_targets() -> None:
     assert limited["crawl_plan"]["phases"] == []
 
 
+def test_limit_config_for_testing_preserves_extraction_rules() -> None:
+    qa = QualityAssurance(OpenAIClient(api_key="test"))
+    config = {
+        "crawl_targets": [{"url": "https://example.com/artists"}],
+        "crawl_plan": {"phases": [{"phase_name": "legacy"}]},
+        "extraction_rules": {
+            "artist_profile": {
+                "identifiers": ["/artists/[^/]+/?$"],
+                "css_selectors": {"title": "h1"},
+            }
+        },
+    }
+
+    limited = qa._limit_config_for_testing(config)
+
+    assert "extraction_rules" in limited
+    assert limited["extraction_rules"] == config["extraction_rules"]
+
+
 @pytest.mark.asyncio
 async def test_quality_assurance_refines_when_low_success(db_session) -> None:
     source = await crud.create_source(db_session, url="https://example.com", name="main")

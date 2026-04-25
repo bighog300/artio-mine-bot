@@ -48,6 +48,14 @@ class AutomatedCrawler:
         self.extraction_rules = structure_map.get("extraction_rules", {}) or {}
         self.follow_rules = structure_map.get("follow_rules", {}) or {}
         self.asset_rules = structure_map.get("asset_rules", {}) or {}
+        logger.info(
+            "automated_crawler_runtime_map_loaded",
+            has_extraction_rules=bool(self.extraction_rules),
+            extraction_rule_names=sorted(self.extraction_rules.keys())
+            if isinstance(self.extraction_rules, dict)
+            else [],
+            extraction_rules_source="structure_map.extraction_rules",
+        )
         self.db = db
         self.ai_client = ai_client
         self.ai_allowed = ai_allowed

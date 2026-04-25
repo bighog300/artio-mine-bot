@@ -92,6 +92,12 @@ class QualityAssurance:
 
         try:
             limited_config = self._limit_config_for_testing(config)
+            extraction_rules = limited_config.get("extraction_rules")
+            logger.info(
+                "qa_limited_config_rules",
+                has_extraction_rules="extraction_rules" in limited_config,
+                rule_names=list(extraction_rules.keys()) if isinstance(extraction_rules, dict) else [],
+            )
             await crud.update_source(
                 db,
                 temp_source.id,
