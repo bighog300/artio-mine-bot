@@ -6,12 +6,14 @@ import json
 from typing import Any
 
 import structlog
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.models import QualityReportModel
 from app.ai.openai_client import OpenAIClient
 from app.crawler.automated_crawler import AutomatedCrawler
 from app.db import crud
+from app.db.models import CrawlRun, Page, Record, Source
 
 logger = structlog.get_logger()
 
@@ -214,15 +216,23 @@ class QualityAssurance:
                 attempts=2,
             )
         finally:
-            try:
-                await crud.delete_source(db, temp_source_id)
-                logger.info("qa_cleaned_up_test_source", source_id=temp_source_id)
-            except Exception as cleanup_error:
-                logger.warning(
-                    "qa_cleanup_failed",
-                    source_id=temp_source_id,
-                    error=str(cleanup_error),
-                )
+            await self._cleanup_temp_source(db=db, temp_source_id=temp_source_id)
+
+    async def _cleanup_temp_source(self, *, db: AsyncSession, temp_source_id: str) -> None:
+        try:
+            await db.execute(delete(Record).where(Record.source_id == temp_source_id))
+            await db.execute(delete(Page).where(Page.source_id == temp_source_id))
+            await db.execute(delete(CrawlRun).where(CrawlRun.source_id == temp_source_id))
+            await db.execute(delete(Source).where(Source.id == temp_source_id))
+            await db.commit()
+            logger.info("qa_cleaned_up_test_source", source_id=temp_source_id)
+        except Exception as cleanup_error:
+            await db.rollback()
+            logger.warning(
+                "qa_cleanup_failed",
+                temp_source_id=temp_source_id,
+                error=str(cleanup_error),
+            )
 
     async def _refine_config(self, *, config: dict[str, Any], stats: dict[str, Any]) -> dict[str, Any]:
         prompt = "Refine mining config to improve success rate. Keep same top-level schema. Return JSON only."

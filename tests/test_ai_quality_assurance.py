@@ -1,10 +1,12 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import select
 
 from app.ai.openai_client import OpenAIClient
 from app.ai.quality_assurance import AutomatedCrawler, QualityAssurance
 from app.db import crud
+from app.db.models import Page
 
 
 def test_limit_config_for_testing_filters_invalid_urls() -> None:
@@ -178,3 +180,41 @@ async def test_qa_test_rule_persists_with_db_valid_record_type(db_session) -> No
     )
 
     assert record.record_type in {"artist", "artwork", "event", "exhibition", "venue"}
+
+
+@pytest.mark.asyncio
+async def test_quality_assurance_cleanup_deletes_pages_before_source(db_session) -> None:
+    source = await crud.create_source(db_session, url="https://example.com", name="main")
+    temp_source = await crud.create_source(db_session, url="https://example.com/__smart_test", name="SmartMode QA")
+    db_session.add(
+        Page(
+            source_id=temp_source.id,
+            url="https://example.com/__smart_test",
+            normalized_url="https://example.com/__smart_test",
+            original_url="https://example.com/__smart_test",
+            status="completed",
+            page_type="_QA_Test",
+        )
+    )
+    await db_session.commit()
+
+    qa = QualityAssurance(OpenAIClient(api_key="test"))
+    crawler_mock = AsyncMock()
+    crawler_mock.execute_crawl_plan = AsyncMock(
+        return_value={"pages_crawled": 1, "extracted_deterministic": 1, "extracted_ai_fallback": 0}
+    )
+
+    with patch("app.ai.quality_assurance.AutomatedCrawler", return_value=crawler_mock):
+        _, report = await qa.run(
+            db=db_session,
+            source_id=source.id,
+            source_url=source.url,
+            config={"crawl_targets": [{"url": source.url}]},
+        )
+
+    remaining_source = await crud.get_source(db_session, temp_source.id)
+    remaining_pages = (await db_session.execute(select(Page).where(Page.source_id == temp_source.id))).scalars().all()
+
+    assert report.success_rate == 100.0
+    assert remaining_source is None
+    assert remaining_pages == []
