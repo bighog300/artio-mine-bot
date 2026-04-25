@@ -164,7 +164,12 @@ def test_ensure_crawl_plan_has_targets_keeps_valid_crawl_targets() -> None:
     ensured = generator._ensure_crawl_plan_has_targets(config, "https://fallback.example.com")
 
     assert ensured["crawl_targets"] == [{"url": "https://example.com"}]
-    assert ensured["crawl_plan"]["phases"] == []
+    assert ensured["crawl_plan"]["phases"] == [
+        {
+            "name": "crawl_targets_mode",
+            "description": "Using crawl_targets, not phase-based crawling",
+        }
+    ]
 
 
 def test_validate_and_clean_crawl_targets_removes_invalid_urls() -> None:
