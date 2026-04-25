@@ -397,6 +397,20 @@ def test_classify_by_url():
     assert crawler._classify_by_url("https://example.com/about") == "unknown"
 
 
+def test_classify_by_url_matches_numeric_tokens():
+    crawler = AutomatedCrawler(
+        structure_map={
+            "mining_map": {
+                "event_listing_page": {"url_pattern": "/events/page/[page]"},
+                "archive_by_year_month": {"url_pattern": "/archive/[year]/[month]"},
+            }
+        },
+        db=MagicMock(),
+    )
+    assert crawler._classify_by_url("https://example.com/events/page/12") == "event_listing_page"
+    assert crawler._classify_by_url("https://example.com/archive/2026/04") == "archive_by_year_month"
+
+
 def test_classify_by_url_prefers_more_specific_identifier_pattern():
     crawler = AutomatedCrawler(
         structure_map={
