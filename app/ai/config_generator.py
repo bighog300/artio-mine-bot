@@ -41,6 +41,7 @@ class ConfigGenerator:
         config = self._validate_and_clean_crawl_targets(config)
         config = self._ensure_crawl_plan_has_targets(config, source_url)
         config = self._flatten_phases_to_crawl_targets(config)
+        config = self._ensure_homepage_navigation_rule(config)
         self.validate_config(config)
         validation = crud.validate_mapping_template(config)
         if not validation["ok"]:
@@ -378,6 +379,46 @@ class ConfigGenerator:
         else:
             logger.warning("config_no_valid_targets_in_phases")
 
+        return config
+
+    def _ensure_homepage_navigation_rule(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Add a homepage discovery rule to avoid crawl/extraction mismatch."""
+        extraction_rules = config.get("extraction_rules", {})
+        if not isinstance(extraction_rules, dict):
+            return config
+
+        has_homepage_rule = False
+        for rule in extraction_rules.values():
+            if not isinstance(rule, dict):
+                continue
+
+            identifiers = rule.get("identifiers", [])
+            if not isinstance(identifiers, list):
+                continue
+
+            for identifier in identifiers:
+                ident = str(identifier).strip()
+                if ident in {"^/$", "/", "^/index", "^/home"}:
+                    has_homepage_rule = True
+                    break
+            if has_homepage_rule:
+                break
+
+        if has_homepage_rule:
+            logger.info("config_already_has_homepage_rule")
+            return config
+
+        extraction_rules["_Navigation"] = {
+            "identifiers": ["^/$", "^/index", "^/home"],
+            "css_selectors": {
+                "links": (
+                    "a[href*='/artists'], a[href*='/exhibitions'], a[href*='/news'], "
+                    "a[href*='/galleries'], nav a, header a"
+                )
+            },
+        }
+        config["extraction_rules"] = extraction_rules
+        logger.info("config_added_homepage_navigation_rule")
         return config
 
     async def _fetch_sample_pages(self, source_url: str, analysis: SiteAnalysis) -> dict[str, str]:
