@@ -233,6 +233,12 @@ class ConfigGenerator:
         elif has_valid_phase_targets:
             logger.info("config_has_valid_phase_targets", count=len(phases))
 
+        if "crawl_plan" not in config:
+            config["crawl_plan"] = {}
+
+        if "phases" not in config["crawl_plan"]:
+            config["crawl_plan"]["phases"] = []
+
         return config
 
     def _validate_and_clean_crawl_targets(self, config: dict[str, Any]) -> dict[str, Any]:
