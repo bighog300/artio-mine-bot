@@ -74,6 +74,7 @@ class QualityAssurance:
         limited.setdefault("extraction_rules", {})
         limited["extraction_rules"]["_QA_Test"] = {
             "identifiers": ["^/__smart_test$", "/__smart_test"],
+            "target_record_type": "artwork",
             "fields": {
                 "title": {"selector": "title"},
                 "heading": {"selector": "h1"},
@@ -105,6 +106,7 @@ class QualityAssurance:
                 name="SmartMode QA",
             )
             logger.info("qa_created_test_source", source_id=temp_source.id)
+        temp_source_id = temp_source.id
 
         try:
             limited_config = self._limit_config_for_testing(config, source_url=source_url)
@@ -116,21 +118,21 @@ class QualityAssurance:
             )
             await crud.update_source(
                 db,
-                temp_source.id,
+                temp_source_id,
                 structure_map=json.dumps(limited_config),
                 status="testing",
             )
-            logger.info("qa_starting_test_crawl", source_id=temp_source.id, pages_limit=5)
+            logger.info("qa_starting_test_crawl", source_id=temp_source_id, pages_limit=5)
 
             crawler = AutomatedCrawler(structure_map=limited_config, db=db, ai_allowed=False)
 
             try:
                 stats = await asyncio.wait_for(
-                    crawler.execute_crawl_plan(temp_source.id),
+                    crawler.execute_crawl_plan(temp_source_id),
                     timeout=60.0,
                 )
             except asyncio.TimeoutError:
-                logger.warning("qa_test_crawl_timeout", source_id=temp_source.id)
+                logger.warning("qa_test_crawl_timeout", source_id=temp_source_id)
                 return config, QualityReportModel(
                     pages_crawled=0,
                     records_created=0,
@@ -182,11 +184,11 @@ class QualityAssurance:
 
             try:
                 second_stats = await asyncio.wait_for(
-                    crawler.execute_crawl_plan(temp_source.id),
+                    crawler.execute_crawl_plan(temp_source_id),
                     timeout=60.0,
                 )
             except asyncio.TimeoutError:
-                logger.warning("qa_refinement_timeout", source_id=temp_source.id)
+                logger.warning("qa_refinement_timeout", source_id=temp_source_id)
                 return config, QualityReportModel(
                     pages_crawled=pages_crawled,
                     records_created=records_created,
@@ -213,12 +215,12 @@ class QualityAssurance:
             )
         finally:
             try:
-                await crud.delete_source(db, temp_source.id)
-                logger.info("qa_cleaned_up_test_source", source_id=temp_source.id)
+                await crud.delete_source(db, temp_source_id)
+                logger.info("qa_cleaned_up_test_source", source_id=temp_source_id)
             except Exception as cleanup_error:
                 logger.warning(
                     "qa_cleanup_failed",
-                    source_id=temp_source.id,
+                    source_id=temp_source_id,
                     error=str(cleanup_error),
                 )
 
