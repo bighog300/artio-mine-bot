@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.ai.openai_client import OpenAIClient
-from app.ai.quality_assurance import QualityAssurance
+from app.ai.quality_assurance import AutomatedCrawler, QualityAssurance
 from app.db import crud
 
 
@@ -71,7 +71,73 @@ def test_limit_config_for_testing_preserves_extraction_rules() -> None:
     limited = qa._limit_config_for_testing(config)
 
     assert "extraction_rules" in limited
-    assert limited["extraction_rules"] == config["extraction_rules"]
+    assert "artist_profile" in limited["extraction_rules"]
+    assert limited["extraction_rules"]["artist_profile"] == config["extraction_rules"]["artist_profile"]
+    assert "_QA_Test" in limited["extraction_rules"]
+    assert limited["extraction_rules"]["_QA_Test"]["identifiers"] == ["^/__smart_test$", "/__smart_test"]
+    assert limited["extraction_rules"]["_QA_Test"]["fields"]["title"]["selector"] == "title"
+    assert limited["extraction_rules"]["_QA_Test"]["fields"]["heading"]["selector"] == "h1"
+    assert "_QA_Test" not in config["extraction_rules"]
+
+
+def test_limit_config_for_testing_forces_smart_test_target() -> None:
+    qa = QualityAssurance(OpenAIClient(api_key="test"))
+    config = {
+        "crawl_targets": [{"url": "https://example.com/anything"}],
+        "extraction_rules": {},
+    }
+
+    limited = qa._limit_config_for_testing(config, source_url="https://art.co.za")
+
+    assert limited["crawl_targets"] == [{"url": "https://art.co.za/__smart_test", "limit": 1}]
+    assert config["crawl_targets"] == [{"url": "https://example.com/anything"}]
+
+
+def test_classify_by_url_prefers_specific_qa_rule_over_navigation() -> None:
+    crawler = AutomatedCrawler(
+        structure_map={
+            "extraction_rules": {
+                "_Navigation": {"identifiers": ["/.*"]},
+                "_QA_Test": {
+                    "identifiers": ["^/__smart_test$", "/__smart_test"],
+                    "fields": {
+                        "title": {"selector": "title"},
+                        "heading": {"selector": "h1"},
+                    },
+                },
+            }
+        },
+        db=None,
+    )
+
+    assert crawler._classify_by_url("https://art.co.za/__smart_test") == "_QA_Test"
+
+
+def test_deterministic_extraction_for_qa_rule_returns_data() -> None:
+    crawler = AutomatedCrawler(
+        structure_map={
+            "extraction_rules": {
+                "_QA_Test": {
+                    "identifiers": ["^/__smart_test$", "/__smart_test"],
+                    "fields": {
+                        "title": {"selector": "title"},
+                        "heading": {"selector": "h1"},
+                    },
+                }
+            }
+        },
+        db=None,
+    )
+    html = """
+    <html>
+      <head><title>Smart Test Page</title></head>
+      <body><h1>Smart Test Page</h1></body>
+    </html>
+    """
+    extracted = crawler._extract_deterministic(html, "_QA_Test", "https://art.co.za/__smart_test")
+
+    assert extracted["data"]["title"] == "Smart Test Page"
+    assert extracted["data"]["heading"] == "Smart Test Page"
 
 
 @pytest.mark.asyncio

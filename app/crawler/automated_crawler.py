@@ -230,7 +230,26 @@ class AutomatedCrawler:
             self.stats["pages_crawled"] += 1
 
             page_type = self._classify_by_url(url)
+            logger.info("page_classified", url=url, page_type=page_type)
+            if page_type == "unknown":
+                logger.warning(
+                    "page_classification_unknown",
+                    url=url,
+                    available_rule_names=list(self.extraction_rules.keys()),
+                )
+            logger.info(
+                "deterministic_extraction_start",
+                url=url,
+                page_type=page_type,
+                rule=self.extraction_rules.get(page_type),
+            )
             deterministic = self._extract_deterministic(html, page_type, url)
+            logger.info(
+                "deterministic_extraction_done",
+                url=url,
+                page_type=page_type,
+                record_count=len(deterministic) if isinstance(deterministic, list) else int(bool(deterministic)),
+            )
             asset_urls = self._extract_asset_urls(html=html, page_type=page_type, base_url=url)
             if asset_urls:
                 deterministic.setdefault("data", {})
@@ -287,7 +306,17 @@ class AutomatedCrawler:
 
             if confidence >= settings.deterministic_confidence_threshold:
                 self.stats["extracted_deterministic"] += 1
-                record = await self._save_record(source_id, page.id, page_type, deterministic, url)
+                logger.info(
+                    "record_persist_attempt",
+                    url=url,
+                    page_type=page_type,
+                    record_preview=deterministic,
+                )
+                try:
+                    record = await self._save_record(source_id, page.id, page_type, deterministic, url)
+                except Exception:
+                    logger.exception("record_persist_failed", url=url, page_type=page_type)
+                    raise
                 if record is not None and asset_urls:
                     try:
                         collected = await collect_images(
@@ -448,6 +477,14 @@ class AutomatedCrawler:
         }
 
         css_selectors = rules.get("css_selectors", {}) or {}
+        field_selectors = rules.get("fields", {}) or {}
+        for field_name, field_config in field_selectors.items():
+            if field_name in css_selectors:
+                continue
+            if isinstance(field_config, dict):
+                selector = field_config.get("selector")
+                if isinstance(selector, str) and selector.strip():
+                    css_selectors[field_name] = selector.strip()
         for field, selector in css_selectors.items():
             try:
                 elements = soup.select(selector)

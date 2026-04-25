@@ -33,6 +33,13 @@ SAMPLE_HTML = """
 MINIMAL_HTML = "<html><body>x</body></html>"
 
 
+def make_test_crawler(structure_map: dict) -> AutomatedCrawler:
+    return AutomatedCrawler(
+        structure_map=structure_map,
+        db=MagicMock(),
+    )
+
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_fetch_httpx_success():
@@ -412,18 +419,60 @@ def test_classify_by_url_matches_numeric_tokens():
 
 
 def test_classify_by_url_prefers_more_specific_identifier_pattern():
-    crawler = AutomatedCrawler(
-        structure_map={
+    crawler = make_test_crawler(
+        {
             "extraction_rules": {
                 "artist_profile_hub": {"identifiers": ["/[name]/"], "css_selectors": {"name": "h1"}},
                 "artist_biography": {"identifiers": ["/[name]/about.php"], "css_selectors": {"name": "h1"}},
             }
-        },
-        db=None,
-        ai_client=AsyncMock(),
+        }
     )
 
     assert crawler._classify_by_url("https://www.art.co.za/cornevaneck/about.php") == "artist_biography"
+
+
+def test_classify_by_url_prefers_specific_qa_rule_over_navigation():
+    crawler = make_test_crawler(
+        {
+            "extraction_rules": {
+                "_Navigation": {"identifiers": ["/.*"]},
+                "_QA_Test": {
+                    "identifiers": ["^/__smart_test$", "/__smart_test"],
+                    "fields": {
+                        "title": {"selector": "title"},
+                        "heading": {"selector": "h1"},
+                    },
+                },
+            }
+        }
+    )
+
+    assert crawler._classify_by_url("https://art.co.za/__smart_test") == "_QA_Test"
+
+
+def test_extract_deterministic_supports_fields_selector_schema():
+    crawler = make_test_crawler(
+        {
+            "extraction_rules": {
+                "_QA_Test": {
+                    "fields": {
+                        "title": {"selector": "title"},
+                        "heading": {"selector": "h1"},
+                    }
+                }
+            }
+        }
+    )
+    html = """
+    <html>
+      <head><title>Smart Test Page</title></head>
+      <body><h1>Smart Test Page</h1></body>
+    </html>
+    """
+    extracted = crawler._extract_deterministic(html, "_QA_Test", "https://art.co.za/__smart_test")
+    assert extracted["data"]["title"] == "Smart Test Page"
+    assert extracted["data"]["heading"] == "Smart Test Page"
+    assert extracted["confidence"] >= 80
 
 
 @pytest.mark.asyncio

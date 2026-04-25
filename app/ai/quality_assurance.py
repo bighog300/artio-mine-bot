@@ -20,49 +20,65 @@ class QualityAssurance:
     def __init__(self, openai_client: OpenAIClient) -> None:
         self.openai_client = openai_client
 
-    def _limit_config_for_testing(self, config: dict[str, Any]) -> dict[str, Any]:
+    def _limit_config_for_testing(self, config: dict[str, Any], *, source_url: str | None = None) -> dict[str, Any]:
         """Limit config for quick QA testing - only crawl a few pages from crawl_targets."""
         limited = copy.deepcopy(config)
 
+        qa_target_url = None
+        if source_url:
+            qa_target_url = f"{source_url.rstrip('/')}/__smart_test"
+
         crawl_targets = limited.get("crawl_targets", [])
 
-        if not crawl_targets:
+        if qa_target_url:
+            limited["crawl_targets"] = [{"url": qa_target_url, "limit": 1}]
+            logger.info("qa_forced_test_target", target_url=qa_target_url)
+        elif not crawl_targets:
             logger.warning("qa_no_crawl_targets_found")
             return limited
-
-        valid_targets: list[dict[str, Any]] = []
-        removed_count = 0
-
-        for target in crawl_targets:
-            if not isinstance(target, dict):
-                continue
-
-            url = str(target.get("url", ""))
-            stripped_url = url.strip()
-
-            if not stripped_url:
-                removed_count += 1
-                logger.warning("qa_skipped_empty_url_target")
-                continue
-
-            if stripped_url in {"{{base_url}}", "{{url}}", "{url}", "{base_url}"}:
-                removed_count += 1
-                logger.warning("qa_skipped_placeholder_url", url=stripped_url)
-                continue
-
-            valid_targets.append({"url": stripped_url, "limit": 5})
-
-        if len(valid_targets) == 0:
-            logger.error("qa_no_valid_targets_after_filtering", removed_count=removed_count)
-            limited["crawl_targets"] = []
         else:
-            limited["crawl_targets"] = valid_targets[:3]
-            logger.info(
-                "qa_config_limited",
-                original_targets=len(crawl_targets),
-                valid_targets=len(valid_targets[:3]),
-                removed_empty=removed_count,
-            )
+            valid_targets: list[dict[str, Any]] = []
+            removed_count = 0
+
+            for target in crawl_targets:
+                if not isinstance(target, dict):
+                    continue
+
+                url = str(target.get("url", ""))
+                stripped_url = url.strip()
+
+                if not stripped_url:
+                    removed_count += 1
+                    logger.warning("qa_skipped_empty_url_target")
+                    continue
+
+                if stripped_url in {"{{base_url}}", "{{url}}", "{url}", "{base_url}"}:
+                    removed_count += 1
+                    logger.warning("qa_skipped_placeholder_url", url=stripped_url)
+                    continue
+
+                valid_targets.append({"url": stripped_url, "limit": 5})
+
+            if len(valid_targets) == 0:
+                logger.error("qa_no_valid_targets_after_filtering", removed_count=removed_count)
+                limited["crawl_targets"] = []
+            else:
+                limited["crawl_targets"] = valid_targets[:3]
+                logger.info(
+                    "qa_config_limited",
+                    original_targets=len(crawl_targets),
+                    valid_targets=len(valid_targets[:3]),
+                    removed_empty=removed_count,
+                )
+
+        limited.setdefault("extraction_rules", {})
+        limited["extraction_rules"]["_QA_Test"] = {
+            "identifiers": ["^/__smart_test$", "/__smart_test"],
+            "fields": {
+                "title": {"selector": "title"},
+                "heading": {"selector": "h1"},
+            },
+        }
 
         if "crawl_plan" in limited:
             limited["crawl_plan"]["phases"] = []
@@ -91,7 +107,7 @@ class QualityAssurance:
             logger.info("qa_created_test_source", source_id=temp_source.id)
 
         try:
-            limited_config = self._limit_config_for_testing(config)
+            limited_config = self._limit_config_for_testing(config, source_url=source_url)
             extraction_rules = limited_config.get("extraction_rules")
             logger.info(
                 "qa_limited_config_rules",
@@ -161,7 +177,7 @@ class QualityAssurance:
 
             logger.info("qa_attempting_refinement", current_success_rate=success_rate)
             refined = await self._refine_config(config=config, stats=stats)
-            limited_refined = self._limit_config_for_testing(refined)
+            limited_refined = self._limit_config_for_testing(refined, source_url=source_url)
             crawler = AutomatedCrawler(structure_map=limited_refined, db=db, ai_allowed=False)
 
             try:
