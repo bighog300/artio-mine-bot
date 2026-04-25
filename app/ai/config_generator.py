@@ -409,7 +409,7 @@ class ConfigGenerator:
             return config
 
         extraction_rules["_Navigation"] = {
-            "identifiers": ["/.*", "^/index", "^/home"],
+            "identifiers": ["^/$", "/", "/.*", "^$", "^/index", "^/home"],
             "css_selectors": {
                 "links": (
                     "a[href*='/artists'], a[href*='/exhibitions'], a[href*='/news'], "
