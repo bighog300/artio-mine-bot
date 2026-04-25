@@ -315,19 +315,13 @@ class AutomatedCrawler:
                 mapping_version_id_used=self.mapping_version_id,
             )
 
-            if page_type == "unknown":
-                self.stats["failed"] += 1
-                self.stats["queued_for_review"] += 1
-                await crud.update_page(
-                    self.db,
-                    page.id,
-                    status="needs_review",
-                    review_reason=REVIEW_REASON_UNMAPPED,
-                    review_status="queued",
-                )
-                return
+            deterministic_data = deterministic.get("data", {})
+            deterministic_has_fields = isinstance(deterministic_data, dict) and bool(deterministic_data)
+            is_unknown_page = page_type == "unknown"
+            is_navigation_page = page_type == "_Navigation"
+            persisted_record = False
 
-            if confidence >= settings.deterministic_confidence_threshold:
+            if confidence >= settings.deterministic_confidence_threshold and (not is_unknown_page or deterministic_has_fields):
                 logger.info(
                     "record_persist_attempt",
                     url=url,
@@ -340,6 +334,7 @@ class AutomatedCrawler:
                     await self.db.rollback()
                     logger.exception("record_persist_failed", url=url, page_type=page_type)
                     raise
+                persisted_record = record is not None
                 self.stats["extracted_deterministic"] += 1
                 if record is not None and asset_urls:
                     try:
@@ -355,10 +350,7 @@ class AutomatedCrawler:
                         self.stats["media_assets_captured"] += len(collected)
                     except Exception as exc:
                         logger.debug("automated_crawler_collect_images_failed", page_id=page.id, error=str(exc))
-                await self._follow_links(source_id=source_id, page_type=page_type, html=html, current_url=url, depth=depth)
-                return
-
-            if self._should_use_ai_fallback():
+            elif not is_unknown_page and not is_navigation_page and self._should_use_ai_fallback():
                 ai_data = await self._extract_with_ai(
                     html=html,
                     page_type=page_type,
@@ -372,19 +364,39 @@ class AutomatedCrawler:
                     raise
                 self.stats["extracted_ai_fallback"] += 1
                 self._ai_fallback_used += 1
-                await self._follow_links(source_id=source_id, page_type=page_type, html=html, current_url=url, depth=depth)
+                persisted_record = True
+            elif not is_unknown_page and not is_navigation_page:
+                logger.warning("skipping_low_confidence", url=url, confidence=confidence)
+                self.stats["failed"] += 1
+                self.stats["queued_for_review"] += 1
+                await crud.update_page(
+                    self.db,
+                    page.id,
+                    status="needs_review",
+                    review_reason=REVIEW_REASON_LOW_CONFIDENCE if confidence > 0 else REVIEW_REASON_SELECTOR_MISS,
+                    review_status="queued",
+                )
                 return
 
-            logger.warning("skipping_low_confidence", url=url, confidence=confidence)
-            self.stats["failed"] += 1
-            self.stats["queued_for_review"] += 1
-            await crud.update_page(
-                self.db,
-                page.id,
-                status="needs_review",
-                review_reason=REVIEW_REASON_LOW_CONFIDENCE if confidence > 0 else REVIEW_REASON_SELECTOR_MISS,
-                review_status="queued",
+            links_discovered = await self._follow_links(
+                source_id=source_id,
+                page_type=page_type,
+                html=html,
+                current_url=url,
+                depth=depth,
             )
+
+            if is_unknown_page and not persisted_record and links_discovered == 0:
+                self.stats["failed"] += 1
+                self.stats["queued_for_review"] += 1
+                await crud.update_page(
+                    self.db,
+                    page.id,
+                    status="needs_review",
+                    review_reason=REVIEW_REASON_UNMAPPED,
+                    review_status="queued",
+                )
+                return
         except Exception as exc:
             logger.error("crawl_extract_failed", url=url, error=str(exc))
             self.stats["failed"] += 1
@@ -397,15 +409,18 @@ class AutomatedCrawler:
         html: str,
         current_url: str,
         depth: int,
-    ) -> None:
+    ) -> int:
         rules = self.follow_rules.get(page_type, {}) or {}
         selectors = list(rules.get("selectors", []) or [])
         selectors.extend(list(rules.get("pagination_selectors", []) or []))
         if not selectors:
-            return
+            if page_type in {"_Navigation", "unknown"}:
+                selectors = ["nav a[href]", "main a[href]", "a[href]"]
+            else:
+                return 0
         max_depth = int(rules.get("max_depth", 1))
         if depth >= max_depth:
-            return
+            return 0
         soup = BeautifulSoup(html or "", "lxml")
         discovered: set[str] = set()
         current_netloc = urlparse(current_url).netloc
@@ -426,6 +441,7 @@ class AutomatedCrawler:
                 discovered.add(full_url)
         for next_url in discovered:
             await self._crawl_and_extract(source_id, next_url, depth=depth + 1)
+        return len(discovered)
 
     def _extract_asset_urls(self, *, html: str, page_type: str, base_url: str) -> set[str]:
         rules = self.asset_rules.get(page_type, {}) or {}
@@ -453,6 +469,11 @@ class AutomatedCrawler:
     def _classify_by_url(self, url: str) -> str:
         """Classify page type by URL pattern matching (NO AI)."""
         parsed_path = urlparse(url).path
+        candidates = [parsed_path]
+        if parsed_path == "":
+            candidates.append("/")
+        elif parsed_path == "/":
+            candidates.append("")
 
         best_page_type: str | None = None
         best_score = -1
@@ -461,7 +482,7 @@ class AutomatedCrawler:
         for page_type, rules in self.extraction_rules.items():
             identifiers = rules.get("identifiers", [])
             for pattern in identifiers:
-                if not self._matches_pattern(parsed_path, pattern):
+                if not any(self._matches_pattern(candidate, pattern) for candidate in candidates):
                     continue
                 score = self._pattern_specificity(pattern)
                 if score > best_score:
@@ -474,7 +495,7 @@ class AutomatedCrawler:
         mining_map = self.structure_map.get("mining_map", {}) or {}
         for page_type, config in mining_map.items():
             pattern = (config or {}).get("url_pattern")
-            if not pattern or not self._matches_pattern(parsed_path, pattern):
+            if not pattern or not any(self._matches_pattern(candidate, pattern) for candidate in candidates):
                 continue
             score = self._pattern_specificity(pattern)
             if score > best_score:

@@ -149,8 +149,12 @@ class SmartMiner:
             logger.info("smart_mine_starting_crawl", source_id=source_id)
             await crud.update_source(db, source_id, status="mining")
             result = await self._run_deterministic_mine(db, source_id)
-            production_pages = int(result.get("pages_count", 0))
-            production_records = int(result.get("records_count", 0))
+            production_pages = int(
+                result.get("pages_crawled", result.get("pages_processed", result.get("pages_count", 0)))
+            )
+            production_records = int(
+                result.get("records_persisted", result.get("records_created", result.get("records_count", 0)))
+            )
             logger.info(
                 "smart_mine_crawl_complete",
                 source_id=source_id,

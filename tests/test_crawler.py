@@ -451,6 +451,30 @@ def test_classify_by_url_prefers_specific_qa_rule_over_navigation():
     assert crawler._classify_by_url("https://art.co.za/__smart_test") == "_QA_Test"
 
 
+def test_classify_by_url_matches_homepage_navigation_without_trailing_slash():
+    crawler = make_test_crawler(
+        {
+            "extraction_rules": {
+                "_Navigation": {"identifiers": ["^/$", "/", "/.*", "^$"]},
+            }
+        }
+    )
+
+    assert crawler._classify_by_url("https://art.co.za") == "_Navigation"
+
+
+def test_classify_by_url_matches_homepage_navigation_with_trailing_slash():
+    crawler = make_test_crawler(
+        {
+            "extraction_rules": {
+                "_Navigation": {"identifiers": ["^/$", "/", "/.*", "^$"]},
+            }
+        }
+    )
+
+    assert crawler._classify_by_url("https://art.co.za/") == "_Navigation"
+
+
 def test_extract_deterministic_supports_fields_selector_schema():
     crawler = make_test_crawler(
         {
@@ -657,3 +681,37 @@ async def test_execute_crawl_plan_falls_back_to_source_url_when_targets_missing(
 
     assert stats["pages_crawled"] == 1
     fetch_mock.assert_awaited_once_with(source.url)
+
+
+@pytest.mark.asyncio
+async def test_unknown_page_with_deterministic_payload_persists_record(db_session):
+    source = await crud.create_source(db_session, url="https://example.com", name="Unknown Source")
+    structure_map = {
+        "crawl_targets": [source.url],
+        "extraction_rules": {
+            "unknown": {
+                "css_selectors": {"title": "title"},
+            }
+        },
+    }
+    fetch_result = FetchResult(
+        url=source.url,
+        final_url=source.url,
+        html="<html><head><title>Persist Me</title></head><body><a href='/next'>Next</a></body></html>",
+        status_code=200,
+        method="httpx",
+    )
+    crawler = AutomatedCrawler(structure_map=structure_map, db=db_session, ai_allowed=False)
+    with patch("app.crawler.automated_crawler.fetch", new=AsyncMock(return_value=fetch_result)):
+        with patch("app.crawler.automated_crawler.settings") as mock_settings:
+            mock_settings.max_pages_per_source = 1
+            mock_settings.deterministic_confidence_threshold = 80
+            mock_settings.crawler_use_ai_fallback = False
+            mock_settings.max_ai_fallback_per_source = 50
+            stats = await crawler.execute_crawl_plan(source.id)
+
+    assert stats["pages_crawled"] == 1
+    assert stats["extracted_deterministic"] == 1
+    assert stats["failed"] == 0
+    records = await crud.list_records(db_session, source_id=source.id, limit=10)
+    assert len(records) == 1
