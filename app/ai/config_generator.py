@@ -260,16 +260,18 @@ class ConfigGenerator:
 
     def _build_system_prompt(self) -> str:
         return compact_prompt(
-            "Generate JSON mining config for art sites. CRITICAL: "
-            "1. extraction_rules MUST be a dict/object keyed by page type (e.g., {'Artists': {...}, "
-            "'Exhibitions': {...}}), NOT a list. "
-            "2. Each rule MUST have non-empty 'identifiers' array with URL patterns (e.g., "
-            "'/artists/[^/]+/?$'). "
-            "3. Use 'css_selectors' (not 'selectors') for CSS selector mappings. "
-            "4. NEVER use empty identifiers []. "
-            "Required keys: crawl_plan, extraction_rules, page_type_rules, record_type_rules, "
-            "follow_rules, asset_rules.",
-            max_chars=320,
+            "Generate JSON mining config. CRITICAL STRUCTURE: "
+            "1. Use 'crawl_targets' array (NOT 'crawl_plan.phases') for simple crawls. "
+            "2. Each crawl_target: {'url': 'full_url_here'} or {'url_pattern': 'pattern', "
+            "'base_url': 'base'}. "
+            "3. extraction_rules MUST be dict keyed by page type (e.g., {'Artists': {...}}), "
+            "NOT a list. "
+            "4. Each extraction_rule MUST have non-empty 'identifiers' array with URL patterns. "
+            "5. Use 'css_selectors' (not 'selectors'). "
+            "NEVER use empty identifiers []. "
+            "Required top-level keys: crawl_targets, extraction_rules, page_type_rules, "
+            "record_type_rules, follow_rules.",
+            max_chars=420,
         )
 
     def _build_user_prompt(
@@ -303,12 +305,26 @@ class ConfigGenerator:
             f"CMS: {cms}",
             f"Entity types: {', '.join(str(entity) for entity in entities)}",
             "",
+            "STRUCTURE EXAMPLE:",
+            "{",
+            '  "crawl_targets": [',
+            f'    {{"url": "{source_url}"}}',
+            "  ],",
+            '  "extraction_rules": {',
+            '    "Artists": {',
+            '      "identifiers": ["/artists/[^/]+/?$"],',
+            '      "css_selectors": {...}',
+            "    }",
+            "  }",
+            "}",
+            "",
             "CRITICAL RULES:",
+            "- Use crawl_targets array, NOT crawl_plan.phases",
             "- Every extraction_rule MUST have 'identifiers' with at least one URL pattern",
             "- NEVER use empty identifiers: []",
             "- Use specific regex patterns, not broad catch-alls like '/'",
             "- Return robust fallback selectors like 'h1.title, h1, h2'",
-            "- Set crawl_plan.phases as non-empty list",
+            "- Use specific URL patterns in identifiers",
         ]
 
         if identifier_examples:
