@@ -709,10 +709,10 @@ class AutomatedCrawler:
         replacements = {
             "[letter]": "[a-z]",
             "[name]": "[a-z0-9-]+",
-            "[page]": r"\\d+",
-            "[number]": r"\\d+",
-            "[year]": r"\\d{4}",
-            "[month]": r"\\d{1,2}",
+            "[page]": r"\d+",
+            "[number]": r"\d+",
+            "[year]": r"\d{4}",
+            "[month]": r"\d{1,2}",
             "[id]": r"[^/]+",
         }
         for token, expression in replacements.items():
