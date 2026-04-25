@@ -233,11 +233,21 @@ class ConfigGenerator:
         elif has_valid_phase_targets:
             logger.info("config_has_valid_phase_targets", count=len(phases))
 
+        # CRITICAL: Ensure crawl_plan always exists (required by schema)
         if "crawl_plan" not in config:
             config["crawl_plan"] = {}
 
-        if "phases" not in config["crawl_plan"]:
-            config["crawl_plan"]["phases"] = []
+        # Ensure phases array exists and is non-empty (schema requirement)
+        # If using crawl_targets, add a dummy phase to satisfy schema
+        if "phases" not in config["crawl_plan"] or not config["crawl_plan"]["phases"]:
+            # Add a minimal dummy phase (will be ignored by crawler when crawl_targets exist)
+            config["crawl_plan"]["phases"] = [
+                {
+                    "name": "crawl_targets_mode",
+                    "description": "Using crawl_targets, not phase-based crawling",
+                }
+            ]
+            logger.info("config_added_dummy_phase_for_schema")
 
         return config
 
