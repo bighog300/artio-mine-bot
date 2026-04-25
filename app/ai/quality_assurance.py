@@ -21,59 +21,52 @@ class QualityAssurance:
         self.openai_client = openai_client
 
     def _limit_config_for_testing(self, config: dict[str, Any]) -> dict[str, Any]:
-        """Limit config for quick QA testing - only crawl a few pages with valid URLs."""
+        """Limit config for quick QA testing - only crawl a few pages from crawl_targets."""
         limited = copy.deepcopy(config)
-        crawl_plan = limited.get("crawl_plan", {})
-        phases = crawl_plan.get("phases", [])
 
-        if phases:
-            first_phase = phases[0]
-            targets = first_phase.get("targets", [])
-            valid_targets: list[dict[str, Any]] = []
-            removed_count = 0
+        crawl_targets = limited.get("crawl_targets", [])
 
-            for target in targets:
-                if not isinstance(target, dict):
-                    continue
+        if not crawl_targets:
+            logger.warning("qa_no_crawl_targets_found")
+            return limited
 
-                url = str(target.get("url", ""))
-                stripped_url = url.strip()
+        valid_targets: list[dict[str, Any]] = []
+        removed_count = 0
 
-                if not stripped_url:
-                    removed_count += 1
-                    logger.warning("qa_skipped_empty_url_target")
-                    continue
+        for target in crawl_targets:
+            if not isinstance(target, dict):
+                continue
 
-                if stripped_url in {"{{base_url}}", "{{url}}", "{url}", "{base_url}"}:
-                    removed_count += 1
-                    logger.warning("qa_skipped_placeholder_url", url=stripped_url)
-                    continue
+            url = str(target.get("url", ""))
+            stripped_url = url.strip()
 
-                target["limit"] = 5
-                valid_targets.append(target)
+            if not stripped_url:
+                removed_count += 1
+                logger.warning("qa_skipped_empty_url_target")
+                continue
 
-            first_phase["targets"] = valid_targets
+            if stripped_url in {"{{base_url}}", "{{url}}", "{url}", "{base_url}"}:
+                removed_count += 1
+                logger.warning("qa_skipped_placeholder_url", url=stripped_url)
+                continue
 
-            if not valid_targets:
-                logger.error(
-                    "qa_no_valid_targets_after_filtering",
-                    original_count=len(targets),
-                    removed_count=removed_count,
-                )
-                crawl_plan["phases"] = []
-            else:
-                crawl_plan["phases"] = [first_phase]
-                logger.info(
-                    "qa_config_limited",
-                    original_phases=len(phases),
-                    limited_phases=1,
-                    valid_targets=len(valid_targets),
-                    removed_empty=removed_count,
-                )
+            valid_targets.append({"url": stripped_url, "limit": 5})
+
+        if len(valid_targets) == 0:
+            logger.error("qa_no_valid_targets_after_filtering", removed_count=removed_count)
+            limited["crawl_targets"] = []
         else:
-            logger.info("qa_config_limited", original_phases=0, limited_phases=0)
+            limited["crawl_targets"] = valid_targets[:3]
+            logger.info(
+                "qa_config_limited",
+                original_targets=len(crawl_targets),
+                valid_targets=len(valid_targets[:3]),
+                removed_empty=removed_count,
+            )
 
-        limited["crawl_plan"] = crawl_plan
+        if "crawl_plan" in limited:
+            limited["crawl_plan"]["phases"] = []
+            logger.info("qa_cleared_phases_to_use_crawl_targets")
 
         return limited
 

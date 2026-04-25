@@ -10,34 +10,36 @@ from app.db import crud
 def test_limit_config_for_testing_filters_invalid_urls() -> None:
     qa = QualityAssurance(OpenAIClient(api_key="test"))
     config = {
+        "crawl_targets": [
+            {"url": "https://example.com/events"},
+            {"url": ""},
+            {"url": "   "},
+            {"url": "{{base_url}}"},
+            {"url": "https://example.com/exhibitions"},
+        ],
         "crawl_plan": {
             "phases": [
                 {
                     "phase_name": "test",
-                    "targets": [
-                        {"url": "https://example.com/events"},
-                        {"url": ""},
-                        {"url": "   "},
-                        {"url": "{{base_url}}"},
-                        {"url": "https://example.com/exhibitions"},
-                    ],
+                    "targets": [{"url": "https://example.com/legacy"}],
                 }
             ]
         }
     }
 
     limited = qa._limit_config_for_testing(config)
-    phases = limited["crawl_plan"]["phases"]
+    crawl_targets = limited["crawl_targets"]
 
-    assert len(phases) == 1
-    assert len(phases[0]["targets"]) == 2
-    assert all(target["url"].startswith("https://example.com/") for target in phases[0]["targets"])
-    assert all(target["limit"] == 5 for target in phases[0]["targets"])
+    assert len(crawl_targets) == 2
+    assert all(target["url"].startswith("https://example.com/") for target in crawl_targets)
+    assert all(target["limit"] == 5 for target in crawl_targets)
+    assert limited["crawl_plan"]["phases"] == []
 
 
 def test_limit_config_for_testing_empties_phase_when_no_valid_targets() -> None:
     qa = QualityAssurance(OpenAIClient(api_key="test"))
     config = {
+        "crawl_targets": [{"url": ""}, {"url": "{url}"}, {"url": "  "}],
         "crawl_plan": {
             "phases": [
                 {
@@ -49,6 +51,7 @@ def test_limit_config_for_testing_empties_phase_when_no_valid_targets() -> None:
     }
 
     limited = qa._limit_config_for_testing(config)
+    assert limited["crawl_targets"] == []
     assert limited["crawl_plan"]["phases"] == []
 
 
