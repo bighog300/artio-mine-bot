@@ -38,6 +38,7 @@ class ConfigGenerator:
         config = self._normalize_extraction_rules(config)
         config = self._add_default_identifiers_if_empty(config)
         config = self._fix_empty_urls_in_crawl_plan(config, source_url)
+        config = self._validate_and_clean_crawl_targets(config)
         config = self._ensure_crawl_plan_has_targets(config, source_url)
         config = self._flatten_phases_to_crawl_targets(config)
         self.validate_config(config)
@@ -179,21 +180,32 @@ class ConfigGenerator:
         return config
 
     def _ensure_crawl_plan_has_targets(self, config: dict[str, Any], source_url: str) -> dict[str, Any]:
-        """Ensure crawl plan has at least one valid target."""
+        """Ensure config has at least one valid target in either phases or crawl_targets."""
+        crawl_targets = config.get("crawl_targets", [])
+        has_valid_crawl_targets = False
+
+        if isinstance(crawl_targets, list):
+            for target in crawl_targets:
+                if isinstance(target, dict):
+                    url = target.get("url")
+                    if isinstance(url, str) and url.strip():
+                        has_valid_crawl_targets = True
+                        break
+
         crawl_plan = config.get("crawl_plan", {})
         if not isinstance(crawl_plan, dict):
             crawl_plan = {}
 
         phases = crawl_plan.get("phases", [])
-        has_valid_targets = False
+        has_valid_phase_targets = False
 
         if isinstance(phases, list):
             for phase in phases:
                 if isinstance(phase, dict) and len(phase.get("targets", [])) > 0:
-                    has_valid_targets = True
+                    has_valid_phase_targets = True
                     break
 
-        if not has_valid_targets:
+        if not has_valid_crawl_targets and not has_valid_phase_targets:
             logger.warning("config_no_valid_targets_adding_default")
             crawl_plan["phases"] = [
                 {
@@ -207,6 +219,67 @@ class ConfigGenerator:
                 }
             ]
             config["crawl_plan"] = crawl_plan
+        elif has_valid_crawl_targets:
+            logger.info(
+                "config_has_valid_crawl_targets",
+                count=len(
+                    [
+                        target
+                        for target in crawl_targets
+                        if isinstance(target, dict) and target.get("url")
+                    ]
+                ),
+            )
+        elif has_valid_phase_targets:
+            logger.info("config_has_valid_phase_targets", count=len(phases))
+
+        return config
+
+    def _validate_and_clean_crawl_targets(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Validate crawl_targets have full fetchable URLs."""
+        crawl_targets = config.get("crawl_targets", [])
+        if not isinstance(crawl_targets, list):
+            return config
+
+        valid_targets: list[dict[str, Any]] = []
+        removed_count = 0
+
+        for target in crawl_targets:
+            if not isinstance(target, dict):
+                removed_count += 1
+                continue
+
+            url = target.get("url")
+            if not isinstance(url, str):
+                removed_count += 1
+                continue
+
+            clean_url = url.strip()
+            if not clean_url.startswith(("http://", "https://")):
+                removed_count += 1
+                logger.warning("crawl_target_invalid_url", url=url, reason="missing_protocol")
+                continue
+
+            if clean_url in {"{{base_url}}", "{{url}}", "{url}", "{base_url}"}:
+                removed_count += 1
+                logger.warning("crawl_target_invalid_url", url=url, reason="placeholder")
+                continue
+
+            target["url"] = clean_url
+            valid_targets.append(target)
+
+        if removed_count > 0:
+            config["crawl_targets"] = valid_targets
+            logger.info(
+                "crawl_targets_cleaned",
+                original=len(crawl_targets),
+                valid=len(valid_targets),
+                removed=removed_count,
+            )
+
+        if len(valid_targets) == 0 and len(crawl_targets) > 0:
+            config.pop("crawl_targets", None)
+            logger.warning("crawl_targets_all_invalid_removed")
 
         return config
 
