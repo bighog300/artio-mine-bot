@@ -6,7 +6,7 @@ from urllib.parse import urljoin
 import structlog
 from bs4 import BeautifulSoup
 
-from app.ai.client import OpenAIClient
+from app.ai.openai_client import OpenAIClient
 
 logger = structlog.get_logger()
 

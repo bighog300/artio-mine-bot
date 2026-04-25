@@ -80,29 +80,49 @@ class AutomatedCrawler:
         """Execute the AI-generated crawl plan."""
         logger.info("starting_crawl_plan", source_id=source_id)
 
+        source = await crud.get_source(self.db, source_id)
+        if source is None:
+            raise ValueError(f"Source {source_id} not found")
+
         phases = self.crawl_plan.get("phases", [])
+        seed_urls, seed_reason = self._resolve_seed_urls(source.url)
+        logger.info(
+            "crawl_seed_debug",
+            source_id=source_id,
+            crawl_targets=self.structure_map.get("crawl_targets", []),
+            crawl_plan_phases=phases,
+            normalized_seed_urls=seed_urls,
+            source_url_fallback=source.url,
+            no_seed_reason=seed_reason,
+        )
+
         if phases:
+            pages_before = int(self.stats.get("pages_crawled", 0))
             for phase in phases:
                 await self._execute_phase(source_id, phase)
-        else:
-            # Backward compatibility with Phase 1 structure maps.
-            source = await crud.get_source(self.db, source_id)
-            if source is None:
-                raise ValueError(f"Source {source_id} not found")
-            seen: set[str] = set()
-            for target in self.structure_map.get("crawl_targets", []):
-                for url in self._urls_from_target(source.url, target):
-                    if url in seen:
-                        continue
-                    seen.add(url)
-                    if len(seen) > settings.max_pages_per_source:
-                        logger.info(
-                            "max_pages_reached",
-                            source_id=source_id,
-                            limit=settings.max_pages_per_source,
-                        )
-                        break
+            pages_after = int(self.stats.get("pages_crawled", 0))
+            if pages_after == pages_before and seed_urls:
+                logger.warning(
+                    "crawl_plan_produced_no_pages_falling_back_to_seed_urls",
+                    source_id=source_id,
+                    queued_seed_urls=seed_urls,
+                )
+                for url in seed_urls:
                     await self._crawl_and_extract(source_id, url, depth=0)
+        else:
+            for url in seed_urls:
+                await self._crawl_and_extract(source_id, url, depth=0)
+
+        if not seed_urls and int(self.stats.get("pages_crawled", 0)) == 0:
+            logger.error(
+                "crawl_no_seed_urls",
+                source_id=source_id,
+                reason=seed_reason,
+                crawl_targets=self.structure_map.get("crawl_targets", []),
+                crawl_plan_phases=phases,
+                source_url_fallback=source.url,
+            )
+            raise RuntimeError(f"No seed URLs available for source {source_id}: {seed_reason}")
 
         logger.info(
             "crawl_complete",
@@ -154,6 +174,9 @@ class AutomatedCrawler:
         else:
             urls = self._generate_urls(base_url, pattern, pagination, num_pages)
             for url in urls:
+                if not isinstance(url, str) or not url.strip():
+                    logger.warning("phase_generated_empty_url_skipped", phase=phase_name)
+                    continue
                 attempted += 1
                 await self._crawl_and_extract(source_id, url, depth=0)
                 self._phase_urls.setdefault(phase_name, set()).add(url)
@@ -797,6 +820,57 @@ class AutomatedCrawler:
         if not pattern:
             return []
         return _generate_urls_from_pattern(base_url, pattern, limit=limit)
+
+    def _resolve_seed_urls(self, source_url: str) -> tuple[list[str], str | None]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+
+        def _append(urls: list[str]) -> None:
+            for candidate in urls:
+                if not isinstance(candidate, str):
+                    continue
+                normalized_url = candidate.strip()
+                if not normalized_url:
+                    continue
+                if normalized_url in seen:
+                    continue
+                seen.add(normalized_url)
+                normalized.append(normalized_url)
+                if len(normalized) >= settings.max_pages_per_source:
+                    return
+
+        crawl_targets = self.structure_map.get("crawl_targets", [])
+        for target in crawl_targets if isinstance(crawl_targets, list) else []:
+            _append(self._urls_from_target(source_url, target))
+            if len(normalized) >= settings.max_pages_per_source:
+                return normalized, None
+
+        crawl_plan = self.structure_map.get("crawl_plan", {})
+        phases = crawl_plan.get("phases", []) if isinstance(crawl_plan, dict) else []
+        for phase in phases if isinstance(phases, list) else []:
+            if not isinstance(phase, dict):
+                continue
+            phase_targets = phase.get("targets")
+            if isinstance(phase_targets, list):
+                for target in phase_targets:
+                    _append(self._urls_from_target(source_url, target))
+                    if len(normalized) >= settings.max_pages_per_source:
+                        return normalized, None
+
+            phase_urls = phase.get("urls")
+            if isinstance(phase_urls, list):
+                for phase_url in phase_urls:
+                    _append(self._urls_from_target(source_url, {"url": phase_url, "limit": 1}))
+                    if len(normalized) >= settings.max_pages_per_source:
+                        return normalized, None
+
+        source_fallback = (source_url or "").strip()
+        if source_fallback:
+            _append([source_fallback])
+            if normalized:
+                return normalized, None
+
+        return [], "missing crawl_targets, crawl_plan phase targets/urls, and source.url fallback"
 
     def _should_use_ai_fallback(self) -> bool:
         return (

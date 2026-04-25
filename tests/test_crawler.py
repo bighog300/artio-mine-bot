@@ -588,3 +588,72 @@ async def test_crawl_plan_does_not_increment_created_when_record_persist_fails(d
     assert stats["extracted_deterministic"] == 0
     assert stats["failed"] == 1
     rollback_spy.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_execute_crawl_plan_uses_crawl_targets_before_phase_targets(db_session):
+    source = await crud.create_source(db_session, url="https://example.com/root")
+    structure_map = {
+        "crawl_targets": [{"url": "https://example.com/from-crawl-targets"}],
+        "crawl_plan": {
+            "phases": [
+                {
+                    "phase_name": "legacy",
+                    "targets": [{"url": "https://example.com/from-phase-targets"}],
+                    "pagination_type": "none",
+                    "base_url": "",
+                    "url_pattern": "",
+                }
+            ]
+        },
+        "extraction_rules": {
+            "_QA_Test": {
+                "identifiers": ["/from-crawl-targets$", "/from-phase-targets$"],
+                "fields": {"title": {"selector": "title"}},
+            }
+        },
+    }
+    fetch_mock = AsyncMock(
+        return_value=FetchResult(
+            url="https://example.com/from-crawl-targets",
+            final_url="https://example.com/from-crawl-targets",
+            html="<html><head><title>x</title></head><body>x</body></html>",
+            status_code=200,
+            method="httpx",
+        )
+    )
+    crawler = AutomatedCrawler(structure_map=structure_map, db=db_session, ai_allowed=False)
+    with patch("app.crawler.automated_crawler.fetch", new=fetch_mock):
+        await crawler.execute_crawl_plan(source.id)
+
+    called_urls = [call.args[0] for call in fetch_mock.await_args_list]
+    assert "https://example.com/from-crawl-targets" in called_urls
+
+
+@pytest.mark.asyncio
+async def test_execute_crawl_plan_falls_back_to_source_url_when_targets_missing(db_session):
+    source = await crud.create_source(db_session, url="https://example.com/fallback-seed")
+    structure_map = {
+        "crawl_plan": {"phases": []},
+        "extraction_rules": {
+            "_QA_Test": {
+                "identifiers": ["/fallback-seed$"],
+                "fields": {"title": {"selector": "title"}},
+            }
+        },
+    }
+    fetch_mock = AsyncMock(
+        return_value=FetchResult(
+            url=source.url,
+            final_url=source.url,
+            html="<html><head><title>x</title></head><body>x</body></html>",
+            status_code=200,
+            method="httpx",
+        )
+    )
+    crawler = AutomatedCrawler(structure_map=structure_map, db=db_session, ai_allowed=False)
+    with patch("app.crawler.automated_crawler.fetch", new=fetch_mock):
+        stats = await crawler.execute_crawl_plan(source.id)
+
+    assert stats["pages_crawled"] == 1
+    fetch_mock.assert_awaited_once_with(source.url)
