@@ -214,7 +214,7 @@ class ConfigGenerator:
         """Convert crawl_plan.phases[].targets[] to crawl_targets[] for crawler compatibility.
 
         OpenAI keeps generating phases structure even when prompted to emit crawl_targets.
-        This transforms it to what the crawler expects.
+        This transforms it to what the crawler expects, merging with any existing crawl_targets.
         """
         crawl_plan = config.get("crawl_plan", {})
         if not isinstance(crawl_plan, dict):
@@ -224,15 +224,13 @@ class ConfigGenerator:
         if not isinstance(phases, list) or not phases:
             return config
 
-        existing_targets = config.get("crawl_targets")
-        if isinstance(existing_targets, list) and existing_targets:
-            logger.info(
-                "config_already_has_crawl_targets",
-                count=len(existing_targets),
-            )
-            return config
+        # Get existing targets (might be from OpenAI or empty)
+        existing_targets = config.get("crawl_targets", [])
+        if not isinstance(existing_targets, list):
+            existing_targets = []
 
-        all_targets: list[dict[str, Any]] = []
+        # Extract targets from phases
+        phase_targets: list[dict[str, Any]] = []
         for phase in phases:
             if not isinstance(phase, dict):
                 continue
@@ -248,6 +246,7 @@ class ConfigGenerator:
                 raw_url = target.get("url")
                 if not isinstance(raw_url, str):
                     continue
+
                 url = raw_url.strip()
                 if not url:
                     continue
@@ -255,14 +254,37 @@ class ConfigGenerator:
                 crawl_target: dict[str, Any] = {"url": url}
                 if "limit" in target:
                     crawl_target["limit"] = target["limit"]
-                all_targets.append(crawl_target)
 
-        if all_targets:
-            config["crawl_targets"] = all_targets
+                phase_targets.append(crawl_target)
+
+        # Merge: add phase targets that aren't already in existing_targets
+        existing_urls = {
+            target.get("url")
+            for target in existing_targets
+            if isinstance(target, dict)
+        }
+        new_targets = [target for target in phase_targets if target.get("url") not in existing_urls]
+
+        if new_targets:
+            config["crawl_targets"] = existing_targets + new_targets
+            logger.info(
+                "config_merged_phase_targets",
+                existing_count=len(existing_targets),
+                phase_count=len(phase_targets),
+                new_count=len(new_targets),
+                total_count=len(config["crawl_targets"]),
+            )
+        elif existing_targets:
+            logger.info(
+                "config_already_has_crawl_targets",
+                count=len(existing_targets),
+            )
+        elif phase_targets:
+            config["crawl_targets"] = phase_targets
             logger.info(
                 "config_flattened_phases_to_targets",
                 phases_count=len(phases),
-                targets_count=len(all_targets),
+                targets_count=len(phase_targets),
             )
         else:
             logger.warning("config_no_valid_targets_in_phases")
