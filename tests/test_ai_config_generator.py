@@ -154,6 +154,51 @@ def test_ensure_crawl_plan_has_targets_adds_default_when_missing() -> None:
     assert phases[0]["targets"][0]["type"] == "seed"
 
 
+def test_ensure_crawl_plan_has_targets_keeps_valid_crawl_targets() -> None:
+    generator = ConfigGenerator(OpenAIClient(api_key="test"))
+    config = {
+        "crawl_targets": [{"url": "https://example.com"}],
+        "crawl_plan": {"phases": []},
+    }
+
+    ensured = generator._ensure_crawl_plan_has_targets(config, "https://fallback.example.com")
+
+    assert ensured["crawl_targets"] == [{"url": "https://example.com"}]
+    assert ensured["crawl_plan"]["phases"] == []
+
+
+def test_validate_and_clean_crawl_targets_removes_invalid_urls() -> None:
+    generator = ConfigGenerator(OpenAIClient(api_key="test"))
+    config = {
+        "crawl_targets": [
+            {"url": "https://example.com"},
+            {"url": "   https://example.com/events   "},
+            {"url": "www.example.com/no-protocol"},
+            {"url": "{{base_url}}"},
+            {"url": "{url}"},
+            {"url": ""},
+            {"url": None},
+            "not-a-dict",
+        ]
+    }
+
+    cleaned = generator._validate_and_clean_crawl_targets(config)
+
+    assert cleaned["crawl_targets"] == [
+        {"url": "https://example.com"},
+        {"url": "https://example.com/events"},
+    ]
+
+
+def test_validate_and_clean_crawl_targets_removes_key_when_all_invalid() -> None:
+    generator = ConfigGenerator(OpenAIClient(api_key="test"))
+    config = {"crawl_targets": [{"url": "{{base_url}}"}, {"url": "invalid-url"}]}
+
+    cleaned = generator._validate_and_clean_crawl_targets(config)
+
+    assert "crawl_targets" not in cleaned
+
+
 def test_flatten_phases_to_crawl_targets_transforms_targets() -> None:
     generator = ConfigGenerator(OpenAIClient(api_key="test"))
     config = {
