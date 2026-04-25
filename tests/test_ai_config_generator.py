@@ -178,7 +178,7 @@ def test_flatten_phases_to_crawl_targets_transforms_targets() -> None:
     ]
 
 
-def test_flatten_phases_to_crawl_targets_keeps_existing_targets() -> None:
+def test_flatten_phases_to_crawl_targets_merges_existing_targets() -> None:
     generator = ConfigGenerator(OpenAIClient(api_key="test"))
     config = {
         "crawl_targets": [{"url": "https://existing.example.com"}],
@@ -194,4 +194,32 @@ def test_flatten_phases_to_crawl_targets_keeps_existing_targets() -> None:
 
     flattened = generator._flatten_phases_to_crawl_targets(config)
 
-    assert flattened["crawl_targets"] == [{"url": "https://existing.example.com"}]
+    assert flattened["crawl_targets"] == [
+        {"url": "https://existing.example.com"},
+        {"url": "https://example.com"},
+    ]
+
+
+def test_flatten_phases_to_crawl_targets_deduplicates_urls() -> None:
+    generator = ConfigGenerator(OpenAIClient(api_key="test"))
+    config = {
+        "crawl_targets": [{"url": "https://example.com"}],
+        "crawl_plan": {
+            "phases": [
+                {
+                    "name": "homepage",
+                    "targets": [
+                        {"url": "https://example.com"},
+                        {"url": "https://example.com/events"},
+                    ],
+                }
+            ]
+        },
+    }
+
+    flattened = generator._flatten_phases_to_crawl_targets(config)
+
+    assert flattened["crawl_targets"] == [
+        {"url": "https://example.com"},
+        {"url": "https://example.com/events"},
+    ]
