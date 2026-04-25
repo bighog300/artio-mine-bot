@@ -21,20 +21,59 @@ class QualityAssurance:
         self.openai_client = openai_client
 
     def _limit_config_for_testing(self, config: dict[str, Any]) -> dict[str, Any]:
-        """Limit config for quick QA testing - only crawl a few pages."""
+        """Limit config for quick QA testing - only crawl a few pages with valid URLs."""
         limited = copy.deepcopy(config)
-
         crawl_plan = limited.get("crawl_plan", {})
         phases = crawl_plan.get("phases", [])
 
         if phases:
-            limited_phases = [phases[0]]
-            for target in limited_phases[0].get("targets", []):
-                target["limit"] = 5
-            crawl_plan["phases"] = limited_phases
-            limited["crawl_plan"] = crawl_plan
+            first_phase = phases[0]
+            targets = first_phase.get("targets", [])
+            valid_targets: list[dict[str, Any]] = []
+            removed_count = 0
 
-        logger.info("qa_config_limited", original_phases=len(phases), limited_phases=1)
+            for target in targets:
+                if not isinstance(target, dict):
+                    continue
+
+                url = str(target.get("url", ""))
+                stripped_url = url.strip()
+
+                if not stripped_url:
+                    removed_count += 1
+                    logger.warning("qa_skipped_empty_url_target")
+                    continue
+
+                if stripped_url in {"{{base_url}}", "{{url}}", "{url}", "{base_url}"}:
+                    removed_count += 1
+                    logger.warning("qa_skipped_placeholder_url", url=stripped_url)
+                    continue
+
+                target["limit"] = 5
+                valid_targets.append(target)
+
+            first_phase["targets"] = valid_targets
+
+            if not valid_targets:
+                logger.error(
+                    "qa_no_valid_targets_after_filtering",
+                    original_count=len(targets),
+                    removed_count=removed_count,
+                )
+                crawl_plan["phases"] = []
+            else:
+                crawl_plan["phases"] = [first_phase]
+                logger.info(
+                    "qa_config_limited",
+                    original_phases=len(phases),
+                    limited_phases=1,
+                    valid_targets=len(valid_targets),
+                    removed_empty=removed_count,
+                )
+        else:
+            logger.info("qa_config_limited", original_phases=0, limited_phases=0)
+
+        limited["crawl_plan"] = crawl_plan
 
         return limited
 
