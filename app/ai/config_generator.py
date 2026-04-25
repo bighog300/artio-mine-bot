@@ -37,6 +37,8 @@ class ConfigGenerator:
         )
         config = self._normalize_extraction_rules(config)
         config = self._add_default_identifiers_if_empty(config)
+        config = self._fix_empty_urls_in_crawl_plan(config, source_url)
+        config = self._ensure_crawl_plan_has_targets(config, source_url)
         self.validate_config(config)
         validation = crud.validate_mapping_template(config)
         if not validation["ok"]:
@@ -114,6 +116,97 @@ class ConfigGenerator:
                     page_type=page_type,
                     default_pattern=default_pattern,
                 )
+        return config
+
+    def _fix_empty_urls_in_crawl_plan(self, config: dict[str, Any], source_url: str) -> dict[str, Any]:
+        """Remove or fix empty URLs in crawl plan targets."""
+        crawl_plan = config.get("crawl_plan", {})
+        if not isinstance(crawl_plan, dict):
+            return config
+
+        phases = crawl_plan.get("phases", [])
+        if not isinstance(phases, list):
+            return config
+
+        fixed_count = 0
+        removed_count = 0
+
+        for phase in phases:
+            if not isinstance(phase, dict):
+                continue
+
+            targets = phase.get("targets", [])
+            if not isinstance(targets, list):
+                continue
+
+            valid_targets: list[dict[str, Any]] = []
+            for target in targets:
+                if not isinstance(target, dict):
+                    continue
+
+                raw_url = target.get("url", "")
+                url = str(raw_url)
+
+                if not url.strip():
+                    removed_count += 1
+                    logger.warning(
+                        "config_removed_empty_url_target",
+                        phase_name=phase.get("name", "unnamed"),
+                    )
+                    continue
+
+                if url.strip() in {"{{base_url}}", "{{url}}", "{url}", "{base_url}"}:
+                    target["url"] = source_url
+                    fixed_count += 1
+                    logger.info(
+                        "config_fixed_placeholder_url",
+                        original=url,
+                        fixed=source_url,
+                    )
+
+                valid_targets.append(target)
+
+            phase["targets"] = valid_targets
+
+        if fixed_count > 0 or removed_count > 0:
+            logger.info(
+                "config_sanitized_urls",
+                fixed=fixed_count,
+                removed=removed_count,
+            )
+
+        return config
+
+    def _ensure_crawl_plan_has_targets(self, config: dict[str, Any], source_url: str) -> dict[str, Any]:
+        """Ensure crawl plan has at least one valid target."""
+        crawl_plan = config.get("crawl_plan", {})
+        if not isinstance(crawl_plan, dict):
+            crawl_plan = {}
+
+        phases = crawl_plan.get("phases", [])
+        has_valid_targets = False
+
+        if isinstance(phases, list):
+            for phase in phases:
+                if isinstance(phase, dict) and len(phase.get("targets", [])) > 0:
+                    has_valid_targets = True
+                    break
+
+        if not has_valid_targets:
+            logger.warning("config_no_valid_targets_adding_default")
+            crawl_plan["phases"] = [
+                {
+                    "name": "homepage",
+                    "targets": [
+                        {
+                            "url": source_url,
+                            "type": "seed",
+                        }
+                    ],
+                }
+            ]
+            config["crawl_plan"] = crawl_plan
+
         return config
 
     async def _fetch_sample_pages(self, source_url: str, analysis: SiteAnalysis) -> dict[str, str]:

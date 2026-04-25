@@ -112,3 +112,42 @@ def test_normalize_extraction_rules_skips_missing_entity_type() -> None:
     normalized = generator._normalize_extraction_rules(config)
 
     assert set(normalized["extraction_rules"].keys()) == {"Artists"}
+
+
+def test_fix_empty_urls_in_crawl_plan_removes_empty_and_fixes_placeholders() -> None:
+    generator = ConfigGenerator(OpenAIClient(api_key="test"))
+    config = {
+        "crawl_plan": {
+            "phases": [
+                {
+                    "name": "artists",
+                    "targets": [
+                        {"url": ""},
+                        {"url": "   "},
+                        {"url": "{{base_url}}"},
+                        {"url": "https://example.com/artists"},
+                    ],
+                }
+            ]
+        }
+    }
+
+    fixed = generator._fix_empty_urls_in_crawl_plan(config, "https://example.com")
+    targets = fixed["crawl_plan"]["phases"][0]["targets"]
+
+    assert len(targets) == 2
+    assert targets[0]["url"] == "https://example.com"
+    assert targets[1]["url"] == "https://example.com/artists"
+
+
+def test_ensure_crawl_plan_has_targets_adds_default_when_missing() -> None:
+    generator = ConfigGenerator(OpenAIClient(api_key="test"))
+    config = {"crawl_plan": {"phases": [{"name": "empty_phase", "targets": []}]}}
+
+    ensured = generator._ensure_crawl_plan_has_targets(config, "https://example.com")
+    phases = ensured["crawl_plan"]["phases"]
+
+    assert len(phases) == 1
+    assert phases[0]["name"] == "homepage"
+    assert phases[0]["targets"][0]["url"] == "https://example.com"
+    assert phases[0]["targets"][0]["type"] == "seed"
