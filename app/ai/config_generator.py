@@ -39,6 +39,7 @@ class ConfigGenerator:
         config = self._add_default_identifiers_if_empty(config)
         config = self._fix_empty_urls_in_crawl_plan(config, source_url)
         config = self._ensure_crawl_plan_has_targets(config, source_url)
+        config = self._flatten_phases_to_crawl_targets(config)
         self.validate_config(config)
         validation = crud.validate_mapping_template(config)
         if not validation["ok"]:
@@ -206,6 +207,65 @@ class ConfigGenerator:
                 }
             ]
             config["crawl_plan"] = crawl_plan
+
+        return config
+
+    def _flatten_phases_to_crawl_targets(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Convert crawl_plan.phases[].targets[] to crawl_targets[] for crawler compatibility.
+
+        OpenAI keeps generating phases structure even when prompted to emit crawl_targets.
+        This transforms it to what the crawler expects.
+        """
+        crawl_plan = config.get("crawl_plan", {})
+        if not isinstance(crawl_plan, dict):
+            return config
+
+        phases = crawl_plan.get("phases", [])
+        if not isinstance(phases, list) or not phases:
+            return config
+
+        existing_targets = config.get("crawl_targets")
+        if isinstance(existing_targets, list) and existing_targets:
+            logger.info(
+                "config_already_has_crawl_targets",
+                count=len(existing_targets),
+            )
+            return config
+
+        all_targets: list[dict[str, Any]] = []
+        for phase in phases:
+            if not isinstance(phase, dict):
+                continue
+
+            targets = phase.get("targets", [])
+            if not isinstance(targets, list):
+                continue
+
+            for target in targets:
+                if not isinstance(target, dict):
+                    continue
+
+                raw_url = target.get("url")
+                if not isinstance(raw_url, str):
+                    continue
+                url = raw_url.strip()
+                if not url:
+                    continue
+
+                crawl_target: dict[str, Any] = {"url": url}
+                if "limit" in target:
+                    crawl_target["limit"] = target["limit"]
+                all_targets.append(crawl_target)
+
+        if all_targets:
+            config["crawl_targets"] = all_targets
+            logger.info(
+                "config_flattened_phases_to_targets",
+                phases_count=len(phases),
+                targets_count=len(all_targets),
+            )
+        else:
+            logger.warning("config_no_valid_targets_in_phases")
 
         return config
 

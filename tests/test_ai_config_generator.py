@@ -44,6 +44,7 @@ async def test_config_generator_generate_success() -> None:
         },
     )
     assert "crawl_plan" in config
+    assert config["crawl_targets"] == [{"url": "https://example.com"}]
 
 
 def test_config_generator_fills_empty_identifiers_with_default() -> None:
@@ -151,3 +152,46 @@ def test_ensure_crawl_plan_has_targets_adds_default_when_missing() -> None:
     assert phases[0]["name"] == "homepage"
     assert phases[0]["targets"][0]["url"] == "https://example.com"
     assert phases[0]["targets"][0]["type"] == "seed"
+
+
+def test_flatten_phases_to_crawl_targets_transforms_targets() -> None:
+    generator = ConfigGenerator(OpenAIClient(api_key="test"))
+    config = {
+        "crawl_plan": {
+            "phases": [
+                {
+                    "name": "homepage",
+                    "targets": [
+                        {"url": "https://example.com", "type": "seed"},
+                        {"url": "https://example.com/events", "limit": 10},
+                    ],
+                }
+            ]
+        }
+    }
+
+    flattened = generator._flatten_phases_to_crawl_targets(config)
+
+    assert flattened["crawl_targets"] == [
+        {"url": "https://example.com"},
+        {"url": "https://example.com/events", "limit": 10},
+    ]
+
+
+def test_flatten_phases_to_crawl_targets_keeps_existing_targets() -> None:
+    generator = ConfigGenerator(OpenAIClient(api_key="test"))
+    config = {
+        "crawl_targets": [{"url": "https://existing.example.com"}],
+        "crawl_plan": {
+            "phases": [
+                {
+                    "name": "homepage",
+                    "targets": [{"url": "https://example.com"}],
+                }
+            ]
+        },
+    }
+
+    flattened = generator._flatten_phases_to_crawl_targets(config)
+
+    assert flattened["crawl_targets"] == [{"url": "https://existing.example.com"}]
